@@ -1,0 +1,26 @@
+# Images and archives are binary everywhere in this repository.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.zip       binary
+
+# ---------------------------------------------------------------------------
+# Payload protection -- KEEP THIS BLOCK LAST.
+#
+# The package identifies every file it manages by checksum. A payload whose
+# bytes are rewritten in transit -- line-ending conversion above all -- will
+# never match its declared hash, so a correctly authored rule reports as
+# blocked forever, for a reason nothing in the tool can show the operator.
+#
+# `-text` disables end-of-line conversion in both directions while leaving the
+# files diffable, so a vendor's CRLF file stays CRLF and a file shipped with no
+# trailing newline keeps having none.
+#
+# Git applies the LAST matching pattern, so any general rule added below this
+# block would silently override it. Add new rules above, not here.
+#
+# See the project brief -- decision 17, and the first pitfall in section 6.
+# ---------------------------------------------------------------------------
+payloads/**     -text
