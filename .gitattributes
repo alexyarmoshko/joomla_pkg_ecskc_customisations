@@ -23,4 +23,4 @@
 #
 # See the project brief -- decision 17, and the first pitfall in section 6.
 # ---------------------------------------------------------------------------
-payloads/**     -text
+payload/**      -text
