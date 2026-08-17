@@ -18,9 +18,21 @@
 # files diffable, so a vendor's CRLF file stays CRLF and a file shipped with no
 # trailing newline keeps having none.
 #
+# The patterns MUST keep the leading `**/`. A pattern containing a slash is
+# anchored to this file's directory, so a bare `payload/**` protects only a
+# top-level folder and silently misses every other depth -- including
+# administrator/components/com_ecskccustom/payload/ and anything the build
+# copies. Measured, not assumed: under core.autocrlf=true the nested copy of a
+# CRLF file was stored as LF while the top-level copy kept its CRLF.
+#
+# Both spellings are covered while the canonical folder name is unsettled --
+# the brief says `payloads/` (decision 17, section 6) and section 5.6 says
+# `payload/`. Drop the unused line once that is decided.
+#
 # Git applies the LAST matching pattern, so any general rule added below this
 # block would silently override it. Add new rules above, not here.
 #
 # See the project brief -- decision 17, and the first pitfall in section 6.
 # ---------------------------------------------------------------------------
-payload/**      -text
+**/payload/**   -text
+**/payloads/**  -text
