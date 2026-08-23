@@ -1,0 +1,344 @@
+:root {
+  --bs-body-bg-rgb: 255, 255, 255;
+  --bs-body-rgb: 255, 255, 255;
+  --white: #fff; 
+  --light: #f8f9fa; 
+  --gray: #ced4da; 
+  --cyan: #0dcaf0; 
+  --dark: 33, 37, 41;
+}
+
+.fa.fa-globe:before {
+  content: "\f0ac";
+}
+
+.cb_template .fa-map-marker:before {
+  content: "\f041";
+}
+
+.fa.fa-trash-o::before {
+  content: "\f014";
+}
+
+.cb_template .fa-level-up:before {
+  content: "\f148";
+}
+
+.fa.fa-level-up:before {
+  content: "\f148";
+}
+
+.cb_template .text-primary {
+  color: #000000 !important;
+}
+
+.h-100.card {
+  margin-bottom: 10px;
+  background: #eeeeee;
+}
+
+#sp-header {
+  z-index: 999;
+}
+
+#sp-header.header-sticky {
+  z-index: 999;
+}
+
+div#kunena.layout div#mail {
+  display: none;
+}
+
+#kunena.layout .kuser-profile-wrap .kuser-profile-left .kuser-links {
+  display: none;
+}
+
+#kunena.layout .kuser-area:has(~ div.kuser-profile-wrap) {
+  display: none;
+}
+
+#kunena.layout
+  .kpagination-wrap
+  .pagination
+  .page-item.active
+  .page-link:hover {
+  color: var(--ktext);
+}
+
+#kunena.layout .kpagination-wrap .pagination .page-item.active .page-link {
+  background-color: #ffffffff !important;
+  border: 2px solid var(--kborder-color);
+  color: var(--ktext);
+}
+
+#kunena.layout .kpagination-wrap .pagination .page-item > .page-link {
+  color: var(--klink);
+}
+
+#kunena.layout .kpagination-wrap .pagination .page-item > .page-link:hover {
+  color: var(--bs-link-hover-color);
+  font-weight: 500;
+}
+
+#kunena.layout #ktopnav {
+  padding-top: 0.5rem;
+}
+
+.cb_template .cbregPlan_rounded.cbregPlanSelector {
+  width: 100%;
+}
+
+#kunena.layout .kunena-topic-item .kmessage .kmsg-body {
+  word-break: break-word;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+#kunena.layout #postform .files {
+  overflow-x: scroll;
+}
+
+#kunena.layout .kunena-topic-item .kmessage-thankyou {
+  display: block;
+}
+
+#kunena.layout .kunena-topic-item .kmessage .ksig {
+  word-break: break-word;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+#kunena.layout .kunena-topic-item .kmessage .kmsg-footer {
+  word-break: break-word;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+#kunena.layout .kunena-topic-item .kmessage-profile li {
+  z-index: 1;
+}
+
+#kunena.layout .kunena-topic-item .kmessage-profile li.kuser-name {
+  background-color: var(--kbase-2);
+}
+
+#kunena.layout .kunena-topic-item .kmessage-profile li.kuser-avatar {
+  z-index: 0;
+}
+
+#kunena.layout .kunena-topic-item .kmessage-profile li.kuser-avatar span {
+  z-index: 1;
+}
+
+#kunena.layout .kunena-topic-item .kmessage-profile ul li.kuser-status {
+  position: relative;
+}
+
+div.row.no-gutters.cbColumns.cbUserListHeader {
+  display: block;
+  width: 100%;
+}
+
+div.col-sm.p-2.font-weight-bold.cbColumn0.cbUserListHeaderCol1 {
+  display: inline-block;
+  width: 25%;
+}
+
+div.col-sm.p-2.font-weight-bold.cbColumn0.cbUserListHeaderCol2 {
+  display: inline-block;
+  width: 25%;
+}
+
+div.col-sm.p-2.font-weight-bold.cbColumn0.cbUserListHeaderCol3 {
+  display: inline-block;
+  width: 25%;
+}
+
+div.col-sm.p-2.font-weight-bold.cbColumn0.cbUserListHeaderCol4 {
+  display: inline-block;
+  width: 25%;
+  text-align: right;
+}
+
+div.row.no-gutters.bg-light.cbColumns.sectiontableentry1.cbUserListRow {
+  display: block;
+}
+
+div.row.no-gutters.bg-light.cbColumns.sectiontableentry2.cbUserListRow {
+  display: block;
+}
+
+div.col-sm.border-top.p-2.cbColumn0.cbUserListRowColumn.cbUserListRowCol1 {
+  display: inline-block;
+  width: 25%;
+}
+
+div.cbUserListFieldLine.cbUserListFL_firstname {
+  display: inline-block;
+  width: 25%;
+}
+
+div.col-sm.border-top.p-2.cbColumn0.cbUserListRowColumn.cbUserListRowCol2 {
+  display: inline-block;
+  width: 25%;
+}
+
+div.cbUserListFieldLine.cbUserListFL_lastname {
+  display: inline-block;
+  width: 25%;
+}
+
+div.col-sm.border-top.p-2.cbColumn0.cbUserListRowColumn.cbUserListRowCol3 {
+  display: inline-block;
+  width: 25%;
+}
+
+div.cbUserListFieldLine.cbUserListFL_cb_mobile {
+  display: inline-block;
+  width: 25%;
+  white-space: nowrap;
+}
+
+div.col-sm.border-top.p-2.cbColumn0.cbUserListRowColumn.cbUserListRowCol4 {
+  display: inline-block;
+  width: 25%;
+  text-align: right;
+}
+
+div.cbUserListFieldLine.cbUserListFL_email {
+  display: inline-block;
+  width: 25%;
+}
+
+.burger-icon > span {
+  background-color: #000 !important;
+}
+
+#sp-logo.has-border {
+  padding-top: 15px;
+}
+
+.offcanvas-menu > .align-items-center {
+  background: #fff;
+}
+
+@media (max-width: 991px) {
+  #sp-logo.has-border {
+    padding-top: 0px;
+  }
+
+  .logo-image {
+    height: 40px;
+  }
+}
+
+/* Semi-opaque white box behind article and other text to improve readability. */
+.article {
+  background-color: #ffffff96 !important;
+}
+
+.col-lg-9 {
+  background-color: #ffffffcc !important;
+}
+
+div.h-100.card div.card-body span.text-warning {
+  color: #7b5700 !important;
+  background-color: #fbedcc !important;
+}
+
+div.h-100.card.border-warning {
+  border: 2px solid #fae6b8;
+}
+
+#menu-right .sp-module:first-child {
+  border-right: none !important;
+  padding-right: initial !important;
+}
+
+#filter_search + [role="tooltip"] {
+  top: 100%;
+  bottom: auto;
+}
+
+.bg-body {
+  background-color: rgba(
+    var(--bs-body-bg-rgb),
+    var(--bs-bg-opacity)
+  ) !important;
+}
+
+.overflow-y-auto {
+  overflow-y: auto !important;
+}
+
+div.h-100.card div.sp-module-content form:is(.cbLoginForm, .cbLogoutForm) {
+  padding: 1ex;
+}
+
+.tides-module {
+  margin-bottom: 10px;
+}
+
+div.mod-ystides {
+  background-color: #ffffffcc !important;
+  padding: 10px;
+}
+
+.cbContent.h-100.card {
+  padding-left: 10px;
+}
+
+ul.m-0.unstyled.list-unstyled.cbOnlineUsers {
+    padding-left: 10px;
+}
+
+section#sp-section-2 {
+	background-color: rgb(233, 236, 239);
+}
+
+#sp-breadcrumb > div > div > div > nav > ol {
+	margin: 0px 0px;
+}
+
+body:not(.home) #sp-header {
+	box-shadow: unset;
+}
+
+#sp-footer .container-inner {
+  padding: 10px 0;
+}
+
+#sp-footer1 {
+  padding-top: 0;
+}
+
+/* 1. Replies (100px)                                      hidden below 992px */
+#kunena.layout .ktopic-list-wrap .ktopic-list .krow > .kcol.kcol-stats:first-child { width: 9ex; }
+
+/* 2. Topic icon (100px)                                   hidden below 768px */
+#kunena.layout .ktopic-list-wrap .ktopic-list .kcol.kcol-icon { width: 70px; }
+
+/* 3. Subject — flex:1, takes only what the others leave; no width of its own */
+#kunena.layout .ktopic-list-wrap .ktopic-list .kcol.kcol-subject { width: auto; }
+
+/* 4. Views (100px) — the SECOND .kcol-stats, hence the sibling combinator */
+#kunena.layout .ktopic-list-wrap .ktopic-list .kcol.kcol-stats ~ .kcol.kcol-stats { width: 9ex; }
+
+/* 5. Last post (360px)                                    hidden below 768px */
+#kunena.layout .ktopic-list-wrap .ktopic-list .kcol.kcol-latest-post { width: 25ex; }
+
+/* 6. Moderator checkbox (~45px, content-sized) — only rendered for moderators */
+#kunena.layout .ktopic-list-wrap .ktopic-list .kcol.kcol-checkbox { width: 5ex; }
+
+.page-item.active .page-link { background-color: #0345BF !important; }
+
+/* Kunena responsive video embeds.
+   Replaces the KunenaBBCode.php edit for inventory #1: the vendor emits
+   width="425" height="344" presentational attributes, which any stylesheet
+   rule outranks. Scoped to Kunena message bodies so it cannot reach the
+   .embed-responsive wrappers Community Builder renders. */
+#kunena .kmsg-body .embed-responsive iframe {
+	width: 100%;
+	height: auto;
+	aspect-ratio: 16 / 9;
+}
