@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Rule schema for pkg_ecskc_customisations.
+
+    Models the patch / root / object / action / condition / operation vocabulary
+    fixed by brief section 5.1 and illustrated in tests/Fixtures/sample_schema.xml.
+
+    This schema is the FIRST of two validation layers and deliberately not the only
+    one. It settles shape and vocabulary within a single file. Everything that can
+    only be judged across the merged rule set stays in semantic validation:
+
+      - duplicate path and version pairs
+      - objects out of version order
+      - broken package-owned chains
+      - missing, unreferenced, or doubly-owned payloads
+      - payload bytes disagreeing with sourceHash
+      - path confinement, the extension allow list, and the deny list
+      - a target named in both absolute and relative form
+      - a hashType other than sha256
+
+    Rule files are validated as one merged set, never file by file.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+    <!--
+        A hash written as hex. Deliberately not pinned to 64 characters: the
+        algorithm is read from the patch declaration rather than hardcoded, so the
+        schema accepts any plausible hex digest and the semantic layer rejects an
+        algorithm version 1 does not support.
+    -->
+    <xs:simpleType name="hexDigest">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="[0-9a-fA-F]{32,128}"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!--
+        A relative path, as a sequence of segments separated by "/".
+
+        Backslashes, empty segments, and "." or ".." segments are refused here so the
+        obvious escapes never reach path policy; path policy still owns confinement,
+        symlink resolution, the allow list and the deny list.
+
+        Written as ONE pattern on purpose. Sibling xs:pattern elements in the same
+        restriction are alternatives, not additional constraints, so splitting this
+        into two would widen the type instead of narrowing it. XSD 1.0 regular
+        expressions also have no lookahead, which is why ".." is excluded by
+        enumerating segment shapes rather than by a negative assertion.
+
+        Payload sources use this type: srcPathFileName resolves relative to payload/
+        and is never web-root-absolute.
+    -->
+    <xs:simpleType name="relativePath">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,})(/([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,}))*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!--
+        A target path: either relative to the enclosing root, or web-root-absolute
+        with exactly one leading "/".
+
+        Brief 5.1: "a relative path resolves against it, and an absolute path is
+        absolute from the web root - never from the filesystem, since a rule set ships
+        to machines whose install location it cannot know." Both forms are legal
+        syntax. Naming one target both ways is an authoring fault, but it is a
+        merged-set fault the build reports, not a shape the schema can see, so it stays
+        with semantic validation.
+    -->
+    <xs:simpleType name="targetPath">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="/?([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,})(/([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,}))*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- A root path may be empty, meaning targets resolve from the web root. -->
+    <xs:simpleType name="rootPath">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="|([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,})(/([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,}))*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- The closed condition vocabulary. No other environment value exists in v1. -->
+    <xs:simpleType name="conditionAttribute">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="SITE_URL"/>
+            <xs:enumeration value="HOST"/>
+            <xs:enumeration value="JOOMLA_VERSION"/>
+            <xs:enumeration value="PHP_VERSION"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!--
+        Brief 5.1: "Matching is literal, by pattern, or by version", and "Literal is the
+        default and the one that satisfies the governing rule most easily."
+
+        Literal is therefore both a member and the default. Requiring an explicit type
+        would force every author into a pattern, and brief section 6 records
+        pattern-shape error as a live hazard - a correctly anchored pattern against the
+        wrong shape of value fails open.
+    -->
+    <xs:simpleType name="conditionType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="literal"/>
+            <xs:enumeration value="regex"/>
+            <xs:enumeration value="version"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="matchMode">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="all"/>
+            <xs:enumeration value="any"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- One condition. The text content is the pattern or version constraint. -->
+    <xs:complexType name="condition">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="type" type="conditionType" default="literal"/>
+                <xs:attribute name="attribute" type="conditionAttribute" use="required"/>
+                <xs:attribute name="description" type="xs:string"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <!--
+        A condition group. Groups nest, so mixed logic needs no second element type
+        and the language needs no negation operator: exclusion is an anchored
+        pattern, and an undeterminable value faults before any pattern is evaluated.
+    -->
+    <xs:complexType name="conditions">
+        <xs:choice minOccurs="1" maxOccurs="unbounded">
+            <xs:element name="condition" type="condition"/>
+            <xs:element name="conditions" type="conditions"/>
+        </xs:choice>
+        <xs:attribute name="match" type="matchMode" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="copy">
+        <xs:sequence>
+            <xs:element name="srcPathFileName" type="relativePath"/>
+            <xs:element name="sourceHash" type="hexDigest"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="remove">
+        <xs:attribute name="backup" type="xs:boolean" default="true"/>
+    </xs:complexType>
+
+    <!--
+        Exactly one operation per action in version 1. The choice below is what makes
+        "an action with zero or several operations" a schema error rather than a
+        semantic one.
+    -->
+    <xs:complexType name="operations">
+        <xs:choice minOccurs="1" maxOccurs="1">
+            <xs:element name="copy" type="copy"/>
+            <xs:element name="remove" type="remove"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="action">
+        <xs:sequence>
+            <xs:element name="description" type="xs:string" minOccurs="0"/>
+            <xs:element name="conditions" type="conditions" minOccurs="0"/>
+            <xs:element name="operations" type="operations"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!--
+        The object's identity: which file, and which state of it this revision
+        expects. expectedHash is optional because a package-owned file may be placed
+        on path alone; the build warns when a replace-only object omits it, since for
+        a vendor-owned file it is the only thing between a copy and the silent loss
+        of the vendor's own changes.
+    -->
+    <xs:complexType name="id">
+        <xs:sequence>
+            <xs:element name="destPathFileName" type="targetPath"/>
+            <xs:element name="expectedHash" type="hexDigest" minOccurs="0"/>
+            <xs:element name="description" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!--
+        One file at one revision. Several objects may share a path: successive
+        revisions of one customisation, or alternative baselines for different vendor
+        builds. An object may carry several actions, which is where conditional
+        variation lives - one path, one revision, different payloads under different
+        circumstances.
+    -->
+    <xs:complexType name="object">
+        <xs:sequence>
+            <xs:element name="id" type="id"/>
+            <xs:element name="action" type="action" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="version" type="xs:positiveInteger" use="required"/>
+        <xs:attribute name="create" type="xs:boolean" default="false"/>
+        <xs:attribute name="replace" type="xs:boolean" default="true"/>
+        <xs:attribute name="enable" type="xs:boolean" default="true"/>
+    </xs:complexType>
+
+    <!-- A base path the objects beneath it resolve against. -->
+    <xs:complexType name="root">
+        <xs:sequence>
+            <xs:element name="object" type="object" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="path" type="rootPath" use="required"/>
+    </xs:complexType>
+
+    <!--
+        A container. No identity and no version; grouped by vendor package by
+        convention only, since the tool has no notion of a vendor package.
+
+        hashType is declared here and read from the declaration rather than
+        hardcoded. Version 1 supports sha256 only and the semantic layer rejects
+        anything else as a build error, which is why this is a token and not an
+        enumeration.
+    -->
+    <xs:element name="patch">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="description" type="xs:string" minOccurs="0"/>
+                <xs:choice minOccurs="0" maxOccurs="unbounded">
+                    <xs:element name="root" type="root"/>
+                    <xs:element name="object" type="object"/>
+                </xs:choice>
+            </xs:sequence>
+            <xs:attribute name="hashType" type="xs:token" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+</xs:schema>

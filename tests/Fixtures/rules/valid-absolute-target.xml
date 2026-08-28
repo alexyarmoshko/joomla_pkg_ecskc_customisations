@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    A web-root-absolute target. Brief 5.1 allows this form alongside the relative one:
+    "an absolute path is absolute from the web root - never from the filesystem".
+-->
+<patch hashType="sha256">
+    <root path="a">
+        <object version="1">
+            <id><destPathFileName>/templates/et_tennis/css/override.css</destPathFileName></id>
+            <action><operations><remove/></operations></action>
+        </object>
+    </root>
+</patch>

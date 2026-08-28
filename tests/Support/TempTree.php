@@ -1,0 +1,333 @@
+<?php
+
+declare(strict_types=1);
+
+namespace YakShaver\ECSKCCustomisation\Tests\Support;
+
+use RuntimeException;
+
+/**
+ * A real temporary directory tree for core tests.
+ *
+ * Decision 6 of the execution plan runs the core integration tests against real
+ * temporary directories rather than an in-memory filesystem, so that permission
+ * bits, atomic renames and same-filesystem staging behave as they do in
+ * production. This helper is the only place that knows how such a tree is made
+ * and removed.
+ *
+ * Bytes are written and read verbatim. Nothing here normalises line endings or
+ * adds a trailing newline: decision 14 makes those part of a payload's identity.
+ *
+ * ## What this class does and does not confine
+ *
+ * Its own reads and writes stay inside the tree. That is the whole promise.
+ *
+ * It is **not** a security boundary, and it is not the confinement the package
+ * itself needs. Once path() returns a string, what a caller does with that string
+ * is the caller's business - ticket 14 will hand hostile paths to the package's
+ * path policy on purpose, and that policy has to do its own resolution, its own
+ * site-root confinement and its own deny list. Mistaking this helper for that
+ * check would be a bad trade.
+ *
+ * Confinement here is verified by resolving the path and asking where it landed,
+ * rather than by refusing a list of hostile spellings. Three review rounds each
+ * found the next spelling the list had missed - ".." first, then a symbolic link
+ * used as a parent directory, then the same link through read() - which is what a
+ * list of shapes does. Asking where a path resolves to has no such list.
+ *
+ * It stays check-then-act, and on a single-threaded test suite that is fine. PHP
+ * offers no openat/O_NOFOLLOW without an extension, so the race cannot be closed
+ * here, and against a careless test rather than an attacker it does not need to be.
+ *
+ * Hard links are handled separately, by link count rather than by resolution: a
+ * hard link is a second name for one inode, not a path that leads elsewhere, so
+ * there is no path for resolve() to inspect. The count cannot say where the other
+ * names are, so a wholly internal hard link is refused too; nothing needs them.
+ *
+ * One more accepted limit: a symbolic link inside the tree whose target does not
+ * exist yet is refused, because realpath() cannot resolve it and this class will
+ * not guess where it would land.
+ *
+ * A note for ticket 14: build its hostile inputs as plain strings and use this
+ * helper only to lay down fixtures. resolve() is a test-helper guard, not a model
+ * of the package's path policy, and reusing it as one would test the helper
+ * instead of the code under review.
+ */
+final class TempTree
+{
+    private function __construct(private readonly string $root)
+    {
+    }
+
+    public static function create(string $prefix = 'ecskc-'): self
+    {
+        // The prefix names the tree; it does not get to say where the tree lives.
+        // create() is the one route into this class that resolve() cannot guard,
+        // because it is what builds the root resolve() measures against. A prefix
+        // carrying a separator steers the root anywhere reachable - measured:
+        // create('link/tree-') through a symbolic link in the temporary directory
+        // put the root under the link's target instead.
+        if (\preg_match('/\A[A-Za-z0-9._-]*\z/', $prefix) !== 1) {
+            throw new RuntimeException(\sprintf(
+                'Refusing the temporary-tree prefix %s: it must be a bare name, '
+                . 'with no path separator',
+                \var_export($prefix, true)
+            ));
+        }
+
+        $base = \sys_get_temp_dir();
+        $root = $base . \DIRECTORY_SEPARATOR . \uniqid($prefix, true);
+
+        if (!@\mkdir($root, 0o755) && !\is_dir($root)) {
+            throw new RuntimeException(\sprintf('Could not create temporary tree at %s', $root));
+        }
+
+        $resolved = \realpath($root);
+
+        if ($resolved === false) {
+            throw new RuntimeException(\sprintf('Could not resolve the temporary tree at %s', $root));
+        }
+
+        // Canonical from here on, so every containment comparison has a canonical
+        // left-hand side. /tmp is itself a symlink on some systems.
+        return new self($resolved);
+    }
+
+    public function root(): string
+    {
+        return $this->root;
+    }
+
+    /**
+     * Resolve a relative path inside the tree, or refuse it.
+     */
+    public function path(string $relative): string
+    {
+        return $this->resolve($relative);
+    }
+
+    /**
+     * Write exact bytes at a relative path, creating parent directories.
+     */
+    public function write(string $relative, string $bytes): string
+    {
+        $path = $this->resolve($relative);
+        $dir  = \dirname($path);
+
+        if (!\is_dir($dir) && !@\mkdir($dir, 0o755, true) && !\is_dir($dir)) {
+            throw new RuntimeException(\sprintf('Could not create directory %s', $dir));
+        }
+
+        if (\file_put_contents($path, $bytes) !== \strlen($bytes)) {
+            throw new RuntimeException(\sprintf('Short write to %s', $path));
+        }
+
+        return $path;
+    }
+
+    /**
+     * Read exact bytes back from a relative path.
+     */
+    public function read(string $relative): string
+    {
+        $path  = $this->resolve($relative);
+        $bytes = @\file_get_contents($path);
+
+        if ($bytes === false) {
+            throw new RuntimeException(\sprintf('Could not read %s', $path));
+        }
+
+        return $bytes;
+    }
+
+    /**
+     * Create a symbolic link inside the tree, pointing anywhere.
+     *
+     * Ticket 14 has to prove that the package's path policy resolves symbolic
+     * links, confines them to the site root and applies the deny list through
+     * them. It therefore has to create links that leave the tree, which is exactly
+     * what resolve() refuses to traverse. Both are correct: a test may build such
+     * a link deliberately, and no ordinary read or write may follow one by
+     * accident.
+     *
+     * The link itself must sit inside the tree; only its target may be outside.
+     * remove() unlinks it rather than following it.
+     */
+    public function symlink(string $linkRelative, string $target): string
+    {
+        $link = $this->resolve($linkRelative);
+        $dir  = \dirname($link);
+
+        if (!\is_dir($dir) && !@\mkdir($dir, 0o755, true) && !\is_dir($dir)) {
+            throw new RuntimeException(\sprintf('Could not create directory %s', $dir));
+        }
+
+        if (!@\symlink($target, $link)) {
+            throw new RuntimeException(\sprintf('Could not link %s to %s', $link, $target));
+        }
+
+        return $link;
+    }
+
+    /**
+     * Remove the tree, raising rather than leaving something behind quietly.
+     *
+     * A suppressed cleanup failure would let one test's leftovers decide the next
+     * test's result, which is the kind of order-dependent flake that costs far more
+     * to diagnose than to prevent.
+     */
+    public function remove(): void
+    {
+        self::removeRecursively($this->root);
+
+        if (\file_exists($this->root)) {
+            throw new RuntimeException(
+                \sprintf('The temporary tree at %s could not be removed', $this->root)
+            );
+        }
+    }
+
+    /**
+     * Turn a relative path into an absolute one, and prove it stays in the tree.
+     *
+     * The lexical checks come first only because they give a better message than a
+     * containment failure does. The containment check below is the guarantee, and
+     * it holds whether or not the lexical ones spot anything: it resolves the
+     * deepest part of the path that exists and asks whether that is still under the
+     * root. A symbolic-link parent, a link as the final component, a root that is
+     * itself reached through a link - all of them answer that one question.
+     */
+    private function resolve(string $relative): string
+    {
+        if ($relative === '') {
+            throw new RuntimeException('An empty path has no place in the temporary tree.');
+        }
+
+        if (\str_starts_with($relative, '/') || \str_contains($relative, '\\')) {
+            throw new RuntimeException(\sprintf(
+                'Refusing an absolute or backslash-separated path in the temporary tree: %s',
+                $relative
+            ));
+        }
+
+        foreach (\explode('/', $relative) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                throw new RuntimeException(\sprintf(
+                    'Refusing a path with an empty, "." or ".." segment in the temporary tree: %s',
+                    $relative
+                ));
+            }
+        }
+
+        $intended = $this->root . \DIRECTORY_SEPARATOR . $relative;
+
+        // The path itself need not exist yet; its existing ancestry is what decides
+        // where a write would land.
+        $probe = $intended;
+
+        while ($probe !== $this->root && !\file_exists($probe) && !\is_link($probe)) {
+            $parent = \dirname($probe);
+
+            if ($parent === $probe) {
+                break;
+            }
+
+            $probe = $parent;
+        }
+
+        $resolved = \realpath($probe);
+
+        if ($resolved === false) {
+            throw new RuntimeException(\sprintf(
+                'Could not resolve %s inside the temporary tree',
+                $relative
+            ));
+        }
+
+        if ($resolved !== $this->root
+            && !\str_starts_with($resolved, $this->root . \DIRECTORY_SEPARATOR)) {
+            throw new RuntimeException(\sprintf(
+                'Refusing %s: it resolves to %s, outside the temporary tree at %s',
+                $relative,
+                $resolved,
+                $this->root
+            ));
+        }
+
+        $this->assertNotAnInodeAlias($intended);
+
+        return $intended;
+    }
+
+    /**
+     * Refuse a file that has more than one name.
+     *
+     * resolve() cannot see this one. A hard link is not a path leading elsewhere -
+     * it is a second name for one inode, so realpath() quite correctly reports a
+     * path inside the tree while the bytes are also reachable from outside it. The
+     * link count is the only signal available.
+     *
+     * The count says how many names exist, never where they are, so this refuses a
+     * multiply-linked file whether or not the other name is outside the tree. That
+     * is the right trade here: nothing in the plan needs hard links at all, so the
+     * false positive costs nothing, where refusing symbolic links would have cost
+     * ticket 14 its escape tests.
+     *
+     * Called from resolve(), so it covers every entry point rather than the one a
+     * review last named. Guarding write() alone was this helper's recurring bug.
+     */
+    private function assertNotAnInodeAlias(string $path): void
+    {
+        if (!\is_file($path)) {
+            return;
+        }
+
+        \clearstatcache(true, $path);
+        $stat = @\stat($path);
+
+        if ($stat === false) {
+            throw new RuntimeException(\sprintf(
+                'Refusing %s: the file exists but could not be inspected',
+                $path
+            ));
+        }
+
+        if (($stat['nlink'] ?? 1) > 1) {
+            throw new RuntimeException(\sprintf(
+                'Refusing %s: it has %d names, so reading or writing here would reach bytes '
+                . 'that are also reachable from outside the temporary tree',
+                $path,
+                $stat['nlink']
+            ));
+        }
+    }
+
+    private static function removeRecursively(string $path): void
+    {
+        // A link is unlinked, never followed: recursing through one would delete
+        // whatever it points at.
+        if (\is_link($path) || \is_file($path)) {
+            if (!\unlink($path)) {
+                throw new RuntimeException(\sprintf('Could not remove %s', $path));
+            }
+
+            return;
+        }
+
+        if (!\is_dir($path)) {
+            return;
+        }
+
+        foreach (\scandir($path) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            self::removeRecursively($path . \DIRECTORY_SEPARATOR . $entry);
+        }
+
+        if (!\rmdir($path)) {
+            throw new RuntimeException(\sprintf('Could not remove the directory %s', $path));
+        }
+    }
+}

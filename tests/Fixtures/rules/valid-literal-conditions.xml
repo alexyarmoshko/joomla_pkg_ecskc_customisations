@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Literal matching, explicit and defaulted. Brief 5.1: "Matching is literal or by
+    pattern, declared per element. Literal is the default."
+-->
+<patch hashType="sha256">
+    <root path="templates/et_tennis/css">
+        <object version="1" create="true">
+            <id><destPathFileName>override.css</destPathFileName></id>
+            <action>
+                <description>Explicit literal</description>
+                <conditions match="all">
+                    <condition type="literal" attribute="HOST">ecskc.eu</condition>
+                </conditions>
+                <operations>
+                    <copy>
+                        <srcPathFileName>templates/et_tennis/css/override.css.v1</srcPathFileName>
+                        <sourceHash>8d786a53203ee7a3d6e76bec1edc1c5754dc0869c0db829a35e63c674cbe7876</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+            <action>
+                <description>Type omitted, so literal by default</description>
+                <conditions match="any">
+                    <condition attribute="HOST">ecskc.eu</condition>
+                    <condition attribute="SITE_URL">https://ecskc.eu</condition>
+                </conditions>
+                <operations>
+                    <copy>
+                        <srcPathFileName>templates/et_tennis/css/override.css.dev.v1</srcPathFileName>
+                        <sourceHash>8d786a53203ee7a3d6e76bec1edc1c5754dc0869c0db829a35e63c674cbe7876</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+</patch>

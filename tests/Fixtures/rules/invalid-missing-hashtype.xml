@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch>
+    <root path="a">
+        <object version="1">
+            <id><destPathFileName>b.php</destPathFileName></id>
+            <action><operations><remove/></operations></action>
+        </object>
+    </root>
+</patch>

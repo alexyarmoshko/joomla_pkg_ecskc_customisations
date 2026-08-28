@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch hashType="sha256">
+    <description>Helix Ultimate — contact form</description>
+    <root path="plugins/system/helixultimate/overrides">
+        <object version="1">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <expectedHash>676c4feb54498c87dda8f870c31158d3a3c619d2743d3b8e40419c5de7d707eb</expectedHash>
+                <description>Helix Ultimate 2.2.9 stock contact form</description>
+            </id>
+            <action>
+                <description>Adds a Cancel button beside Send</description>
+                <conditions match="all">
+                    <condition type="regex" attribute="HOST"
+                               description="Any host except production">^(?!ecskc\.eu$).*$</condition>
+                    <conditions match="any">
+                        <condition type="version" attribute="JOOMLA_VERSION">&gt;=5.4.0</condition>
+                        <condition type="version" attribute="PHP_VERSION">&gt;=8.2</condition>
+                    </conditions>
+                </conditions>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v1</srcPathFileName>
+                        <sourceHash>2a7c1cd6afb374f1b790d776ba3e56014635212b80c889619c20994404b4ac0e</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+</patch>

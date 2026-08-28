@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch hashType="sha256">
+    <root path="templates/et_tennis/css">
+        <object version="1">
+            <id><destPathFileName>override.css</destPathFileName></id>
+            <action>
+                <operations><copy>
+                    <srcPathFileName>templates/et_tennis/css/override.css.v1</srcPathFileName>
+                    <sourceHash>8d786a53203ee7a3d6e76bec1edc1c5754dc0869c0db829a35e63c674cbe7876</sourceHash>
+                </copy></operations>
+            </action>
+            <sneakyElement/>
+        </object>
+    </root>
+</patch>

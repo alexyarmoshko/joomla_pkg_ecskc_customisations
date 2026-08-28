@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch hashType="sha256">
+    <root path="a">
+        <object version="1">
+            <id><destPathFileName>b.php</destPathFileName></id>
+            <action>
+                <conditions match="all">
+                    <condition type="regex" attribute="SITE_NAME">^x$</condition>
+                </conditions>
+                <operations><remove/></operations>
+            </action>
+        </object>
+    </root>
+</patch>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- srcPathFileName resolves relative to payload/ and is never web-root-absolute. -->
+<patch hashType="sha256">
+    <root path="a">
+        <object version="1">
+            <id><destPathFileName>b.php</destPathFileName></id>
+            <action>
+                <operations><copy>
+                    <srcPathFileName>/a/b.php.v1</srcPathFileName>
+                    <sourceHash>8d786a53203ee7a3d6e76bec1edc1c5754dc0869c0db829a35e63c674cbe7876</sourceHash>
+                </copy></operations>
+            </action>
+        </object>
+    </root>
+</patch>

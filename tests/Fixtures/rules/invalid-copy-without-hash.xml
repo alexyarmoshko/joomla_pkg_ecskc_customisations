@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch hashType="sha256">
+    <root path="a">
+        <object version="1">
+            <id><destPathFileName>b.php</destPathFileName></id>
+            <action>
+                <operations><copy>
+                    <srcPathFileName>a/b.php.v1</srcPathFileName>
+                </copy></operations>
+            </action>
+        </object>
+    </root>
+</patch>
