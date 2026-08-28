@@ -228,7 +228,7 @@ div.cbUserListFieldLine.cbUserListFL_email {
   }
 
   .logo-image {
-    height: 40px;
+    height: 40px !important;
   }
 }
 
@@ -341,4 +341,13 @@ body:not(.home) #sp-header {
 	width: 100%;
 	height: auto;
 	aspect-ratio: 16 / 9;
+}
+
+/* Offline page background. Replaces the comingsoon.php edits for inventory #4 and #6.
+   The vendor layout emits body { background-size: cover; background-position: center !important }
+   from a <style> inside <body>, so this rule needs !important and a higher specificity to
+   outrank it. Scoped to the offline branch; the coming-soon branch is not customised. */
+body.offline-mode {
+	background-position: center 20px !important;
+	background-size: auto !important;
 }
