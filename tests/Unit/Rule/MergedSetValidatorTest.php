@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace YakShaver\ECSKCCustomisation\Tests\Unit\Rule;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
@@ -360,8 +361,6 @@ final class MergedSetValidatorTest extends TestCase
      */
     public function testTheFolderGuardIsNotMistakenForAnUnreferencedPayload(): void
     {
-        $this->tree->write('payload/nested/index.html', '');
-
         $violations = $this->validate([
             '10-one.xml' => RuleXml::patch(
                 RuleXml::object(version: 1, dest: 'a/one.css', source: 'nested/one.v1', create: true)
@@ -369,6 +368,85 @@ final class MergedSetValidatorTest extends TestCase
         ], ['nested/one.v1']);
 
         self::assertSame([], $violations);
+    }
+
+    /**
+     * The installer writes a deny-all .htaccess into payload/ on every install. Were
+     * it counted as a payload, every installed site would report its own guard as an
+     * unreferenced payload and fail its own rule set.
+     */
+    public function testThePackagesOwnGuardFilesAreNotPayloads(): void
+    {
+        $this->tree->write('payload/.htaccess', 'Require all denied');
+        $this->tree->write('payload/.htaccess.abc123abc123.tmp', 'an interrupted write');
+
+        $violations = $this->validate([
+            '10-one.xml' => RuleXml::patch(
+                RuleXml::object(version: 1, dest: 'a/one.css', source: 'one.v1', create: true)
+            ),
+        ], ['one.v1']);
+
+        self::assertSame([], $violations);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function nearMissesForAGuardName(): array
+    {
+        return [
+            'a payload whose name starts with the guard' => ['.htaccess.css'],
+            'a longer name with the same prefix'         => ['.htaccessible.css'],
+            'the guard name one level down'              => ['nested/.htaccess'],
+            'the folder index one level down'            => ['nested/index.html'],
+        ];
+    }
+
+    /**
+     * The guard is matched exactly, and only at the payload folder's own root. A
+     * prefix match would be simpler and would swallow every name below, and a payload
+     * hidden from this check is a check that stopped running.
+     */
+    #[DataProvider('nearMissesForAGuardName')]
+    public function testAFileThatMerelyResemblesAGuardIsStillJudgedAsAPayload(string $name): void
+    {
+        $violations = $this->validate([
+            '10-one.xml' => RuleXml::patch(
+                RuleXml::object(version: 1, dest: 'a/one.css', source: 'one.v1', create: true)
+            ),
+        ], ['one.v1', $name]);
+
+        self::assertSame(
+            ['payload ' . $name . ' is present but no object names it. An unreferenced payload '
+                . 'ships bytes nothing will ever write.'],
+            $violations
+        );
+    }
+
+    /**
+     * The schema accepts 32 to 128 hex characters, because the algorithm is read from
+     * the declaration and the shape layer cannot know the width. A file declaring
+     * sha256 while carrying md5 digests is internally consistent - the chain links,
+     * every other check passes - and would only fail once real bytes are hashed, at
+     * which point no target ever matches again.
+     */
+    public function testADigestOfTheWrongWidthForItsAlgorithmIsRejected(): void
+    {
+        $violations = $this->validate([
+            '10-md5ish.xml' => RuleXml::patch(
+                RuleXml::object(
+                    version: 1,
+                    dest: 'a/one.css',
+                    source: 'one.v1',
+                    sourceHash: \md5('v1'),
+                    create: true
+                )
+            ),
+        ], ['one.v1']);
+
+        self::assertCount(1, $violations);
+        self::assertStringContainsString('is 32 characters; sha256 produces 64', $violations[0]);
+        self::assertStringStartsWith('10-md5ish.xml: object a/one.css version 1:', $violations[0]);
     }
 
     public function testAnUnsupportedHashAlgorithmIsRejectedOncePerFile(): void
@@ -469,6 +547,57 @@ final class MergedSetValidatorTest extends TestCase
             ["10-empty.xml: declares hashType 'md5'; version 1 supports sha256 only"],
             $violations
         );
+    }
+
+    /**
+     * A payload is bytes the package ships. A link is a promise about bytes somewhere
+     * else, and whatever hashes and copies it later would take them from there -
+     * measured: a link planted in payload/ read back a file from outside the tree.
+     */
+    public function testAPayloadThatIsASymbolicLinkIsRefused(): void
+    {
+        $this->tree->write('rules/index.html', '');
+        $this->tree->symlink('payload/leak.css', $this->tree->path('rules/index.html'));
+
+        $violations = $this->validate([
+            '10-one.xml' => RuleXml::patch(
+                RuleXml::object(version: 1, dest: 'a/one.css', source: 'leak.css', create: true)
+            ),
+        ], []);
+
+        self::assertContains(
+            'payload leak.css is a symbolic link. A payload is bytes the package ships, so it '
+                . 'has to be a file in the payload directory.',
+            $violations
+        );
+        self::assertStringContainsString(
+            'resolves outside the payload directory',
+            \implode("\n", $violations)
+        );
+    }
+
+    /**
+     * The same escape one level up: the payload itself is an ordinary file, and the
+     * directory holding it is the link. RecursiveDirectoryIterator does not descend
+     * into one, so a scan that merely skipped what is not a file would see nothing at
+     * all.
+     */
+    public function testAPayloadReachedThroughASymbolicallyLinkedDirectoryIsRefused(): void
+    {
+        $this->tree->write('rules/index.html', '');
+        $this->tree->symlink('payload/viadir', $this->tree->path('rules'));
+
+        $violations = $this->validate([
+            '10-one.xml' => RuleXml::patch(
+                RuleXml::object(version: 1, dest: 'a/one.css', source: 'viadir/index.html', create: true)
+            ),
+        ], []);
+
+        self::assertStringContainsString(
+            'resolves outside the payload directory',
+            \implode("\n", $violations)
+        );
+        self::assertStringContainsString('payload viadir is a symbolic link', \implode("\n", $violations));
     }
 
     public function testAMissingPayloadDirectoryIsReported(): void

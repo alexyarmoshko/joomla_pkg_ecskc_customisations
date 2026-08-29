@@ -76,6 +76,20 @@ final class RuleLoader
         $hashTypes  = [];
 
         foreach ($names as $name) {
+            // Brief 5.4: "The rule set is only ever read from the installed package.
+            // Rules are not accepted from an upload, an arbitrary location, or the
+            // database." A symbolic link is an arbitrary location wearing the
+            // package's own name, and is_file() follows one without saying so.
+            if (\is_link($rulesDirectory . '/' . $name)) {
+                $violations[] = \sprintf(
+                    '%s: is a symbolic link. The rule set is only ever read from the installed '
+                    . 'package, so a rule file has to be one.',
+                    $name
+                );
+
+                continue;
+            }
+
             $bytes = @\file_get_contents($rulesDirectory . '/' . $name);
 
             if ($bytes === false) {

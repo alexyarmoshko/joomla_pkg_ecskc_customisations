@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule;
 
 use FilesystemIterator;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
@@ -50,9 +51,10 @@ use SplFileInfo;
  *
  * Path confinement, the extension allow list and the deny list belong to path
  * policy (ticket 14). Hashing a payload's bytes to check them against `sourceHash`
- * belongs to ticket 15. This layer checks that a payload is named exactly once and
- * exists; whether its bytes agree with the declaration is a question for whatever
- * can hash them.
+ * belongs to ticket 15. This layer checks that a payload is named exactly once, that
+ * it exists, and that it resolves inside the payload directory rather than through a
+ * symbolic link to somewhere else; whether its bytes agree with the declaration is a
+ * question for whatever can hash them.
  *
  * **Nothing here warns.** Every check returns a violation or nothing, and a
  * violation stops the artefact. The plan's warning pass - a replace-only object
@@ -73,10 +75,15 @@ final class MergedSetValidator
     public const SUPPORTED_HASH_TYPE = 'sha256';
 
     /**
-     * Joomla's folder guard, present in payload/ so the directory ships and is
-     * never a rule's payload.
+     * How many hex characters each supported algorithm's digest has.
+     *
+     * The schema accepts 32 to 128, on purpose: the algorithm is read from the patch
+     * declaration rather than hardcoded, so the shape layer cannot know the width.
+     * Checking it here is what stops a file declaring sha256 while carrying digests
+     * of another algorithm - internally consistent, so the chain links and every
+     * check passes, until real bytes are hashed and no target ever matches again.
      */
-    private const NOT_A_PAYLOAD = 'index.html';
+    private const DIGEST_LENGTH = ['sha256' => 64];
 
     private readonly string $payloadDirectory;
 
@@ -96,6 +103,7 @@ final class MergedSetValidator
     {
         return [
             ...$this->hashTypeViolations($ruleSet),
+            ...$this->digestViolations($ruleSet),
             ...$this->permissionViolations($ruleSet),
             ...$this->pathViolations($ruleSet),
             ...$this->payloadViolations($ruleSet),
@@ -123,6 +131,47 @@ final class MergedSetValidator
                 \var_export($hashType, true),
                 self::SUPPORTED_HASH_TYPE
             );
+        }
+
+        return $violations;
+    }
+
+    /**
+     * Every declared digest must be the width its file's algorithm produces.
+     *
+     * @return list<string>
+     */
+    private function digestViolations(RuleSet $ruleSet): array
+    {
+        $violations = [];
+
+        foreach ($ruleSet->objects() as $object) {
+            $width = self::DIGEST_LENGTH[$object->hashType] ?? null;
+
+            if ($width === null) {
+                // An unsupported algorithm is already reported against the file. Its
+                // digests have no width to be measured against.
+                continue;
+            }
+
+            $digests = $object->payloadHashes();
+
+            if ($object->expectedHash !== null) {
+                $digests[] = $object->expectedHash;
+            }
+
+            foreach ($digests as $digest) {
+                if (\strlen($digest) !== $width) {
+                    $violations[] = \sprintf(
+                        '%s: the digest %s is %d characters; %s produces %d',
+                        $object->label(),
+                        $digest,
+                        \strlen($digest),
+                        $object->hashType,
+                        $width
+                    );
+                }
+            }
         }
 
         return $violations;
@@ -322,21 +371,41 @@ final class MergedSetValidator
                 );
             }
 
-            if (!\is_file($this->payloadDirectory . '/' . $source)) {
+            $resolved = $this->resolvePayload($source);
+
+            if ($resolved === null) {
                 $violations[] = \sprintf('%s: names the payload %s, which does not exist', $owners[0], $source);
+            } elseif (!$this->isInsidePayloadDirectory($resolved)) {
+                // Reached through a symbolic link, as a file or as a parent directory.
+                // Whatever hashes and copies these bytes later would take them from
+                // wherever the link points.
+                $violations[] = \sprintf(
+                    '%s: names the payload %s, which resolves outside the payload directory, to %s',
+                    $owners[0],
+                    $source,
+                    $resolved
+                );
             }
         }
 
-        $present = $this->presentPayloads();
+        $scan = $this->scanPayloads();
 
-        if ($present === null) {
+        if ($scan === null) {
             return [
                 ...$violations,
                 \sprintf('%s: the payload directory does not exist', $this->payloadDirectory),
             ];
         }
 
-        foreach ($present as $source) {
+        foreach ($scan['links'] as $link) {
+            $violations[] = \sprintf(
+                'payload %s is a symbolic link. A payload is bytes the package ships, so it has '
+                . 'to be a file in the payload directory.',
+                $link
+            );
+        }
+
+        foreach ($scan['files'] as $source) {
             if (!isset($referencedBy[$source])) {
                 $violations[] = \sprintf(
                     'payload %s is present but no object names it. An unreferenced payload '
@@ -349,33 +418,73 @@ final class MergedSetValidator
         return $violations;
     }
 
+    private function resolvePayload(string $source): ?string
+    {
+        $resolved = \realpath($this->payloadDirectory . '/' . $source);
+
+        return $resolved === false || !\is_file($resolved) ? null : $resolved;
+    }
+
+    private function isInsidePayloadDirectory(string $resolved): bool
+    {
+        $directory = \realpath($this->payloadDirectory);
+
+        return $directory !== false && \str_starts_with($resolved, $directory . '/');
+    }
+
     /**
-     * Every payload file, as a path relative to the payload directory.
+     * Every payload file, and every symbolic link, relative to the payload directory.
      *
-     * @return list<string>|null Null when the directory does not exist.
+     * Links are collected rather than followed or skipped. Skipping one hides it: a
+     * planted link that nothing references would never be reported, and a link
+     * standing in for a directory would take the whole subtree with it.
+     * RecursiveDirectoryIterator does not descend into a linked directory by default,
+     * so such a link arrives here as a single entry that is not a file.
+     *
+     * @return array{files: list<string>, links: list<string>}|null Null when the
+     *                                                             directory does not exist.
      */
-    private function presentPayloads(): ?array
+    private function scanPayloads(): ?array
     {
         if (!\is_dir($this->payloadDirectory)) {
             return null;
         }
 
         $found    = [];
+        $links    = [];
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($this->payloadDirectory, FilesystemIterator::SKIP_DOTS)
         );
 
         /** @var SplFileInfo $file */
         foreach ($iterator as $file) {
-            if (!$file->isFile() || $file->getFilename() === self::NOT_A_PAYLOAD) {
+            $relative = \substr($file->getPathname(), \strlen($this->payloadDirectory) + 1);
+
+            if ($file->isLink()) {
+                $links[] = $relative;
+
                 continue;
             }
 
-            $found[] = \substr($file->getPathname(), \strlen($this->payloadDirectory) + 1);
+            if (!$file->isFile()) {
+                continue;
+            }
+
+            // The installer writes a deny-all .htaccess into payload/, and the folder
+            // ships an index.html. Neither is a payload, and reporting them as
+            // unreferenced would make every installed site fail its own rule set.
+            // Judged on the payload-relative path: the same name nested inside is
+            // content, and content is what this check exists to look at.
+            if (PackagePaths::isFolderGuard($relative)) {
+                continue;
+            }
+
+            $found[] = $relative;
         }
 
         \sort($found, \SORT_STRING);
+        \sort($links, \SORT_STRING);
 
-        return $found;
+        return ['files' => $found, 'links' => $links];
     }
 }

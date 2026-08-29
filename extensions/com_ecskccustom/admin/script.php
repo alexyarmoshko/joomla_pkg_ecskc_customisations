@@ -114,7 +114,7 @@ class Com_EcskccustomInstallerScript
      */
     private function protect(string $path): bool
     {
-        $file = $path . '/.htaccess';
+        $file = $path . '/' . PackagePaths::HTACCESS;
 
         // Never write through a link: the target could be anywhere.
         if (is_link($file)) {
@@ -125,7 +125,7 @@ class Com_EcskccustomInstallerScript
             return true;
         }
 
-        $temporary = $path . '/.htaccess.' . bin2hex(random_bytes(6)) . '.tmp';
+        $temporary = $path . '/' . PackagePaths::HTACCESS . '.' . bin2hex(random_bytes(6)) . '.tmp';
 
         if (file_put_contents($temporary, self::DENY_ALL) !== strlen(self::DENY_ALL)) {
             @unlink($temporary);

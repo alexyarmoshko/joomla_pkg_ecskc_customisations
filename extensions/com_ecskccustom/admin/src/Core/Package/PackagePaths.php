@@ -19,7 +19,8 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package;
  * runner that reads them cannot drift apart. The runner reads the event log, lock
  * and marker by the fixed names below rather than discovering them.
  *
- * Four folders, from the plan's package-owned state table:
+ * Five folders. The plan's package-owned state table names four; rules/ became an
+ * installed folder of its own after it was written, and is treated as one here:
  *
  * | Folder     | Holds                                            | In the manifest |
  * |------------|--------------------------------------------------|-----------------|
@@ -38,6 +39,30 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package;
  */
 final class PackagePaths
 {
+    /**
+     * The files the package puts in its own folders: the shipped folder index, and
+     * the deny-all guard the installer writes.
+     *
+     * Named here because two places have to agree about them. The installer writes
+     * the guard; the runner scans payload/ for payloads and must not mistake either
+     * file for one. They are not payloads, not rules, and never a target.
+     *
+     * Matched exactly, and only at a folder's own root, because that is where the
+     * installer writes and where the manifest ships. A prefix match would be simpler
+     * and would quietly swallow a real file: `.htaccess.css` and `.htaccessible.css`
+     * are ordinary names an author may use, and a payload hidden from the
+     * unreferenced-payload check is a check that stopped running.
+     *
+     * The transient pattern takes any hex length rather than the twelve characters
+     * `script.php` currently writes, so changing the token's size cannot silently
+     * turn a leftover into a reported payload.
+     */
+    public const FOLDER_INDEX = 'index.html';
+    public const HTACCESS     = '.htaccess';
+
+    /** The name protect() writes before it renames the file over the guard. */
+    public const HTACCESS_TEMPORARY = '/\A\.htaccess\.[0-9a-f]+\.tmp\z/';
+
     public const EVENT_LOG = 'events.log';
     public const LOCK      = 'run.lock';
     public const MARKER    = 'run.marker';
@@ -57,6 +82,20 @@ final class PackagePaths
      * site's customisations and no more fit to serve than backup/ or state/.
      */
     public const ALL_FOLDERS = ['payload', 'rules', 'backup', 'staging', 'state'];
+
+    /**
+     * Is this file one the package put in the folder, rather than content?
+     *
+     * @param string $relativePath The path relative to the folder's own root, so a
+     *                             file of the same name nested inside it is content
+     *                             and is judged as content.
+     */
+    public static function isFolderGuard(string $relativePath): bool
+    {
+        return $relativePath === self::FOLDER_INDEX
+            || $relativePath === self::HTACCESS
+            || \preg_match(self::HTACCESS_TEMPORARY, $relativePath) === 1;
+    }
 
     public function __construct(private readonly string $root)
     {

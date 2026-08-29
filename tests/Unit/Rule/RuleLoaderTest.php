@@ -193,6 +193,35 @@ final class RuleLoaderTest extends TestCase
         self::assertTrue($result->ruleSet->isEmpty());
     }
 
+    /**
+     * Brief 5.4: "The rule set is only ever read from the installed package. Rules are
+     * not accepted from an upload, an arbitrary location, or the database." A symbolic
+     * link is an arbitrary location wearing the package's own name, and is_file()
+     * follows one without saying so - measured: a rule file linked in from outside
+     * loaded with no violation at all.
+     */
+    public function testARuleFileThatIsASymbolicLinkIsRefused(): void
+    {
+        $directory = $this->rulesDirectory([
+            '10-real.xml' => self::oneObject('a/one.css', 'a/one.css'),
+        ]);
+
+        $this->tree->write('elsewhere/99-foreign.xml', self::oneObject('b/two.css', 'b/two.css'));
+        $this->tree->symlink('rules/99-foreign.xml', $this->tree->path('elsewhere/99-foreign.xml'));
+
+        $result = self::loader()->load($directory);
+
+        self::assertSame(
+            ['99-foreign.xml: is a symbolic link. The rule set is only ever read from the '
+                . 'installed package, so a rule file has to be one.'],
+            $result->violations
+        );
+        self::assertSame(
+            ['a/one.css'],
+            \array_map(static fn (RuleObject $o): string => $o->targetPath, $result->ruleSet->objects())
+        );
+    }
+
     public function testAMissingRuleDirectoryIsReportedRatherThanRead(): void
     {
         $directory = $this->tree->root() . '/absent';
