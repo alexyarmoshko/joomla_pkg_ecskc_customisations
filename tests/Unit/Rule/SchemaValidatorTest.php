@@ -20,7 +20,7 @@ final class SchemaValidatorTest extends TestCase
 
     private static function validator(): SchemaValidator
     {
-        return new SchemaValidator(self::repositoryRoot() . '/data/schema/patch.xsd');
+        return new SchemaValidator(self::repositoryRoot() . '/extensions/com_ecskccustom/admin/schema/patch.xsd');
     }
 
     private static function fixture(string $name): string
@@ -306,7 +306,7 @@ final class SchemaValidatorTest extends TestCase
     {
         $this->expectException(RuntimeException::class);
 
-        new SchemaValidator(self::repositoryRoot() . '/data/schema/nope.xsd');
+        new SchemaValidator(self::repositoryRoot() . '/extensions/com_ecskccustom/admin/schema/nope.xsd');
     }
 
     public function testTheBriefSampleIsStillTheModelThisSchemaEncodes(): void
