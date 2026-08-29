@@ -152,15 +152,12 @@ final class SchemaValidatorTest extends TestCase
         $cases['a payload variant suffix']      = ['templates/et_tennis/css/override.css.dev.v1'];
         $cases['a name of three dots']          = ['...'];
         $cases['a name beginning with dots']    = ['..a'];
-        $cases['a name containing a space']     = ['a file.php'];
 
         // Odd but legal on Linux, and accepted deliberately rather than by accident.
-        // A single-space filename and a segment ending in a colon are both valid
-        // POSIX names; "C:" is a directory name here, not a drive. Confinement and
-        // the allow list are ticket 14's, not the schema's.
-        $cases['a segment that is one space']   = [' '];
+        // A segment ending in a colon is a valid POSIX name; "C:" is a directory
+        // name here, not a drive. Confinement and the allow list are ticket 14's,
+        // not the schema's.
         $cases['a drive-like first segment']    = ['C:/x.php'];
-        $cases['a segment of spaces']           = ['a/   /b.php'];
 
         return $cases;
     }
@@ -183,6 +180,18 @@ final class SchemaValidatorTest extends TestCase
             'a doubled leading slash'     => ['//a/b.php'],
             'a backslash separator'       => ['a\\b.php'],
             'a backslash traversal'       => ['..\\..\\a.php'],
+
+            // Whitespace is refused throughout, which is what stops a pretty-printed
+            // element validating with its own indentation inside the path. A space is
+            // a legal POSIX filename character and this gives it up on purpose: see
+            // the relativePath comment in the schema.
+            'a name containing a space'   => ['a file.php'],
+            'a segment that is one space' => [' '],
+            'a segment of spaces'         => ['a/   /b.php'],
+            'a leading newline'           => ["\n            a/b.php"],
+            'a trailing newline'          => ["a/b.php\n        "],
+            'an internal newline'         => ["a/\nb.php"],
+            'a tab'                       => ["a/\tb.php"],
         ];
     }
 
@@ -207,6 +216,44 @@ final class SchemaValidatorTest extends TestCase
             \implode("\n", $violations),
             'The rule file was refused, but not for the reason this fixture exists to prove.'
         );
+    }
+
+    /**
+     * @return array<string, array{string, bool}>
+     */
+    public static function objectVersions(): array
+    {
+        return [
+            'one'                        => ['1', true],
+            'the largest exact value'    => ['2147483647', true],
+            'one past it'                => ['2147483648', false],
+            'past PHP_INT_MAX'           => ['9223372036854775808', false],
+            'zero'                       => ['0', false],
+            'negative'                   => ['-1', false],
+        ];
+    }
+
+    /**
+     * A version above PHP_INT_MAX saturates on conversion, so two distinct versions
+     * would collapse into one and silently change both the walk order and whether a
+     * duplicate exists. The schema is what stops that reaching the parser.
+     */
+    #[DataProvider('objectVersions')]
+    public function testBoundsTheObjectVersion(string $version, bool $accepted): void
+    {
+        $patch = '<?xml version="1.0" encoding="UTF-8"?>'
+            . '<patch hashType="sha256"><object version="' . $version . '">'
+            . '<id><destPathFileName>a/one.css</destPathFileName></id>'
+            . '<action><operations><remove/></operations></action>'
+            . '</object></patch>';
+
+        $violations = self::validator()->validateString($patch, 'version');
+
+        if ($accepted) {
+            self::assertSame([], $violations, \implode("\n", $violations));
+        } else {
+            self::assertNotSame([], $violations, 'Expected version ' . $version . ' to be refused.');
+        }
     }
 
     #[DataProvider('acceptedTargetPaths')]

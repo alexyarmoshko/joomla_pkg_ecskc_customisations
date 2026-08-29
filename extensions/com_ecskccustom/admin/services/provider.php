@@ -26,6 +26,8 @@ use Joomla\DI\Container;
 use Joomla\DI\ServiceProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Environment\JoomlaEnvironmentProvider;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomisationComponent;
@@ -39,7 +41,7 @@ return new class () implements ServiceProviderInterface {
      * provider, which is the only route by which Joomla's own values reach the
      * derivation the core owns (decision 16).
      *
-     * The runner itself is registered here once it exists; tickets 12 to 17 build
+     * The runner itself is registered here once it exists; tickets 13 to 17 build
      * it, and this file is where it is wired in.
      *
      * @param   Container  $container  The DI container.
@@ -67,6 +69,20 @@ return new class () implements ServiceProviderInterface {
             SchemaValidator::class,
             static fn (Container $container): SchemaValidator => new SchemaValidator(
                 $container->get(PackagePaths::class)->root() . '/schema/patch.xsd'
+            )
+        );
+
+        $container->set(
+            RuleLoader::class,
+            static fn (Container $container): RuleLoader => new RuleLoader(
+                $container->get(SchemaValidator::class)
+            )
+        );
+
+        $container->set(
+            MergedSetValidator::class,
+            static fn (Container $container): MergedSetValidator => new MergedSetValidator(
+                $container->get(PackagePaths::class)->payload()
             )
         );
 

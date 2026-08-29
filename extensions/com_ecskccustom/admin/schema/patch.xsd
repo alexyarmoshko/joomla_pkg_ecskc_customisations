@@ -38,6 +38,23 @@
     <!--
         A relative path, as a sequence of segments separated by "/".
 
+        No whitespace anywhere, which is a deliberate narrowing. A space is a legal
+        POSIX filename character and an earlier round accepted one on that ground,
+        but permitting it here is what let a pretty-printed element validate: broken
+        across lines, the text node carries its own indentation, the leading newline
+        and spaces read as the start of the first segment, and the path silently
+        becomes a different string from the same path written inline. It would group
+        apart from its twin, defeat duplicate detection, and reach the filesystem.
+
+        Collapsing the value instead - deriving from xs:token - would fix that one
+        case and keep another: a name written with two spaces would be silently
+        rewritten to one. Refusing whitespace outright removes the whole class. A
+        pretty-printed value is now rejected against this pattern, which is a
+        diagnostic the author sees rather than a target that quietly moves.
+
+        Nothing in the managed inventory has whitespace in its path. If something
+        ever does, this is where to reconsider - loudly, with a failing build.
+
         Backslashes, empty segments, and "." or ".." segments are refused here so the
         obvious escapes never reach path policy; path policy still owns confinement,
         symlink resolution, the allow list and the deny list.
@@ -53,7 +70,7 @@
     -->
     <xs:simpleType name="relativePath">
         <xs:restriction base="xs:string">
-            <xs:pattern value="([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,})(/([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,}))*"/>
+            <xs:pattern value="([^/\\.\s]|[^/\\.\s][^/\\\s]|\.[^/\\.\s]|[^/\\\s]{3,})(/([^/\\.\s]|[^/\\.\s][^/\\\s]|\.[^/\\.\s]|[^/\\\s]{3,}))*"/>
         </xs:restriction>
     </xs:simpleType>
 
@@ -70,14 +87,30 @@
     -->
     <xs:simpleType name="targetPath">
         <xs:restriction base="xs:string">
-            <xs:pattern value="/?([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,})(/([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,}))*"/>
+            <xs:pattern value="/?([^/\\.\s]|[^/\\.\s][^/\\\s]|\.[^/\\.\s]|[^/\\\s]{3,})(/([^/\\.\s]|[^/\\.\s][^/\\\s]|\.[^/\\.\s]|[^/\\\s]{3,}))*"/>
         </xs:restriction>
     </xs:simpleType>
 
     <!-- A root path may be empty, meaning targets resolve from the web root. -->
     <xs:simpleType name="rootPath">
         <xs:restriction base="xs:string">
-            <xs:pattern value="|([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,})(/([^/\\.]|[^/\\.][^/\\]|\.[^/\\.]|[^/\\]{3,}))*"/>
+            <xs:pattern value="|([^/\\.\s]|[^/\\.\s][^/\\\s]|\.[^/\\.\s]|[^/\\\s]{3,})(/([^/\\.\s]|[^/\\.\s][^/\\\s]|\.[^/\\.\s]|[^/\\\s]{3,}))*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!--
+        An object's revision number.
+
+        Bounded at 2147483647, the largest value PHP converts exactly on every
+        platform including a 32-bit build. xs:positiveInteger is unbounded, and a
+        version above PHP_INT_MAX saturates on conversion: two distinct versions
+        would collapse into one, which would silently change both the walk order and
+        whether a duplicate exists. Revisions of a customisation count in single
+        figures, so the bound costs nothing and closes that.
+    -->
+    <xs:simpleType name="objectVersion">
+        <xs:restriction base="xs:positiveInteger">
+            <xs:maxInclusive value="2147483647"/>
         </xs:restriction>
     </xs:simpleType>
 
@@ -173,9 +206,13 @@
     <!--
         The object's identity: which file, and which state of it this revision
         expects. expectedHash is optional because a package-owned file may be placed
-        on path alone; the build warns when a replace-only object omits it, since for
-        a vendor-owned file it is the only thing between a copy and the silent loss
-        of the vendor's own changes.
+        on path alone.
+
+        A replace-only object that omits it is what the build's warning pass exists
+        to flag, since for a vendor-owned file the hash is the only thing between a
+        copy and the silent loss of the vendor's own changes. That pass belongs to
+        the build and is not part of merged-set validation, which only ever returns
+        violations.
     -->
     <xs:complexType name="id">
         <xs:sequence>
@@ -197,7 +234,7 @@
             <xs:element name="id" type="id"/>
             <xs:element name="action" type="action" maxOccurs="unbounded"/>
         </xs:sequence>
-        <xs:attribute name="version" type="xs:positiveInteger" use="required"/>
+        <xs:attribute name="version" type="objectVersion" use="required"/>
         <xs:attribute name="create" type="xs:boolean" default="false"/>
         <xs:attribute name="replace" type="xs:boolean" default="true"/>
         <xs:attribute name="enable" type="xs:boolean" default="true"/>
