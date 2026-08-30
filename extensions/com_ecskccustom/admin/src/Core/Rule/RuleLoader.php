@@ -14,6 +14,8 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule;
 
 use DOMDocument;
 use DOMElement;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\ConditionGroup;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\RuleCondition;
 
 /**
  * Reads the rule directory and merges every rule file into one rule set.
@@ -307,22 +309,82 @@ final class RuleLoader
             return null;
         }
 
+        $group      = $this->childElements($element, 'conditions')[0] ?? null;
+        $conditions = $group === null ? null : $this->parseConditionGroup($group);
+
         $copy = $this->childElements($operations, 'copy')[0] ?? null;
 
         if ($copy !== null) {
             return RuleAction::copy(
                 $this->childText($copy, 'srcPathFileName'),
-                $this->childText($copy, 'sourceHash')
+                $this->childText($copy, 'sourceHash'),
+                $conditions
             );
         }
 
         $remove = $this->childElements($operations, 'remove')[0] ?? null;
 
         if ($remove !== null) {
-            return RuleAction::remove($this->boolAttribute($remove, 'backup', true));
+            return RuleAction::remove($this->boolAttribute($remove, 'backup', true), $conditions);
         }
 
         return null;
+    }
+
+    /**
+     * Groups nest, so this recurses. Nothing here judges what it reads: an unknown
+     * type or an attribute outside the vocabulary is the schema's to refuse and the
+     * evaluator's to fault on, and the loader inventing a third opinion is how the
+     * two layers come to disagree.
+     */
+    private function parseConditionGroup(DOMElement $element): ConditionGroup
+    {
+        $members = [];
+
+        foreach ($element->childNodes as $child) {
+            if (!$child instanceof DOMElement) {
+                continue;
+            }
+
+            if ($child->localName === 'conditions') {
+                $members[] = $this->parseConditionGroup($child);
+
+                continue;
+            }
+
+            if ($child->localName === 'condition') {
+                $members[] = new RuleCondition(
+                    $child->hasAttribute('type')
+                        ? $this->collapse($child->getAttribute('type'))
+                        : RuleCondition::LITERAL,
+                    $this->collapse($child->getAttribute('attribute')),
+                    $this->operand($child),
+                    $child->hasAttribute('description')
+                        ? $this->collapse($child->getAttribute('description'))
+                        : null
+                );
+            }
+        }
+
+        return new ConditionGroup($this->collapse($element->getAttribute('match')), $members);
+    }
+
+    /**
+     * The text a condition matches against: trimmed, and otherwise untouched.
+     *
+     * Trimmed because leading and trailing whitespace here can only have come from
+     * pretty-printing, and none of the four values it is compared against carries
+     * any: an indented literal would silently match nothing, and the customisation
+     * would quietly never apply.
+     *
+     * Not collapsed, unlike a token. Collapsing rewrites the inside of a regular
+     * expression, where a run of literal spaces is as significant as any other
+     * character, and rewriting an author's expression without saying so is the same
+     * fault as rewriting their path.
+     */
+    private function operand(DOMElement $element): string
+    {
+        return \trim($element->textContent);
     }
 
     /**

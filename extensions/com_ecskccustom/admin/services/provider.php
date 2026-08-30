@@ -24,7 +24,9 @@ use Joomla\CMS\Extension\Service\Provider\MVCFactory;
 use Joomla\CMS\MVC\Factory\MVCFactoryInterface;
 use Joomla\DI\Container;
 use Joomla\DI\ServiceProviderInterface;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\ConditionEvaluator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentProviderInterface;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentResolver;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
@@ -42,8 +44,8 @@ return new class () implements ServiceProviderInterface {
      * provider, which is the only route by which Joomla's own values reach the
      * derivation the core owns (decision 16).
      *
-     * The runner itself is registered here once it exists; tickets 13, 15, 16 and 17 build
-     * it, and this file is where it is wired in.
+     * The runner itself is registered here once it exists; tickets 15, 16 and 17 build
+     * the rest of it, and this file is where it is wired in.
      *
      * @param   Container  $container  The DI container.
      *
@@ -64,6 +66,16 @@ return new class () implements ServiceProviderInterface {
         $container->set(
             EnvironmentProviderInterface::class,
             static fn (): EnvironmentProviderInterface => new JoomlaEnvironmentProvider()
+        );
+
+        $container->set(
+            EnvironmentResolver::class,
+            static fn (): EnvironmentResolver => new EnvironmentResolver()
+        );
+
+        $container->set(
+            ConditionEvaluator::class,
+            static fn (): ConditionEvaluator => new ConditionEvaluator()
         );
 
         $container->set(

@@ -7,6 +7,8 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Rule;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\ConditionGroup;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\RuleCondition;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleAction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleObject;
@@ -17,6 +19,8 @@ use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 #[CoversClass(RuleLoader::class)]
 #[CoversClass(RuleObject::class)]
 #[CoversClass(RuleAction::class)]
+#[CoversClass(ConditionGroup::class)]
+#[CoversClass(RuleCondition::class)]
 final class RuleLoaderTest extends TestCase
 {
     private TempTree $tree;
@@ -457,5 +461,111 @@ final class RuleLoaderTest extends TestCase
             '10-label.xml: object templates/et_tennis/css/override.css version 3',
             $result->ruleSet->objects()[0]->label()
         );
+    }
+
+    /**
+     * Conditions are read into the same nested shape the evaluator walks, and the
+     * loader judges none of it: an unknown type or attribute is the schema's to
+     * refuse and the evaluator's to fault on.
+     */
+    public function testConditionsAreParsedIntoNestedGroups(): void
+    {
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+            . '<patch hashType="sha256">'
+            . '<root path="templates/et_tennis/css">'
+            . '<object version="1" create="true">'
+            . '<id><destPathFileName>override.css</destPathFileName></id>'
+            . '<action>'
+            . '<conditions match="all">'
+            . '<condition type="regex" attribute="HOST"' . "\n"
+            . '           description="Any host except production">^(?!ecskc\.eu$).*$</condition>'
+            . '<conditions match="any">'
+            // Pretty-printed, which is the shape that silently matches nothing when
+            // the indentation is read as part of the value.
+            . '<condition attribute="SITE_URL">' . "\n            https://dev.example.invalid\n        " . '</condition>'
+            . '<condition type="version" attribute="JOOMLA_VERSION">&gt;=5.4.0</condition>'
+            . '</conditions>'
+            . '</conditions>'
+            . '<operations><copy>'
+            . '<srcPathFileName>templates/et_tennis/css/override.css.v1</srcPathFileName>'
+            . '<sourceHash>' . RuleXml::hash('v1') . '</sourceHash>'
+            . '</copy></operations>'
+            . '</action>'
+            . '</object>'
+            . '</root>'
+            . '</patch>';
+
+        $result = self::loader()->load($this->rulesDirectory(['10-conditions.xml' => $xml]));
+
+        self::assertSame([], $result->violations);
+
+        $group = $result->ruleSet->objects()[0]->actions[0]->conditions;
+
+        self::assertInstanceOf(ConditionGroup::class, $group);
+        self::assertSame(ConditionGroup::ALL, $group->match);
+        self::assertCount(2, $group->members);
+
+        $exclusion = $group->members[0];
+        self::assertInstanceOf(RuleCondition::class, $exclusion);
+        self::assertSame(RuleCondition::REGEX, $exclusion->type);
+        self::assertSame('HOST', $exclusion->attribute);
+        self::assertSame('^(?!ecskc\.eu$).*$', $exclusion->operand);
+        self::assertSame('Any host except production', $exclusion->description);
+
+        $nested = $group->members[1];
+        self::assertInstanceOf(ConditionGroup::class, $nested);
+        self::assertSame(ConditionGroup::ANY, $nested->match);
+        self::assertCount(2, $nested->members);
+
+        $literal = $nested->members[0];
+        self::assertInstanceOf(RuleCondition::class, $literal);
+        // The type is omitted, and brief 5.1 makes literal the default.
+        self::assertSame(RuleCondition::LITERAL, $literal->type);
+        self::assertSame('https://dev.example.invalid', $literal->operand);
+        self::assertNull($literal->description);
+
+        $version = $nested->members[1];
+        self::assertInstanceOf(RuleCondition::class, $version);
+        self::assertSame(RuleCondition::VERSION, $version->type);
+        self::assertSame('>=5.4.0', $version->operand);
+    }
+
+    /**
+     * The schema makes conditions optional, and an action without them applies
+     * wherever the object does. Null says that; an empty group would not.
+     */
+    public function testAnActionWithoutConditionsCarriesNone(): void
+    {
+        $result = self::loader()->load($this->rulesDirectory([
+            '10-plain.xml' => self::oneObject('override.css', 'a/one.css'),
+        ]));
+
+        self::assertNull($result->ruleSet->objects()[0]->actions[0]->conditions);
+    }
+
+    public function testARemovalCarriesItsConditionsToo(): void
+    {
+        $xml = RuleXml::patch(
+            '<object version="1">'
+            . '<id><destPathFileName>media/kunena/stale.css</destPathFileName></id>'
+            . '<action>'
+            . '<conditions match="all">'
+            . '<condition attribute="HOST">ecskc.eu</condition>'
+            . '</conditions>'
+            . '<operations><remove backup="false"/></operations>'
+            . '</action>'
+            . '</object>'
+        );
+
+        $result = self::loader()->load($this->rulesDirectory(['10-removal.xml' => $xml]));
+
+        self::assertSame([], $result->violations);
+
+        $action = $result->ruleSet->objects()[0]->actions[0];
+
+        self::assertFalse($action->isCopy());
+        self::assertFalse($action->backup);
+        self::assertInstanceOf(ConditionGroup::class, $action->conditions);
+        self::assertCount(1, $action->conditions->members);
     }
 }
