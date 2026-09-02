@@ -460,7 +460,7 @@ final class MergedSetValidatorTest extends TestCase
         ], ['one.v1', 'two.v1']);
 
         self::assertSame(
-            ["10-md5.xml: declares hashType 'md5'; version 1 supports sha256 only"],
+            ["10-md5.xml: the rule declares hashType 'md5'; version 1 supports sha256 only"],
             $violations
         );
     }
@@ -544,7 +544,7 @@ final class MergedSetValidatorTest extends TestCase
         ], []);
 
         self::assertSame(
-            ["10-empty.xml: declares hashType 'md5'; version 1 supports sha256 only"],
+            ["10-empty.xml: the rule declares hashType 'md5'; version 1 supports sha256 only"],
             $violations
         );
     }

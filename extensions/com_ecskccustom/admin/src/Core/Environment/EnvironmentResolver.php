@@ -178,14 +178,36 @@ final class EnvironmentResolver
      * `Uri::base()` in the administrator application returns
      * `https://ecskc.eu/administrator/`, and a rule about the site must not be written
      * twice to cover the side the run happens to start from.
+     *
+     * The segment has to be a path segment, and the authority is where that is
+     * decided. A host named `administrator` - ordinary enough on an intranet - gives
+     * a base of `http://administrator/`, and cutting the tail off that leaves
+     * `http:`, which is not a URL and is not empty either, so it would be carried as
+     * a *determined* SITE_URL. An exclusion anchored on the real value would then
+     * match the wreckage and apply the customisation it was written to withhold -
+     * section 6's case again, reached through a string bug. Review s1.v23, finding 2.
+     *
+     * One ambiguity is left standing on purpose: a site whose front end genuinely
+     * lives in a folder named `administrator`. Nothing in the value says whether the
+     * segment is the admin application's artefact or the operator's own path, and
+     * this branch is reached only where `live_site` is unset. Configuring
+     * `live_site`, which is never rewritten here, settles it.
      */
     private function withoutAdministrator(string $value): string
     {
-        if (\str_ends_with(\strtolower($value), self::ADMIN_SEGMENT)) {
-            return \rtrim(\substr($value, 0, -\strlen(self::ADMIN_SEGMENT)), '/');
+        if (!\str_ends_with(\strtolower($value), self::ADMIN_SEGMENT)) {
+            return $value;
         }
 
-        return $value;
+        $authority = \strpos($value, '//');
+        $pathStart = $authority === false ? 0 : \strpos($value, '/', $authority + 2);
+
+        if ($pathStart === false || \strlen($value) - \strlen(self::ADMIN_SEGMENT) < $pathStart) {
+            // The segment is the authority itself, not a path under it.
+            return $value;
+        }
+
+        return \rtrim(\substr($value, 0, -\strlen(self::ADMIN_SEGMENT)), '/');
     }
 
     /**

@@ -445,9 +445,12 @@ final class ConditionEvaluatorTest extends TestCase
             'two parts'              => ['>=8.2'],
             'three parts'            => ['>=5.4.0'],
             'a prerelease suffix'    => ['>=5.4.7-rc1'],
-            'a build suffix'         => ['>=1.0.0+build.5'],
+            'a digit-led build'      => ['>=1.0.0+5'],
             // What PHP_VERSION actually holds on a distribution build.
             'a distribution build'   => ['>=8.1.2-1ubuntu2.14'],
+            'a debian revision'      => ['>=8.2.28-1~deb12u1'],
+            // PHP spells its own prereleases with no separator at all.
+            'a php prerelease'       => ['>=8.4.0RC1'],
         ];
     }
 
@@ -464,6 +467,334 @@ final class ConditionEvaluatorTest extends TestCase
         ]);
 
         self::assertFalse($this->outcome($group)->isFaulted());
+    }
+
+    /**
+     * The diagnostic has to describe the grammar it enforces.
+     *
+     * It listed "-", "_" and "+" after "~" had been added to VERSION, so an author
+     * troubleshooting a Debian-style version was told the character in their hand was
+     * not allowed. A fault message that misdescribes the accepted format sends them
+     * to fix the wrong thing. Review s1.v18, finding 1.
+     */
+    public function testTheConstraintDiagnosticNamesEverySuffixIntroducerTheGrammarAccepts(): void
+    {
+        $group = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::PHP_VERSION, '>=banana', RuleCondition::VERSION),
+        ]);
+
+        $reason = $this->outcome($group)->reasons[0];
+
+        foreach (['"-"', '"_"', '"+"', '"~"'] as $introducer) {
+            self::assertStringContainsString($introducer, $reason);
+        }
+
+        // And the grammar really does accept each of them, so the message is not
+        // merely self-consistent.
+        $sound = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::PHP_VERSION, '>=1.0', RuleCondition::VERSION),
+        ]);
+
+        foreach (['8.2-1', '8.2_1', '8.2+1', '8.2~1'] as $value) {
+            self::assertFalse(
+                $this->outcome($sound, [EnvironmentValues::PHP_VERSION => $value])->isFaulted(),
+                \sprintf('%s is a shape the diagnostic promises is accepted.', $value)
+            );
+        }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function environmentValuesThatAreNotVersions(): array
+    {
+        return [
+            // What a fork or a dev build can report where a version was expected.
+            'a word'                    => ['Unknown'],
+            'a name and a number'       => ['Joomla 5'],
+            'digits and then a word'    => ['5banana'],
+            'an empty part'             => ['5..4'],
+            'a version and a stray word' => ['5.4 extra'],
+            'a suffix that is not a state' => ['5.4.7banana'],
+            // version_compare recognises "pl" and not "PL", and reads the second as
+            // an arbitrary string that sorts BELOW the plain version - the opposite
+            // direction from the post-release the author wrote. Accepting it would
+            // put a patched host under a "<5.4.7" ceiling. Review s1.v22, finding 1.
+            'a state in the wrong case'    => ['5.4.7PL1'],
+            'a prerelease state shouted'   => ['8.4.0BETA1'],
+            'a state in mixed case'        => ['8.4.0Rc1'],
+            // A vendor suffix version_compare cannot order. Each of these is AT its
+            // release, and version_compare sorts an unrecognised suffix below the
+            // release, so each satisfies a ceiling written to keep a workaround off
+            // exactly that host. Review s1.v23, finding 1.
+            'a vendor build'               => ['8.2.0-ubuntu1'],
+            'a control-panel build'        => ['7.4.33-nmm1'],
+            'a patched build'              => ['8.2.0-suhosin'],
+            'a shouted state after a dash' => ['5.4.7-PL1'],
+            // Semver build metadata means "the same release"; version_compare sorts
+            // it below. Neither Joomla nor PHP emits it.
+            'semver build metadata'        => ['1.0.0+build.5'],
+            'a dotted part that is a word' => ['5.4foo'],
+        ];
+    }
+
+    /**
+     * The constraint grammar guarded one operand. This is the other.
+     *
+     * Measured on PHP 8.3.6, version_compare('Unknown', '9.0', '<') is true - so
+     * before this check every value here MATCHED a ceiling constraint and the object
+     * wrote, on an environment whose version nobody could read. Faulting is not the
+     * point on its own; not matching is. Recorded as finding 1 of review s1.v16.
+     */
+    #[DataProvider('environmentValuesThatAreNotVersions')]
+    public function testAValueThatIsNotAVersionFaultsRatherThanBeingCompared(string $value): void
+    {
+        $group = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::JOOMLA_VERSION, '<9.0', RuleCondition::VERSION),
+        ]);
+
+        $outcome = $this->outcome($group, [EnvironmentValues::JOOMLA_VERSION => $value]);
+
+        self::assertFalse($outcome->isMatched());
+        self::assertSame(ConditionOutcome::FAULTED, $outcome->status);
+        self::assertStringContainsString('which is not a version', $outcome->reasons[0]);
+    }
+
+    /**
+     * The grammar admits only suffixes version_compare orders in a direction the
+     * author can reason about, and the separator is not what decides that.
+     *
+     * Measured on PHP 8.3.6: an unrecognised suffix sorts BELOW the plain release,
+     * so `8.2.0-ubuntu1` - a host genuinely at 8.2.0 - satisfies `<8.2.0`, the very
+     * ceiling written to keep a workaround off hosts that reached 8.2.0. A digit-led
+     * suffix sorts above, which is what a distribution revision means, so
+     * `8.1.2-1ubuntu2.14` is judged and does not satisfy `<8.1.2`. Review s1.v23,
+     * finding 1.
+     */
+    public function testAnUnorderableVendorSuffixFaultsRatherThanSatisfyingACeiling(): void
+    {
+        $group = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::PHP_VERSION, '<8.2.0', RuleCondition::VERSION),
+        ]);
+
+        $outcome = $this->outcome($group, [EnvironmentValues::PHP_VERSION => '8.2.0-ubuntu1']);
+
+        self::assertFalse($outcome->isMatched());
+        self::assertSame(ConditionOutcome::FAULTED, $outcome->status);
+
+        // The shape a distribution really reports is judged rather than faulted, and
+        // sorts where a revision belongs: above the release, so the ceiling fails.
+        $ubuntu = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::PHP_VERSION, '<8.1.2', RuleCondition::VERSION),
+        ]);
+
+        $judged = $this->outcome($ubuntu, [EnvironmentValues::PHP_VERSION => '8.1.2-1ubuntu2.14']);
+
+        self::assertFalse($judged->isFaulted());
+        self::assertFalse($judged->isMatched());
+    }
+
+    /**
+     * The states the grammar admits are exactly the ones version_compare can order,
+     * spelling and case included.
+     *
+     * Measured on PHP 8.3.6: version_compare('5.4.7pl1', '5.4.7') is 1 and
+     * version_compare('5.4.7PL1', '5.4.7') is -1, because the second spelling is not
+     * a state at all to version_compare and an unrecognised string sorts below the
+     * plain version. A host at 5.4.7PL1 is at or above the ceiling "<5.4.7", so
+     * admitting that spelling would have let the ceiling match and the object write.
+     * Review s1.v22, finding 1.
+     */
+    public function testAStateSpellingVersionCompareCannotOrderDoesNotSatisfyACeiling(): void
+    {
+        $group = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::PHP_VERSION, '<5.4.7', RuleCondition::VERSION),
+        ]);
+
+        $outcome = $this->outcome($group, [EnvironmentValues::PHP_VERSION => '5.4.7PL1']);
+
+        self::assertFalse($outcome->isMatched());
+        self::assertSame(ConditionOutcome::FAULTED, $outcome->status);
+
+        // And the spelling version_compare does order is judged rather than faulted,
+        // in the direction version_compare gives it: a post-release is above 5.4.7,
+        // so the ceiling does not hold.
+        $sound = $this->outcome($group, [EnvironmentValues::PHP_VERSION => '5.4.7pl1']);
+
+        self::assertFalse($sound->isFaulted());
+        self::assertFalse($sound->isMatched());
+    }
+
+    /**
+     * Both directions, because a fail-open is only closed if it is closed whichever
+     * way the constraint points. A floor and a ceiling take opposite answers out of
+     * version_compare for the same unreadable value.
+     */
+    public function testAnUnreadableValueMatchesNeitherAFloorNorACeiling(): void
+    {
+        foreach (['<9.0', '>=1.0', '=5.4.7', '!=5.4.7'] as $constraint) {
+            $group = new ConditionGroup(ConditionGroup::ALL, [
+                self::condition(EnvironmentValues::PHP_VERSION, $constraint, RuleCondition::VERSION),
+            ]);
+
+            $outcome = $this->outcome($group, [EnvironmentValues::PHP_VERSION => 'Unknown']);
+
+            self::assertSame(
+                ConditionOutcome::FAULTED,
+                $outcome->status,
+                \sprintf('The constraint %s was judged against a value that is not a version.', $constraint)
+            );
+        }
+    }
+
+    /**
+     * The value is only asked to be a version by a version-typed condition. A
+     * literal or a pattern against the same attribute reads it as text, which is
+     * how a fork's build string would be matched at all.
+     */
+    public function testANonVersionValueIsStillJudgedByALiteralOrAPattern(): void
+    {
+        $literal = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::JOOMLA_VERSION, 'Unknown'),
+        ]);
+
+        $pattern = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::JOOMLA_VERSION, '^Unknown$', RuleCondition::REGEX),
+        ]);
+
+        self::assertTrue($this->outcome($literal, [EnvironmentValues::JOOMLA_VERSION => 'Unknown'])->isMatched());
+        self::assertTrue($this->outcome($pattern, [EnvironmentValues::JOOMLA_VERSION => 'Unknown'])->isMatched());
+    }
+
+    /**
+     * The value grammar accepts what the environment really reports, or a sound
+     * constraint would fault on an ordinary site.
+     */
+    public function testTheValuesJoomlaAndPhpReallyReportAreStillJudged(): void
+    {
+        $values = [
+            '5.4.7',
+            '8.3.6',
+            '8.1.2-1ubuntu2.14',
+            '6.0.0-alpha1',
+            // Debian and deb.sury.org put "~" where Ubuntu puts "+", from the same
+            // packaging mechanism. Refusing it faulted every version-typed condition
+            // on such a host - the value grammar has to be at least as permissive as
+            // what a build can report. Review s1.v17, finding 1.
+            '8.2.28-1~deb12u1',
+            '8.3.6-1+0~20240113.40+debian11~1.gbpa1234',
+            // PHP_VERSION on a prerelease runtime, where the state follows the last
+            // numeric part with nothing between them. Refusing these faulted every
+            // version-typed condition on such a host. Review s1.v19, finding 3.
+            '8.4.0RC1',
+            '8.4.0beta1',
+            '8.4.0alpha2',
+            '8.5.0-dev',
+            '8.4.0rc1',
+            // Post-release states, which sort above the plain version.
+            '5.4.7pl1',
+            '5.4.7p1',
+        ];
+
+        foreach ($values as $value) {
+            $group = new ConditionGroup(ConditionGroup::ALL, [
+                self::condition(EnvironmentValues::PHP_VERSION, '>=1.0', RuleCondition::VERSION),
+            ]);
+
+            self::assertTrue(
+                $this->outcome($group, [EnvironmentValues::PHP_VERSION => $value])->isMatched(),
+                \sprintf('%s is a shape the environment really reports.', $value)
+            );
+        }
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function expressionsThatCannotCompile(): array
+    {
+        return [
+            'an unclosed group'   => ['^(unclosed', 'missing closing parenthesis'],
+            'a bad quantifier'    => ['a{2,1}', 'numbers out of order'],
+            // The backslash escapes the closing delimiter, so PCRE never sees one.
+            // A different message, and still a specific one.
+            'a trailing backslash' => ['ecskc\\', 'No ending delimiter'],
+        ];
+    }
+
+    /**
+     * A compilation failure keeps the diagnostic that names the cause.
+     *
+     * preg_last_error() stays at PREG_INTERNAL_ERROR when an expression fails to
+     * compile, so the reason used to read "Internal error" - the coarsest message
+     * PCRE has, for the mistake an author is most likely to make. The warning names
+     * the cause and the offset, and it is the warning that reaches the report.
+     * Recorded as finding 3 of review s1.v16.
+     */
+    #[DataProvider('expressionsThatCannotCompile')]
+    public function testACompilationFailureNamesItsCause(string $expression, string $expected): void
+    {
+        $group = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::HOST, $expression, RuleCondition::REGEX),
+        ]);
+
+        $outcome = $this->outcome($group);
+
+        self::assertSame(ConditionOutcome::FAULTED, $outcome->status);
+        self::assertStringContainsString('could not be evaluated', $outcome->reasons[0]);
+        self::assertStringContainsString($expected, $outcome->reasons[0]);
+        self::assertStringNotContainsString('Internal error', $outcome->reasons[0]);
+        // The report is read by an operator, not by someone debugging PHP.
+        self::assertStringNotContainsString('preg_match():', $outcome->reasons[0]);
+    }
+
+    /**
+     * The handler is installed around one call and removed again, including when
+     * that call raises. A leaked handler would swallow warnings for the rest of the
+     * request - in production, the rest of the Joomla page.
+     */
+    public function testTheErrorHandlerIsRestoredAfterAnExpressionIsEvaluated(): void
+    {
+        $seen = [];
+
+        \set_error_handler(static function (int $severity, string $message) use (&$seen): bool {
+            $seen[] = $message;
+
+            return true;
+        });
+
+        try {
+            $group = new ConditionGroup(ConditionGroup::ALL, [
+                self::condition(EnvironmentValues::HOST, '^(unclosed', RuleCondition::REGEX),
+            ]);
+
+            self::assertSame(ConditionOutcome::FAULTED, $this->outcome($group)->status);
+
+            // If the evaluator had left its own handler installed, this would land
+            // there and never reach the one this test set.
+            \trigger_error('after the evaluator', \E_USER_WARNING);
+        } finally {
+            \restore_error_handler();
+        }
+
+        self::assertSame(['after the evaluator'], $seen);
+    }
+
+    /**
+     * A runtime failure still reads from preg_last_error_msg(), which is the only
+     * source for it: exhausting the backtrack limit raises no warning. Security
+     * review v2 measured this path.
+     */
+    public function testARuntimeFailureStillReportsItsOwnReason(): void
+    {
+        $group = new ConditionGroup(ConditionGroup::ALL, [
+            self::condition(EnvironmentValues::HOST, '^(a+)+$', RuleCondition::REGEX),
+        ]);
+
+        $outcome = $this->outcome($group, [EnvironmentValues::HOST => \str_repeat('a', 60) . '!']);
+
+        self::assertSame(ConditionOutcome::FAULTED, $outcome->status);
+        self::assertStringContainsString('Backtrack limit exhausted', $outcome->reasons[0]);
     }
 
     /**

@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule;
 
 use FilesystemIterator;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\HashAlgorithm;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -51,9 +52,10 @@ use SplFileInfo;
  *
  * Path confinement, the extension allow list and the deny list belong to path
  * policy (ticket 14). Hashing a payload's bytes to check them against `sourceHash`
- * belongs to ticket 15. This layer checks that a payload is named exactly once, that
- * it exists, and that it resolves inside the payload directory rather than through a
- * symbolic link to somewhere else; whether its bytes agree with the declaration is a
+ * belongs to ticket 21, now that ticket 15 has shipped the hasher it was waiting on.
+ * This layer checks that a payload is named exactly once, that it exists, and that it
+ * resolves inside the payload directory rather than through a symbolic link to
+ * somewhere else; whether its bytes agree with the declaration is a
  * question for whatever can hash them.
  *
  * **Nothing here warns.** Every check returns a violation or nothing, and a
@@ -66,25 +68,6 @@ use SplFileInfo;
  */
 final class MergedSetValidator
 {
-    /**
-     * Version 1 supports one algorithm. The algorithm is read from the patch
-     * declaration rather than hardcoded at the point of use, so an unsupported
-     * declaration has to be rejected here or it would reach a hasher that cannot
-     * honour it.
-     */
-    public const SUPPORTED_HASH_TYPE = 'sha256';
-
-    /**
-     * How many hex characters each supported algorithm's digest has.
-     *
-     * The schema accepts 32 to 128, on purpose: the algorithm is read from the patch
-     * declaration rather than hardcoded, so the shape layer cannot know the width.
-     * Checking it here is what stops a file declaring sha256 while carrying digests
-     * of another algorithm - internally consistent, so the chain links and every
-     * check passes, until real bytes are hashed and no target ever matches again.
-     */
-    private const DIGEST_LENGTH = ['sha256' => 64];
-
     private readonly string $payloadDirectory;
 
     public function __construct(string $payloadDirectory)
@@ -111,6 +94,12 @@ final class MergedSetValidator
     }
 
     /**
+     * The algorithm is read from the patch declaration rather than hardcoded at the
+     * point of use, so an unsupported declaration is rejected here or it reaches a
+     * hasher that cannot honour it. Which algorithms those are is `HashAlgorithm`'s
+     * to say, and it is asked rather than copied: two lists that had to agree would
+     * eventually not.
+     *
      * @return list<string>
      */
     private function hashTypeViolations(RuleSet $ruleSet): array
@@ -121,16 +110,11 @@ final class MergedSetValidator
         // element may legally carry no objects, and such a file still declares an
         // algorithm; taken from the objects it would pass unexamined.
         foreach ($ruleSet->hashTypes() as $sourceFile => $hashType) {
-            if ($hashType === self::SUPPORTED_HASH_TYPE) {
+            if (HashAlgorithm::isSupported($hashType)) {
                 continue;
             }
 
-            $violations[] = \sprintf(
-                '%s: declares hashType %s; version 1 supports %s only',
-                $sourceFile,
-                \var_export($hashType, true),
-                self::SUPPORTED_HASH_TYPE
-            );
+            $violations[] = \sprintf('%s: %s', $sourceFile, HashAlgorithm::unsupportedReason($hashType));
         }
 
         return $violations;
@@ -146,7 +130,7 @@ final class MergedSetValidator
         $violations = [];
 
         foreach ($ruleSet->objects() as $object) {
-            $width = self::DIGEST_LENGTH[$object->hashType] ?? null;
+            $width = HashAlgorithm::digestLength($object->hashType);
 
             if ($width === null) {
                 // An unsupported algorithm is already reported against the file. Its

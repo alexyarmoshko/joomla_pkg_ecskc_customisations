@@ -68,28 +68,42 @@ final class ConditionEvaluator
     private const OPERATORS = ['>=', '<=', '==', '!=', '<>', '>', '<', '='];
 
     /**
-     * Digits in dot-separated parts, then at most one suffix. **A suffix is
-     * introduced by `-`, `_` or `+`, never by `.`**, though it may contain dots once
-     * it has started.
+     * Digits in dot-separated parts, then at most one suffix, which may contain dots
+     * once it has started. A suffix is introduced by `-`, `_`, `+` or `~`, or by
+     * nothing at all where it opens with a version state, as PHP spells a prerelease
+     * in `PHP_VERSION`: `8.4.0RC1`.
      *
-     * That exclusion is the whole point of the shape. An earlier version let a suffix
-     * start with a dot as well, which made the two branches ambiguous: `5.4banana`
-     * failed as digits-and-dots, backtracked, and was read as the version `5` with
-     * the suffix `.4banana`. `5.4foo` and `5.4.0banana` went the same way, and
-     * `version_compare` is satisfied by all three under `>=5.4.7` - so the grammar
-     * meant to stop an unreadable constraint from permitting a write let three
-     * through.
+     * **The grammar admits only what `version_compare` can order in a direction the
+     * author can reason about**, which is narrower than "looks like a version". Its
+     * first suffix part decides the direction against the plain release, and there
+     * are two parts it orders and one it does not:
      *
-     * Wide enough for what Joomla and PHP actually report: `5.4.7`, `8.3.6`,
-     * `6.0.0-alpha1`, `1.0.0+build.5`, and a distribution build's
-     * `8.1.2-1ubuntu2.14`. Narrow enough to refuse what `version_compare` accepts
-     * without complaint, which is very nearly anything - `5banana`, `5..4`,
-     * `5.4 extra`, `5>=4` and `5/4` are each satisfied by `5.4.7` under `>=`.
+     * - A digit-led part sorts **above** the release, which is what a distribution
+     *   revision means: `8.1.2-1ubuntu2.14` and `8.2.28-1~deb12u1` are 8.1.2 and
+     *   8.2.28 with packaging on top.
+     * - One of `version_compare`'s own states - `dev`, `alpha`, `a`, `beta`, `b`,
+     *   `RC`, `rc`, `pl`, `p`, spelled in that case - sorts where the state says.
+     * - **Anything else sorts below the release**, and that is the direction that
+     *   writes. `8.2.0-ubuntu1`, `7.4.33-nmm1`, `8.2.0-zend1` and `5.4.7-PL1` are
+     *   each *at* their release, and each satisfies a ceiling of `<8.2.0`, `<7.4.33`
+     *   or `<5.4.7` - a ceiling written to keep a workaround off exactly those hosts.
+     *   `PL` is not `pl` to `version_compare`, which reads it as an arbitrary string.
+     *   So they fault, which an operator sees, rather than comparing backwards, which
+     *   nobody sees.
      *
-     * A version written without a separator before its suffix, as `5.4.7RC1`, is
-     * refused. That is a fault an author sees and fixes, which is the side to err on.
+     * `.` never introduces a suffix. Allowing it let `5.4banana` backtrack into the
+     * version `5` with the suffix `.4banana`, which `version_compare` is satisfied by
+     * under `>=5.4.7`.
+     *
+     * The `-` sits last inside each class. Written as `[._+-~]` it would be the range
+     * `+` to `~`, which is most of ASCII.
      */
-    private const VERSION = '/\A[0-9]+(\.[0-9]+)*([-_+][0-9A-Za-z]+([._+-][0-9A-Za-z]+)*)?\z/';
+    private const VERSION_STATE = '(?:dev|alpha|beta|RC|rc|pl|a|b|p)';
+
+    private const VERSION = '/\A[0-9]+(\.[0-9]+)*'
+        . '((' . self::VERSION_STATE . '[0-9]*'
+        . '|[-_+~](?:[0-9][0-9A-Za-z]*|' . self::VERSION_STATE . '[0-9]*))'
+        . '([._+~-][0-9A-Za-z]+)*)?\z/';
 
     /**
      * @param ConditionGroup|null $group Null where the action states no conditions,
@@ -224,20 +238,69 @@ final class ConditionEvaluator
 
         // D anchors $ at the end of the subject rather than before a final newline,
         // so an exclusion written as ^(?!host$).*$ means what its author read.
-        $result = @\preg_match($delimiter . $condition->operand . $delimiter . 'D', $value);
+        $expression = $delimiter . $condition->operand . $delimiter . 'D';
+
+        // The warning is captured rather than suppressed. On a *compilation* failure
+        // preg_last_error() stays at PREG_INTERNAL_ERROR, so preg_last_error_msg()
+        // says only "Internal error" - and compilation is where the likely authoring
+        // mistake is. The warning is the one place PCRE names the cause and the
+        // offset: "Compilation failed: missing closing parenthesis at offset 9". A
+        // fault an author cannot locate is a fault they cannot fix.
+        //
+        // Runtime failures are unaffected and still read from preg_last_error_msg():
+        // exhausting the backtrack limit raises no warning, and security review v2
+        // measured that path reporting "Backtrack limit exhausted".
+        $warning = null;
+
+        \set_error_handler(static function (int $severity, string $message) use (&$warning): bool {
+            $warning = $message;
+
+            return true;
+        });
+
+        try {
+            $result = \preg_match($expression, $value);
+        } finally {
+            \restore_error_handler();
+        }
 
         if ($result === false) {
             $faults[] = \sprintf(
                 'the expression for %s could not be evaluated: %s. Nothing is claimed about '
                 . 'the environment when the expression itself cannot be judged.',
                 $condition->attribute,
-                \preg_last_error_msg()
+                $this->patternFailureReason($warning)
             );
 
             return false;
         }
 
         return $result === 1;
+    }
+
+    /**
+     * Why the expression could not be evaluated, in as much detail as PCRE gave.
+     *
+     * The captured warning wins where there is one, because it is the more specific
+     * of the two: it carries the cause and the offset, while preg_last_error_msg()
+     * has only the coarse code. Its "preg_match(): " prefix is dropped - the reason
+     * is read by an operator in a report, not by someone debugging PHP.
+     */
+    private function patternFailureReason(?string $warning): string
+    {
+        // Read before anything else runs a PCRE function. preg_replace() below
+        // resets the error state - after it, preg_last_error_msg() answers for
+        // *that* call and says "No error", so a fallback taken afterwards would
+        // report a failed expression as having succeeded. Review s1.v17, finding 2.
+        $fallback = \preg_last_error_msg();
+
+        if ($warning === null || \trim($warning) === '') {
+            return $fallback;
+        }
+
+        $reason = \preg_replace('/^\s*preg_match\(\):\s*/', '', $warning);
+
+        return $reason === null || \trim($reason) === '' ? $fallback : \trim($reason);
     }
 
     private function delimiter(string $expression): ?string
@@ -286,9 +349,32 @@ final class ConditionEvaluator
             $faults[] = \sprintf(
                 'the version constraint for %s is "%s", which does not name a version. A '
                 . 'constraint is an optional comparison operator followed by a version, as '
-                . '">=5.4.0": digits in dot-separated parts, and any suffix introduced by '
-                . '"-", "_" or "+".',
+                . '">=5.4.0": digits in dot-separated parts, then at most one suffix. A '
+                . 'suffix follows "-", "_", "+" or "~" and starts with a digit, as in '
+                . '"8.1.2-1ubuntu2.14", or it is one of PHP\'s version states, as in '
+                . '"8.4.0RC1" or "6.0.0-alpha1". A suffix version_compare cannot order, '
+                . 'such as "-ubuntu1", is refused rather than compared backwards.',
                 $condition->attribute,
+                $condition->operand
+            );
+
+            return false;
+        }
+
+        if (\preg_match(self::VERSION, $value) !== 1) {
+            // The same hazard from the other operand. version_compare is as
+            // forgiving with the value as with the constraint, and forgiving in the
+            // direction that writes: version_compare('Unknown', '9.0', '<') is true,
+            // so a value that is not a version matched a ceiling and the object
+            // wrote. EnvironmentValues asks whether the value could be determined;
+            // this asks whether what was determined is a version at all, which only
+            // a version-typed condition needs.
+            $faults[] = \sprintf(
+                'the value of %s is "%s", which is not a version, so the constraint "%s" '
+                . 'cannot be judged against it. Nothing is claimed about an environment whose '
+                . 'version cannot be read.',
+                $condition->attribute,
+                $value,
                 $condition->operand
             );
 

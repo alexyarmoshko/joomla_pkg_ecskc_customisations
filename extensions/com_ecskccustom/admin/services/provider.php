@@ -27,6 +27,7 @@ use Joomla\DI\ServiceProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\ConditionEvaluator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentResolver;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
@@ -44,7 +45,7 @@ return new class () implements ServiceProviderInterface {
      * provider, which is the only route by which Joomla's own values reach the
      * derivation the core owns (decision 16).
      *
-     * The runner itself is registered here once it exists; tickets 15, 16 and 17 build
+     * The runner itself is registered here once it exists; tickets 16 and 17 build
      * the rest of it, and this file is where it is wired in.
      *
      * @param   Container  $container  The DI container.
@@ -97,6 +98,11 @@ return new class () implements ServiceProviderInterface {
             static fn (Container $container): MergedSetValidator => new MergedSetValidator(
                 $container->get(PackagePaths::class)->payload()
             )
+        );
+
+        $container->set(
+            Hasher::class,
+            static fn (): Hasher => new Hasher()
         );
 
         $container->set(

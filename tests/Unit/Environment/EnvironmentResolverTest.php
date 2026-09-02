@@ -85,6 +85,15 @@ final class EnvironmentResolverTest extends TestCase
             'subdirectory install kept'     => ['https://ecskc.eu/site/', 'https://ecskc.eu/site'],
             'subdirectory administrator'    => ['https://ecskc.eu/site/administrator/', 'https://ecskc.eu/site'],
             'nothing to remove'             => ['https://ecskc.eu', 'https://ecskc.eu'],
+            // A host named "administrator" is the authority, not a path segment.
+            // Cutting there left "http:", which is not a URL and is not empty
+            // either, so it was carried as a determined SITE_URL and an exclusion
+            // anchored on the real value matched the wreckage. Review s1.v23,
+            // finding 2.
+            'a host named administrator'    => ['http://administrator/', 'http://administrator'],
+            'that host with a port'         => ['http://administrator:8080/', 'http://administrator:8080'],
+            // And the same name as a real path segment under it still comes off.
+            'that host with the segment'    => ['http://administrator/administrator/', 'http://administrator'],
         ];
     }
 
@@ -92,6 +101,21 @@ final class EnvironmentResolverTest extends TestCase
     public function testTheRequestBaseIsNormalisedToOneShape(string $base, string $expected): void
     {
         self::assertSame($expected, $this->resolve(uriBase: $base)->value(EnvironmentValues::SITE_URL));
+    }
+
+    /**
+     * The wreckage was determined rather than faulted, which is what made it
+     * dangerous: a value of "http:" is not empty, so nothing reported a problem and
+     * every pattern was evaluated against it. HOST still faults, because "http:" has
+     * no host component, but SITE_URL is judged on its own. Review s1.v23, finding 2.
+     */
+    public function testAHostNamedAdministratorLeavesAUsableSiteUrl(): void
+    {
+        $values = $this->resolve(uriBase: 'http://administrator/');
+
+        self::assertTrue($values->isDetermined(EnvironmentValues::SITE_URL));
+        self::assertSame('http://administrator', $values->value(EnvironmentValues::SITE_URL));
+        self::assertSame('administrator', $values->value(EnvironmentValues::HOST));
     }
 
     /**
