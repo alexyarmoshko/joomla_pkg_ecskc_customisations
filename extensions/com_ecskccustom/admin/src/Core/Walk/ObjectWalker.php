@@ -140,10 +140,6 @@ final class ObjectWalker
         $decision = $this->pathPolicy->decide($targetPath);
 
         if (!$decision->allowed) {
-            // The build refuses an unsafe or denied target, so a refusal at run time
-            // means the site changed under a rule set that was sound when it shipped:
-            // a symbolic link now points elsewhere, or the package tree moved. That
-            // is the package or the filesystem at fault, not the file.
             return $this->faultedTarget(
                 $targetPath,
                 \sprintf('path policy refused this target: %s', (string) $decision->reason)
@@ -154,9 +150,6 @@ final class ObjectWalker
         $actual    = $this->hasher->hashFile($algorithm, (string) $decision->path);
 
         if (!$actual->isAvailable() && !$actual->isAbsent()) {
-            // A directory in the way, an unreadable file, a parent that cannot be
-            // searched, an algorithm the build should have refused. None of them is
-            // a statement about the file's content.
             $reason = \sprintf('the target could not be read: %s', (string) $actual->reason);
 
             return TargetState::of(
@@ -168,233 +161,244 @@ final class ObjectWalker
             );
         }
 
-        // The simulated state the walk carries: the digest the file holds, or its
-        // absence. It starts as the bytes on disk and is a HashResult throughout, so
-        // every comparison goes through the one place that owns the rule for
-        // comparing digests. `$actual` stays the file's own hash for the report.
-        $state = $actual;
-
-        $outcomes   = [];
-        $operations = [];
-        $expected   = null;
-
-        $settled         = null;
-        $refusedByPermit = false;
-        $sawNotMatched   = false;
-
-        // The last object that could have carried the walk on and was skipped anyway,
-        // by an operator's switch or by a condition written for another environment.
-        // It is why the walk stands where it does, so it survives as the status
-        // qualifier. Like a gate, it clears the moment a later object advances.
-        $skipQualifier = null;
-        $skipReason    = null;
-
-        // Indexes into $outcomes of objects that currently hold the walk short of the
-        // head. A barrier is only a barrier until something gets past it, so the list
-        // is emptied whenever a later object advances the walk, and what is left at
-        // the end is the unresolved part. Review s1.v26, spec finding 1.
-        $pendingGates = [];
-
-        // Whether the objects here form a chain or a set of alternatives, decided the
-        // way MergedSetValidator decides it: a first object that may create a file the
-        // vendor does not ship is package-owned, and everything after it is a revision
-        // of what an earlier one wrote. Vendor alternatives instead each expect an
-        // original from a different vendor build and are independent of each other.
-        $packageOwned  = $objects[0]->create;
-        $writtenBefore = $this->payloadsWrittenBeforeEachObject($objects);
+        $ctx = new WalkContext($actual, $objects);
 
         foreach ($objects as $index => $object) {
             if ($object->hashType !== $algorithm) {
-                // Version 1 supports sha256 alone and the build refuses anything else,
-                // so this cannot ship. Comparing a digest against one written in
-                // another algorithm would answer "different" for identical bytes, and
-                // that answer is indistinguishable from a vendor change.
                 return $this->faultedTarget($targetPath, \sprintf(
                     '%s declares hash type %s where an earlier object at this target declares %s, '
                     . 'so the two cannot be compared',
                     $object->label(),
                     $object->hashType,
                     $algorithm
-                ), $outcomes, $actual);
+                ), $ctx->outcomes, $actual);
             }
 
             if (!$object->enable) {
-                $reachable = $this->couldAdvance($object, $state);
-
-                // A disabled object strands a site only where a later object expects
-                // the state it would have produced. Brief 5.2 is explicit that the
-                // other shapes are the intended use: disabling the head of a chain
-                // switches a customisation off, and disabling one of several vendor
-                // alternatives declines to customise that vendor build. The build
-                // warns about the one shape that bites, and nothing else here may
-                // report it as a gap in the rule set.
-                $gates = $reachable && $this->gatesALaterChainStep($object, $objects, $index);
-
-                if ($gates) {
-                    $reason = 'the object is disabled, and a later object at this target expects '
-                        . 'a state it would have produced';
-                } else {
-                    $reason = 'the object is disabled';
-
-                    if ($reachable) {
-                        $skipQualifier = TargetState::DISABLED;
-                        $skipReason    = \sprintf(
-                            'version %d matches this target and is switched off, so the rule set '
-                            . 'writes nothing further here',
-                            $object->version
-                        );
-                    }
-                }
-
-                $outcomes[] = ObjectOutcome::for($object, ObjectOutcome::DISABLED, $reason, $gates);
-
-                if ($gates) {
-                    $pendingGates[] = \array_key_last($outcomes);
-                }
+                $this->walkDisabledObject($object, $objects, $index, $ctx);
 
                 continue;
             }
 
-            $chosen = null;
-            $faults = [];
+            $selection = $this->chooseAction($object, $values, $ctx);
 
-            foreach ($object->actions as $action) {
-                $outcome = $this->conditions->evaluate($action->conditions, $values);
-
-                if ($outcome->isFaulted()) {
-                    // Every action is judged before one is chosen, for the reason the
-                    // evaluator does not short circuit within a group: stopping at the
-                    // first match would make the outcome depend on the order the
-                    // author wrote the actions in, and would hide an undeterminable
-                    // attribute from the operator who has to fix it.
-                    $faults = [...$faults, ...$outcome->reasons];
-
-                    continue;
-                }
-
-                if ($chosen === null && $outcome->isMatched()) {
-                    $chosen = $action;
-                }
-            }
-
-            if ($faults !== []) {
-                $reason     = \sprintf('a condition could not be judged: %s', \implode('; ', $faults));
-                $outcomes[] = ObjectOutcome::for($object, ObjectOutcome::FAULTED, $reason);
-
-                return $this->faultedTarget($targetPath, $reason, $outcomes, $actual);
-            }
-
-            if ($chosen === null) {
-                // Reachability is what makes this skip mean anything. An object whose
-                // expected original the file does not hold was never going to advance
-                // the walk, so its unmet conditions say nothing about the target and
-                // must not talk over a `blocked` finding from elsewhere at this path.
-                $reachable = $this->couldAdvance($object, $state);
-
-                // A condition gates only what a later object cannot do without it, and
-                // only once the walk has advanced. Where nothing depends on this
-                // object, an unmet condition says the author wrote that revision for
-                // another environment, which is an answer rather than a gap. On the
-                // first object it says the customisation does not apply here at all.
-                $gates = $reachable
-                    && $settled !== null
-                    && $this->gatesALaterChainStep($object, $objects, $index);
-
-                $outcomes[] = ObjectOutcome::for(
-                    $object,
-                    ObjectOutcome::CONDITIONS_UNMET,
-                    'no action of this object has conditions that hold in this environment',
-                    $gates
+            if ($selection->isFaulted()) {
+                return $this->faultedTarget(
+                    $targetPath,
+                    (string) $selection->faultReason,
+                    $ctx->outcomes,
+                    $actual
                 );
+            }
 
-                if ($gates) {
-                    $pendingGates[] = \array_key_last($outcomes);
-                } elseif ($reachable) {
-                    $skipQualifier = TargetState::UNMET;
-                    $skipReason    = \sprintf(
-                        'version %d is written for another environment, so the rule set writes '
-                        . 'nothing further here',
-                        $object->version
-                    );
-                }
-
+            if ($selection->isUnmet()) {
                 continue;
             }
 
-            [$result, $reason] = $this->judge($object, $chosen, $state);
+            /** @var RuleAction $chosen */
+            $chosen = $selection->action;
 
-            $outcomes[] = ObjectOutcome::for($object, $result, $reason);
+            [$result, $reason] = $this->judge($object, $chosen, $ctx->state);
 
-            switch ($result) {
-                case ObjectOutcome::AT_PAYLOAD:
-                    $settled      = $object;
-                    $expected     = $chosen->isCopy()
-                        ? HashResult::digest((string) $chosen->sourceHash)
-                        : HashResult::absent('this object removes the target, and nothing is there');
-                    $pendingGates  = $this->release($outcomes, $pendingGates);
-                    $skipQualifier = null;
-                    $skipReason    = null;
+            $ctx->outcomes[] = ObjectOutcome::for($object, $result, $reason);
 
-                    break;
-
-                case ObjectOutcome::WOULD_APPLY:
-                    $operations[] = ProposedOperation::fromAction($object, $chosen, $reason);
-                    $settled      = $object;
-                    $expected     = $this->expectationOf($object, $chosen);
-                    $state        = $chosen->isCopy()
-                        ? HashResult::digest((string) $chosen->sourceHash)
-                        : HashResult::absent('this object removes the target');
-                    $pendingGates  = $this->release($outcomes, $pendingGates);
-                    $skipQualifier = null;
-                    $skipReason    = null;
-
-                    break;
-
-                case ObjectOutcome::NOT_MATCHED:
-                    $sawNotMatched = true;
-
-                    if ($settled === null && $object->expectedHash !== null) {
-                        $expected = HashResult::digest($object->expectedHash);
-                    }
-
-                    if ($this->stopsTheChainShort($object, $settled, $packageOwned, $writtenBefore[$index])) {
-                        $pendingGates[] = \array_key_last($outcomes);
-                    }
-
-                    break;
-
-                default:
-                    $refusedByPermit = true;
-
-                    if ($this->stopsTheChainShort($object, $settled, $packageOwned, $writtenBefore[$index])) {
-                        $pendingGates[] = \array_key_last($outcomes);
-                    }
-            }
+            $this->advanceWalk($object, $chosen, $result, $reason, $index, $ctx);
         }
 
         [$status, $reason, $qualifier] = $this->settle(
-            $settled,
-            $operations,
-            $pendingGates !== [],
-            $skipQualifier,
-            $skipReason,
-            $refusedByPermit,
-            $sawNotMatched
+            $ctx->settled,
+            $ctx->operations,
+            $ctx->pendingGates !== [],
+            $ctx->skipQualifier,
+            $ctx->skipReason,
+            $ctx->refusedByPermit,
+            $ctx->sawNotMatched
         );
 
         return TargetState::of(
             $targetPath,
             $status,
             $reason,
-            $expected ?? HashResult::unavailable(
+            $ctx->expected ?? HashResult::unavailable(
                 'no object at this target was measured against the file, so the rule set '
                 . 'declares no hash to expect here'
             ),
             $actual,
-            $outcomes,
-            $operations,
+            $ctx->outcomes,
+            $ctx->operations,
             $qualifier
         );
+    }
+
+    /**
+     * Handle a disabled object: record the outcome, decide whether it gates later
+     * objects, and update the skip qualifier when the object could have advanced.
+     *
+     * @param list<RuleObject> $objects
+     */
+    private function walkDisabledObject(
+        RuleObject $object,
+        array $objects,
+        int $index,
+        WalkContext $ctx,
+    ): void {
+        $reachable = $this->couldAdvance($object, $ctx->state);
+
+        $gates = $reachable && $this->gatesALaterChainStep($object, $objects, $index);
+
+        if ($gates) {
+            $reason = 'the object is disabled, and a later object at this target expects '
+                . 'a state it would have produced';
+        } else {
+            $reason = 'the object is disabled';
+
+            if ($reachable) {
+                $ctx->skipQualifier = TargetState::DISABLED;
+                $ctx->skipReason    = \sprintf(
+                    'version %d matches this target and is switched off, so the rule set '
+                    . 'writes nothing further here',
+                    $object->version
+                );
+            }
+        }
+
+        $ctx->outcomes[] = ObjectOutcome::for($object, ObjectOutcome::DISABLED, $reason, $gates);
+
+        if ($gates) {
+            $ctx->pendingGates[] = \array_key_last($ctx->outcomes);
+        }
+    }
+
+    /**
+     * Evaluate conditions across the object's actions and select the first matching
+     * one, or handle the faulted / conditions-unmet cases in place.
+     */
+    private function chooseAction(
+        RuleObject $object,
+        EnvironmentValues $values,
+        WalkContext $ctx,
+    ): ActionSelection {
+        $chosen = null;
+        $faults = [];
+
+        foreach ($object->actions as $action) {
+            $outcome = $this->conditions->evaluate($action->conditions, $values);
+
+            if ($outcome->isFaulted()) {
+                $faults = [...$faults, ...$outcome->reasons];
+
+                continue;
+            }
+
+            if ($chosen === null && $outcome->isMatched()) {
+                $chosen = $action;
+            }
+        }
+
+        if ($faults !== []) {
+            $reason          = \sprintf('a condition could not be judged: %s', \implode('; ', $faults));
+            $ctx->outcomes[] = ObjectOutcome::for($object, ObjectOutcome::FAULTED, $reason);
+
+            return ActionSelection::faulted($reason);
+        }
+
+        if ($chosen === null) {
+            $this->recordConditionsUnmet($object, $ctx);
+
+            return ActionSelection::unmet();
+        }
+
+        return ActionSelection::selected($chosen);
+    }
+
+    /**
+     * An object whose conditions did not hold: record the outcome and decide whether
+     * the skip gates a later chain step or simply qualifies the status.
+     */
+    private function recordConditionsUnmet(RuleObject $object, WalkContext $ctx): void
+    {
+        $reachable = $this->couldAdvance($object, $ctx->state);
+
+        $gates = $reachable
+            && $ctx->settled !== null
+            && $this->gatesALaterChainStep($object, $ctx->objects, $ctx->indexOf($object));
+
+        $ctx->outcomes[] = ObjectOutcome::for(
+            $object,
+            ObjectOutcome::CONDITIONS_UNMET,
+            'no action of this object has conditions that hold in this environment',
+            $gates
+        );
+
+        if ($gates) {
+            $ctx->pendingGates[] = \array_key_last($ctx->outcomes);
+        } elseif ($reachable) {
+            $ctx->skipQualifier = TargetState::UNMET;
+            $ctx->skipReason    = \sprintf(
+                'version %d is written for another environment, so the rule set writes '
+                . 'nothing further here',
+                $object->version
+            );
+        }
+    }
+
+    /**
+     * Dispatch on the judge result: advance the simulated state, propose an operation,
+     * or record that the object could not match or was refused.
+     */
+    private function advanceWalk(
+        RuleObject $object,
+        RuleAction $chosen,
+        string $result,
+        string $reason,
+        int $index,
+        WalkContext $ctx,
+    ): void {
+        switch ($result) {
+            case ObjectOutcome::AT_PAYLOAD:
+                $ctx->settled      = $object;
+                $ctx->expected     = $chosen->isCopy()
+                    ? HashResult::digest((string) $chosen->sourceHash)
+                    : HashResult::absent('this object removes the target, and nothing is there');
+                $ctx->pendingGates  = $this->release($ctx->outcomes, $ctx->pendingGates);
+                $ctx->skipQualifier = null;
+                $ctx->skipReason    = null;
+
+                break;
+
+            case ObjectOutcome::WOULD_APPLY:
+                $ctx->operations[] = ProposedOperation::fromAction($object, $chosen, $reason);
+                $ctx->settled      = $object;
+                $ctx->expected     = $this->expectationOf($object, $chosen);
+                $ctx->state        = $chosen->isCopy()
+                    ? HashResult::digest((string) $chosen->sourceHash)
+                    : HashResult::absent('this object removes the target');
+                $ctx->pendingGates  = $this->release($ctx->outcomes, $ctx->pendingGates);
+                $ctx->skipQualifier = null;
+                $ctx->skipReason    = null;
+
+                break;
+
+            case ObjectOutcome::NOT_MATCHED:
+                $ctx->sawNotMatched = true;
+
+                if ($ctx->settled === null && $object->expectedHash !== null) {
+                    $ctx->expected = HashResult::digest($object->expectedHash);
+                }
+
+                if ($this->stopsTheChainShort($object, $ctx->settled, $ctx->packageOwned, $ctx->writtenBefore[$index])) {
+                    $ctx->pendingGates[] = \array_key_last($ctx->outcomes);
+                }
+
+                break;
+
+            default:
+                $ctx->refusedByPermit = true;
+
+                if ($this->stopsTheChainShort($object, $ctx->settled, $ctx->packageOwned, $ctx->writtenBefore[$index])) {
+                    $ctx->pendingGates[] = \array_key_last($ctx->outcomes);
+                }
+        }
     }
 
     /**
@@ -655,33 +659,6 @@ final class ObjectWalker
         return false;
     }
 
-    /**
-     * The payload hashes written by the objects ahead of each position.
-     *
-     * Built ahead of the walk rather than accumulated inside it, so an object can
-     * never link to itself: an expectedHash copied from the sourceHash directly above
-     * it links to nothing, and this is the same shape MergedSetValidator's chain check
-     * refuses at build time.
-     *
-     * @param list<RuleObject> $objects
-     *
-     * @return list<array<string, true>>
-     */
-    private function payloadsWrittenBeforeEachObject(array $objects): array
-    {
-        $before      = [];
-        $accumulated = [];
-
-        foreach ($objects as $object) {
-            $before[] = $accumulated;
-
-            foreach ($object->payloadHashes() as $hash) {
-                $accumulated[\strtolower($hash)] = true;
-            }
-        }
-
-        return $before;
-    }
 
     /**
      * Clear the barriers a later object has got past, in the report as well.

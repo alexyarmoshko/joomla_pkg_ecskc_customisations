@@ -11,14 +11,17 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\Enviro
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleAction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ActionSelection;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectOutcome;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ProposedOperation;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetState;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\WalkContext;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
@@ -36,6 +39,8 @@ use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
  * author can actually write.
  */
 #[CoversClass(ObjectWalker::class)]
+#[CoversClass(WalkContext::class)]
+#[CoversClass(ActionSelection::class)]
 #[CoversClass(TargetState::class)]
 #[CoversClass(TargetStatus::class)]
 #[CoversClass(ObjectOutcome::class)]
@@ -800,6 +805,57 @@ final class ObjectWalkerTest extends TestCase
         self::assertSame([], $state->operations());
     }
 
+    /**
+     * An object whose permissions refuse the write on a chain that has already
+     * advanced stops the chain short and makes the target incomplete.
+     */
+    public function testAChainStoppedByPermissionsIsIncomplete(): void
+    {
+        $state = $this->walkOne(RuleXml::patch(
+            RuleXml::object(
+                version: 1,
+                dest: 'templates/et_tennis/css/perm.css',
+                source: 'perm.css.v1',
+                sourceHash: self::digest(self::FIRST),
+                create: true
+            )
+            . RuleXml::object(
+                version: 2,
+                dest: 'templates/et_tennis/css/perm.css',
+                source: 'perm.css.v2',
+                sourceHash: self::digest(self::SECOND),
+                expectedHash: self::digest(self::FIRST),
+                replace: false
+            )
+        ));
+
+        self::assertSame(TargetStatus::INCOMPLETE, $state->status);
+        self::assertSame(ObjectOutcome::NOT_APPLICABLE, $state->objectOutcomes()[1]->result);
+        self::assertStringContainsString('may not replace it', $state->objectOutcomes()[1]->reason);
+    }
+
+    /**
+     * A single object with replace=false on a file that matches its expected original
+     * is not applicable: nothing else depends on it, and the operator chose not to let
+     * it write. This exercises the refusedByPermit path through settle().
+     */
+    public function testAnObjectThatMayNotReplaceIsNotApplicable(): void
+    {
+        $this->tree->write('templates/et_tennis/css/readonly.css', self::ORIGINAL);
+
+        $state = $this->walkOne(RuleXml::patch(RuleXml::object(
+            version: 1,
+            dest: 'templates/et_tennis/css/readonly.css',
+            source: 'readonly.css.v1',
+            sourceHash: self::digest(self::FIRST),
+            expectedHash: self::digest(self::ORIGINAL),
+            replace: false
+        )));
+
+        self::assertSame(TargetStatus::NOT_APPLICABLE, $state->status);
+        self::assertStringContainsString('do not permit', $state->reason);
+    }
+
     public function testATargetPathPolicyRefusesIsFaultedNotBlocked(): void
     {
         $this->tree->write('configuration.php', '<?php // the site configuration');
@@ -1142,6 +1198,31 @@ final class ObjectWalkerTest extends TestCase
             ],
             [EnvironmentValues::JOOMLA_VERSION => 'Joomla did not report its version']
         );
+    }
+
+    public function testActionSelectionDistinguishesOutcomes(): void
+    {
+        $action = RuleAction::remove(false, null);
+        $selected = ActionSelection::selected($action);
+        self::assertTrue($selected->isSelected());
+        self::assertFalse($selected->isUnmet());
+        self::assertFalse($selected->isFaulted());
+        self::assertSame($action, $selected->action);
+        self::assertNull($selected->faultReason);
+
+        $unmet = ActionSelection::unmet();
+        self::assertFalse($unmet->isSelected());
+        self::assertTrue($unmet->isUnmet());
+        self::assertFalse($unmet->isFaulted());
+        self::assertNull($unmet->action);
+        self::assertNull($unmet->faultReason);
+
+        $faulted = ActionSelection::faulted('fault reason');
+        self::assertFalse($faulted->isSelected());
+        self::assertFalse($faulted->isUnmet());
+        self::assertTrue($faulted->isFaulted());
+        self::assertNull($faulted->action);
+        self::assertSame('fault reason', $faulted->faultReason);
     }
 
     /**
