@@ -33,7 +33,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\ReportOnlyHistory;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteHistoryInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Environment\JoomlaEnvironmentProvider;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomisationComponent;
@@ -47,8 +50,10 @@ return new class () implements ServiceProviderInterface {
      * provider, which is the only route by which Joomla's own values reach the
      * derivation the core owns (decision 16).
      *
-     * The runner itself is registered here once it exists; ticket 17 builds the
-     * report it returns, and this file is where it is wired in.
+     * The runner is the only one of these an adapter resolves. It is registered
+     * against its own class rather than an interface because there is one of it;
+     * what a test replaces is a collaborator underneath it, above all the
+     * environment provider and the write history.
      *
      * @param   Container  $container  The DI container.
      *
@@ -129,6 +134,24 @@ return new class () implements ServiceProviderInterface {
                 $container->get(Hasher::class),
                 $container->get(ConditionEvaluator::class),
                 $container->get(FreezeMarkers::class)
+            )
+        );
+
+        $container->set(
+            WriteHistoryInterface::class,
+            static fn (): WriteHistoryInterface => new ReportOnlyHistory()
+        );
+
+        $container->set(
+            Runner::class,
+            static fn (Container $container): Runner => new Runner(
+                $container->get(PackagePaths::class),
+                $container->get(RuleLoader::class),
+                $container->get(MergedSetValidator::class),
+                $container->get(EnvironmentProviderInterface::class),
+                $container->get(EnvironmentResolver::class),
+                $container->get(ObjectWalker::class),
+                $container->get(WriteHistoryInterface::class)
             )
         );
 
