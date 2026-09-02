@@ -33,6 +33,7 @@ final class HashResult
     private function __construct(
         public readonly ?string $digest,
         public readonly ?string $reason,
+        private readonly bool $absent = false,
     ) {
     }
 
@@ -46,9 +47,33 @@ final class HashResult
         return new self(null, $reason);
     }
 
+    /**
+     * There is no file at this path, which is a different answer from "no digest".
+     *
+     * The forward walk has to tell the two apart and cannot do it from the reason
+     * text. An absent file is an ordinary state the rule set describes: an object
+     * that may create writes there, one that may not reports `not applicable`, and a
+     * removal is already done. Every other unavailable result - a directory in the
+     * way, an unreadable file, a parent that cannot be searched - says the package
+     * could not look, which is `faulted`. Sending an operator to the wrong one of
+     * those two costs them the whole diagnosis.
+     *
+     * It carries no digest, so it matches nothing, exactly as any other unavailable
+     * result does.
+     */
+    public static function absent(string $reason): self
+    {
+        return new self(null, $reason, true);
+    }
+
     public function isAvailable(): bool
     {
         return $this->digest !== null;
+    }
+
+    public function isAbsent(): bool
+    {
+        return $this->absent;
     }
 
     /**

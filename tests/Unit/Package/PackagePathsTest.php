@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -134,6 +135,44 @@ final class PackagePathsTest extends TestCase
 
         self::assertStringContainsString('throw new RuntimeException', $postflight);
         self::assertStringNotContainsString('return false', $postflight);
+    }
+
+    public function testAFreezeMarkerMirrorsTheSiteTreeUnderBackup(): void
+    {
+        $paths = new PackagePaths(self::ROOT);
+
+        self::assertSame(
+            self::ROOT . '/backup/templates/et_tennis/css/override.css.frozen',
+            $paths->freezeMarker('templates/et_tennis/css/override.css')
+        );
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function pathsThatLeaveTheBackupTree(): array
+    {
+        return [
+            'empty'          => [''],
+            'absolute'       => ['/etc/passwd'],
+            'parent segment' => ['templates/../../etc/passwd'],
+            'dot segment'    => ['templates/./override.css'],
+            'empty segment'  => ['templates//override.css'],
+            'backslash'      => ['templates\\override.css'],
+        ];
+    }
+
+    /**
+     * The runner asks path policy first, so this cannot fire there. It is here so a
+     * later caller that skips that step fails loudly instead of testing some other
+     * file for existence and reporting a target frozen or free on the answer.
+     */
+    #[DataProvider('pathsThatLeaveTheBackupTree')]
+    public function testAMarkerIsRefusedForAPathThatIsNotCanonical(string $targetPath): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new PackagePaths(self::ROOT))->freezeMarker($targetPath);
     }
 
     public function testTheManifestDeclaresPayloadAndRulesAndNoStateFolder(): void

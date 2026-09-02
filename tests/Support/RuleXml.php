@@ -41,6 +41,24 @@ final class RuleXml
     }
 
     /**
+     * One condition, wrapped in the group the schema requires.
+     *
+     * The forward walk needs objects that hold on one host and not on another, and
+     * a group of one is the smallest shape that expresses it. Nesting and `any`
+     * groups belong to the evaluator's own tests.
+     */
+    public static function conditions(
+        string $attribute,
+        string $value,
+        string $type = 'literal',
+        string $match = 'all',
+    ): string {
+        return '<conditions match="' . $match . '">'
+            . '<condition attribute="' . $attribute . '" type="' . $type . '">' . $value . '</condition>'
+            . '</conditions>';
+    }
+
+    /**
      * One object. A null source makes the action a removal rather than a copy.
      */
     public static function object(
@@ -52,6 +70,7 @@ final class RuleXml
         ?bool $create = null,
         ?bool $replace = null,
         ?bool $enable = null,
+        ?string $conditions = null,
     ): string {
         $attributes = 'version="' . $version . '"';
 
@@ -71,7 +90,7 @@ final class RuleXml
             . '<destPathFileName>' . $dest . '</destPathFileName>'
             . ($expectedHash === null ? '' : '<expectedHash>' . $expectedHash . '</expectedHash>')
             . '</id>'
-            . '<action><operations>' . $operation . '</operations></action>'
+            . '<action>' . ($conditions ?? '') . '<operations>' . $operation . '</operations></action>'
             . '</object>';
     }
 }

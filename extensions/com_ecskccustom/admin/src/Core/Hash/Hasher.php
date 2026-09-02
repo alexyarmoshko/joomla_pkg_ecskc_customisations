@@ -121,7 +121,7 @@ final class Hasher
                 );
             }
 
-            return HashResult::unavailable('the file is absent');
+            return HashResult::absent('the file is absent');
         }
 
         if (!\is_file($path)) {

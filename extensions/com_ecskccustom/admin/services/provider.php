@@ -33,6 +33,8 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Environment\JoomlaEnvironmentProvider;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomisationComponent;
 
@@ -45,8 +47,8 @@ return new class () implements ServiceProviderInterface {
      * provider, which is the only route by which Joomla's own values reach the
      * derivation the core owns (decision 16).
      *
-     * The runner itself is registered here once it exists; tickets 16 and 17 build
-     * the rest of it, and this file is where it is wired in.
+     * The runner itself is registered here once it exists; ticket 17 builds the
+     * report it returns, and this file is where it is wired in.
      *
      * @param   Container  $container  The DI container.
      *
@@ -110,6 +112,23 @@ return new class () implements ServiceProviderInterface {
             static fn (Container $container): PathPolicy => new PathPolicy(
                 JPATH_ROOT,
                 $container->get(PackagePaths::class)->root()
+            )
+        );
+
+        $container->set(
+            FreezeMarkers::class,
+            static fn (Container $container): FreezeMarkers => new FreezeMarkers(
+                $container->get(PackagePaths::class)
+            )
+        );
+
+        $container->set(
+            ObjectWalker::class,
+            static fn (Container $container): ObjectWalker => new ObjectWalker(
+                $container->get(PathPolicy::class),
+                $container->get(Hasher::class),
+                $container->get(ConditionEvaluator::class),
+                $container->get(FreezeMarkers::class)
             )
         );
 

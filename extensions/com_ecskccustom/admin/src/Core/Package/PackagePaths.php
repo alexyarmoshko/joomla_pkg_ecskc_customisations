@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package;
 
+use InvalidArgumentException;
+
 /**
  * Where the installed package keeps its own files.
  *
@@ -62,6 +64,24 @@ final class PackagePaths
 
     /** The name protect() writes before it renames the file over the guard. */
     public const HTACCESS_TEMPORARY = '/\A\.htaccess\.[0-9a-f]+\.tmp\z/';
+
+    /**
+     * The suffix that marks a target frozen, written beside that target's backups.
+     *
+     * Decision 19 of the brief puts the marker under `backup/`, beside the path's
+     * backup chain, rather than beside the payload: `payload/` is declared in the
+     * manifest and a later manifest that stopped declaring it would take the markers
+     * with it. `backup/` is declared nowhere, so Joomla's update never walks it.
+     *
+     * The name mirrors the site tree the same way a backup does, so
+     * `templates/et_tennis/css/override.css` freezes at
+     * `backup/templates/et_tennis/css/override.css.frozen`. One directory listing
+     * then shows a target's whole history and whether it is held.
+     *
+     * `.frozen` is outside the path policy's allowed extensions, so no rule can name
+     * a marker as its target even if the deny list on the package tree were lifted.
+     */
+    public const FREEZE_MARKER = '.frozen';
 
     public const EVENT_LOG = 'events.log';
     public const LOCK      = 'run.lock';
@@ -129,6 +149,39 @@ final class PackagePaths
     public function state(): string
     {
         return $this->root . '/state';
+    }
+
+    /**
+     * Where the marker for one target lives.
+     *
+     * @param string $targetPath The canonical root-relative target path, as
+     *                           RuleObject carries it.
+     *
+     * @throws InvalidArgumentException On a path that could leave the backup tree.
+     *                                  Callers reach this after path policy has
+     *                                  already decided the target, so this cannot
+     *                                  fire in the runner; it is here so that a
+     *                                  later caller which skips that step fails
+     *                                  loudly rather than testing some other file
+     *                                  for existence.
+     */
+    public function freezeMarker(string $targetPath): string
+    {
+        if ($targetPath === '' || \str_starts_with($targetPath, '/') || \str_contains($targetPath, '\\')) {
+            throw new InvalidArgumentException(
+                \sprintf('%s is not a canonical root-relative target path', $targetPath)
+            );
+        }
+
+        foreach (\explode('/', $targetPath) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                throw new InvalidArgumentException(
+                    \sprintf('%s has an empty, "." or ".." segment', $targetPath)
+                );
+            }
+        }
+
+        return $this->backup() . '/' . $targetPath . self::FREEZE_MARKER;
     }
 
     public function eventLog(): string
