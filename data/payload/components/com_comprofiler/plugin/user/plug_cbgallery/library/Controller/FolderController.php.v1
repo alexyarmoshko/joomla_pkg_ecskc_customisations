@@ -1,0 +1,1182 @@
+<?php
+/**
+* Community Builder (TM)
+* @version $Id: $
+* @package CommunityBuilder
+* @copyright (C) 2004-2026 www.joomlapolis.com / Lightning MultiCom SA - and its licensors, all rights reserved
+* @license http://www.gnu.org/licenses/old-licenses/gpl-2.0.html GNU/GPL version 2
+*/
+
+namespace CB\Plugin\Gallery\Controller;
+
+use CB\Plugin\Gallery\Helper\ArrayHelper;
+use CB\Plugin\Gallery\Helper\CaptchaHelper;
+use CB\Plugin\Gallery\Helper\FileHelper;
+use CB\Plugin\Gallery\Helper\FoldersHelper;
+use CB\Plugin\Gallery\Helper\GalleryHelper;
+use CB\Plugin\Gallery\Helper\HtmlHelper;
+use CB\Plugin\Gallery\Helper\PrivacyHelper;
+use CB\Plugin\Gallery\Helper\QueryHelper;
+use CB\Plugin\Gallery\Helper\RouteHelper;
+use CB\Plugin\Gallery\Helper\UsersHelper;
+use CB\Plugin\Gallery\Params\GlobalParams;
+use CB\Plugin\Gallery\Table\FolderTable;
+use CB\Plugin\Gallery\Table\ItemTable;
+use CBLib\Application\Application;
+use CBLib\Database\Table\Table;
+use CBLib\Language\CBTxt;
+use cbNotification;
+use CBuser;
+use Exception;
+use ZipArchive;
+
+\defined( '_JEXEC' ) or die;
+
+\defined( 'CBLIB' ) or die;
+
+class FolderController extends ItemsController
+{
+	/** @var null|FolderTable */
+	protected ?Table $row	=	null;
+
+	/**
+	 * @param string $view
+	 * @return bool
+	 */
+	public function authorized( string $view = '' ): bool
+	{
+		return ( ( $this->gallery && $this->gallery->getId() ) && ( ( $this->row && $this->row->getId() ) || ( $view === 'new' ) || ( $view === 'save' ) ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function thumbnail(): void
+	{
+		$this->row->outputThumbnail();
+	}
+
+	/**
+	 * @return void
+	 */
+	public function preview(): void
+	{
+		$this->row->outputThumbnail();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedNew(): bool
+	{
+		return ( ( ! $this->row ) && $this->gallery->canCreate( 'folders' ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function new(): void
+	{
+		$this->form();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedEdit(): bool
+	{
+		return $this->rowGallery->canEditMedia( $this->row );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function edit(): void
+	{
+		$this->form();
+	}
+
+	/**
+	 * @return void
+	 */
+	public function form(): void
+	{
+		global $_CB_framework;
+
+		if ( ! $this->row ) {
+			$gallery			=	$this->gallery;
+
+			if ( preg_match( '/^gallery\.(\d+)$/', $this->gallery->getInitialAsset(), $matches ) ) {
+				$inheritGallery	=	GalleryHelper::getGallery( (int) ( $matches[1] ?? 0 ) );
+
+				if ( $inheritGallery ) {
+					$gallery	=	$inheritGallery;
+				}
+			}
+
+			$this->row			=	new FolderTable();
+
+			$this->row->setGalleryId( $gallery->getId() );
+			$this->row->setAccess( ( $gallery->getAsset()->getAccess() ?: $gallery->getAccess() ) );
+			$this->row->setAsset( (string) $gallery->getAsset() );
+			$this->row->setUserId( $this->myId );
+
+			$this->rowGallery	=	$gallery;
+		}
+
+		$isModal				=	$this->isRaw;
+		$output					=	( $isModal ? 'modal' : '' );
+
+		if ( $this->input->getString( 'plugin', '' ) === 'cbgallery' ) {
+			$output				=	$this->input->getString( 'output', $output );
+		}
+
+		$currentReturnUrl		=	RouteHelper::getReturn( true, true );
+
+		if ( ! $this->row->getId() ) {
+			$formUrl			=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder.save', 'gallery' => $this->gallery->getId(), 'asset' => $this->gallery->getAsset()->getEncoded() ] );
+			$formUrlData		=	[ 'action' => 'folder.save', 'gallery' => $this->gallery->getId(), 'asset' => $this->gallery->getAsset()->getEncoded(), 'output' => $output ];
+			$returnUrl			=	( $isModal ? '' : ( $currentReturnUrl ?: $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'gallery', 'gallery' => $this->gallery->getId(), 'asset' => $this->gallery->getAsset()->getEncoded() ] ) ) );
+			$returnUrlData		=	( $currentReturnUrl ? [] : [ 'action' => 'gallery', 'gallery' => $this->gallery->getId(), 'asset' => $this->gallery->getAsset()->getEncoded(), 'output' => $output ] );
+		} else {
+			$formGalleryId		=	null;
+			$formGalleryAsset	=	null;
+
+			if ( $this->gallery->getId() !== $this->row->getGalleryId() ) {
+				$formGalleryId		=	$this->gallery->getId();
+				$formGalleryAsset	=	$this->gallery->getAsset()->getEncoded();
+			}
+
+			$formUrl			=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder.save', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] );
+			$formUrlData		=	[ 'action' => 'folder.save', 'gallery' => $formGalleryId, 'asset' => $formGalleryAsset, 'id' => $this->row->getId(), 'output' => $output ];
+			$returnUrl			=	( $isModal ? '' : ( $currentReturnUrl ?: $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ) ) );
+			$returnUrlData		=	( $currentReturnUrl ? [] : [ 'action' => 'folder', 'gallery' => $formGalleryId, 'asset' => $formGalleryAsset, 'id' => $this->row->getId(), 'output' => $output ] );
+		}
+
+		$formId					=	\hash( 'adler32', \uniqid( $this->rowGallery->getId() . '.' . $this->row->getId() . '.', true ) );
+		$buttons				=	[];
+		$captcha				=	'';
+		$captchaHidden			=	false;
+
+		if ( ( ! $this->row->getId() ) && $this->rowGallery->getParams()->canAccessCaptcha( $this->row->getUserId() ) ) {
+			$captchaControl		=	CaptchaHelper::getCaptcha( $this->row, $this->rowGallery );
+
+			if ( $captchaControl ) {
+				$captcha		=	$captchaControl->getCaptcha();
+				$captchaHidden	=	\in_array( $captchaControl->getMode(), [ 'recaptcha', 'recaptcha_score', 'recaptcha_invisible', 'honeypot', 'timer' ], true );
+
+				Application::Session()->set( 'cbgallery.captcha.' . $captchaControl->getId(), 0 );
+			}
+		}
+
+		if ( $this->rowGallery->getParams()->canAccessPrivacy( $this->row->getUserId() ) ) {
+			$privacyControl		=	PrivacyHelper::getPrivacy( $this->row, $this->rowGallery );
+
+			if ( $privacyControl ) {
+				$buttons[]		=	$privacyControl->privacy( 'edit' );
+			}
+		}
+
+		$integrations			=	HtmlHelper::getIntegrations( 'onDisplayGalleryFolderForm', [ &$this->rowGallery, &$this->row, [
+										'buttons'			=>	&$buttons,
+										'returnUrl'			=>	&$returnUrl,
+										'returnUrlData'		=>	&$returnUrlData,
+										'isModal'			=>	$isModal,
+										'output'			=>	$output,
+									], $formId ] );
+
+		$previewUrl				=	'';
+		$previewWidth			=	0;
+		$previewHeight			=	0;
+		$previewFallback		=	'';
+
+		if ( $this->row->getId() && ( $this->row->getThumbnail() || $this->row->getThumbnailId() ) ) {
+			$previewUrl			=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder.preview', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ], 'raw', 0, true );
+			$previewWidth		=	( $this->row->getThumbnailId() ? ( $this->row->getThumbnailItem()->getThumbnailPath() ? $this->row->getThumbnailItem()->getParams()->getThumbnailWidth() : $this->row->getThumbnailItem()->getParams()->getFileWidth() ) : ( $this->row->getThumbnailPath() ? $this->row->getParams()->getThumbnailWidth() : 0 ) );
+			$previewHeight		=	( $this->row->getThumbnailId() ? ( $this->row->getThumbnailItem()->getThumbnailPath() ? $this->row->getThumbnailItem()->getParams()->getThumbnailWidth() : $this->row->getThumbnailItem()->getParams()->getFileWidth() ) : ( $this->row->getThumbnailPath() ? $this->row->getParams()->getThumbnailHeight() : 0 ) );
+			$previewFallback	=	"if(!this.dataset.fallback){"
+								.	"this.error=null;"
+								.	"this.dataset.fallback=true;"
+								.	"this.src='" . \htmlspecialchars( HtmlHelper::getTemplateImage( 'icon-folder.webp' ) ) . "';"
+								.	"}";
+		}
+
+		$row					=	$this->row;
+		$template				=	$this->template;
+		$gallery				=	$this->gallery;
+		$rowGallery				=	$this->rowGallery;
+
+		if ( $this->isRaw ) {
+			$formHeaders		=	$this->headers();
+		}
+
+		require HtmlHelper::getTemplate( 'folder/form', $this->template );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedSave(): bool
+	{
+		return ( ! $this->row ? $this->gallery : $this->rowGallery )->canCreateOrEdit( $this->row );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function save(): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$isNew						=	false;
+
+		if ( ! $this->row ) {
+			$gallery				=	$this->gallery;
+
+			if ( preg_match( '/^gallery\.(\d+)$/', $this->gallery->getInitialAsset(), $matches ) ) {
+				$inheritGallery		=	GalleryHelper::getGallery( (int) ( $matches[1] ?? 0 ) );
+
+				if ( $inheritGallery ) {
+					$gallery		=	$inheritGallery;
+				}
+			}
+
+			if ( $gallery->getParams()->canAccessCaptcha( $this->myId ) ) {
+				$captchaControl		=	CaptchaHelper::getCaptcha( null, $gallery );
+
+				if ( ( ! $captchaControl ) || ( ! $captchaControl->load() ) || ( ! $captchaControl->validateValue() ) ) {
+					if ( $this->isRaw ) {
+						$this->ajax( [ 'message' => ( $captchaControl->getError() ?: CBTxt::T( 'Invalid Captcha Code' ) ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+					}
+
+					$_CB_framework->enqueueMessage( ( $captchaControl->getError() ?: CBTxt::T( 'Invalid Captcha Code' ) ), 'error' );
+
+					$this->form();
+					return;
+				}
+			}
+
+			$this->row				=	new FolderTable();
+
+			$this->row->setGalleryId( $gallery->getId() );
+			$this->row->setAccess( ( $gallery->getAsset()->getAccess() ?: $gallery->getAccess() ) );
+			$this->row->setAsset( (string) $gallery->getAsset() );
+			$this->row->setUserId( $this->myId );
+
+			$this->rowGallery		=	$gallery;
+
+			$isNew					=	true;
+		}
+
+		$wasPending					=	$this->row->isPending();
+
+		$this->row->setTitle( $this->input->getString( 'title', $this->row->getTitle() ) );
+
+		if ( $this->rowGallery->getParams()->getValidationAlbumTitleLength() ) {
+			$this->row->setTitle( cbutf8_substr( $this->row->getTitle(), 0, $this->rowGallery->getParams()->getValidationAlbumTitleLength() ) );
+		}
+
+		$description				=	trim( $this->input->getString( 'description', $this->row->getDescription() ) );
+		// Remove duplicate spaces:
+		$description				=	preg_replace( '/ {2,}/i', ' ', $description );
+		// Remove duplicate tabs:
+		$description				=	preg_replace( '/\t{2,}/i', "\t", $description );
+		// Remove duplicate linebreaks:
+		$description				=	preg_replace( '/((?:\r\n|\r|\n){2})(?:\r\n|\r|\n)*/i', '$1', $description );
+
+		$this->row->setDescription( $description );
+
+		if ( $this->rowGallery->getParams()->getValidationAlbumDescriptionLength() ) {
+			$this->row->setDescription( cbutf8_substr( $this->row->getDescription(), 0, $this->rowGallery->getParams()->getValidationAlbumDescriptionLength() ) );
+		}
+
+		if ( ( ( ! $isNew ) && \in_array( $this->row->getPublished(), [ 0, 1 ], true ) ) || $this->rowGallery->canModerate( $this->row ) ) {
+			$this->row->setPublished( $this->input->getInt( 'published', ( $isNew ? 1 : $this->row->getPublished() ) ) );
+		} else {
+			$this->row->setPublished( ( $isNew ? ( $this->rowGallery->getParams()->getCreateAlbumsApproval() ? 2 : 1 ) : $this->row->getPublished() ) );
+		}
+
+		if ( $this->input->getInt( 'thumbnail_remove', 0 ) ) {
+			$this->row->deleteThumbnail();
+		} else {
+			$thumbnailName			=	$this->input->getString( 'files/thumbnail.name', '' );
+
+			if ( $thumbnailName ) {
+				if ( ! $this->rowGallery->storeThumbnailFile( $this->row, [
+						'name'			=>	$thumbnailName,
+						'type'			=>	$this->input->getString( 'files/thumbnail.type', '' ),
+						'size'			=>	$this->input->getString( 'files/thumbnail.size', '' ),
+						'tmp_name'		=>	$this->input->getString( 'files/thumbnail.tmp_name', '' ),
+						'lastModified'	=>	$this->input->getString( 'files/thumbnail.lastModified', '' ),
+					], true ) )
+				{
+					if ( $this->isRaw ) {
+						$this->ajax( [ 'message' => $this->row->getError(), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+					}
+
+					$_CB_framework->enqueueMessage( $this->row->getError(), 'error' );
+
+					$this->form();
+					return;
+				}
+
+				if ( $this->rowGallery->getParams()->getCreateAlbumsApproval() && ( ! $this->rowGallery->canModerate( $this->row ) ) ) {
+					$this->row->setPublished( 2 );
+
+					$wasPending		=	false;
+				}
+			}
+		}
+
+		$old						=	new FolderTable();
+		$source						=	$this->row->getSource();
+
+		if ( $isNew ) {
+			$_PLUGINS->trigger( 'gallery_onBeforeCreateGalleryFolder', [ $this->rowGallery, $source, &$this->row ] );
+		} else {
+			$old->load( $this->row->getId() );
+
+			$_PLUGINS->trigger( 'gallery_onBeforeUpdateGalleryFolder', [ $this->rowGallery, $source, &$this->row, $old ] );
+		}
+
+		if ( ( ! $this->row->check() ) || ( ! $this->row->store() ) ) {
+			if ( $isNew ) {
+				FileHelper::deleteFiles([
+					$this->row->getThumbnailPath(),
+				]);
+			}
+
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => $this->row->getError(), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+			}
+
+			$_CB_framework->enqueueMessage( $this->row->getError(), 'error' );
+
+			$this->form();
+			return;
+		}
+
+		if ( $this->rowGallery->getParams()->canAccessPrivacy( $this->row->getUserId() ) ) {
+			$privacyControl			=	PrivacyHelper::getPrivacy( $this->row, $this->rowGallery );
+
+			if ( $privacyControl ) {
+				if ( $isNew ) {
+					$privacyControl->name( PrivacyHelper::getPrivacyName( $this->row, $this->rowGallery, true ) );
+				}
+
+				$privacyControl->privacy( 'save' );
+			}
+		}
+
+		if ( $isNew ) {
+			$_PLUGINS->trigger( 'gallery_onAfterCreateGalleryFolder', [ $this->rowGallery, $source, $this->row ] );
+		} else {
+			$_PLUGINS->trigger( 'gallery_onAfterUpdateGalleryFolder', [ $this->rowGallery, $source, $this->row, $old ] );
+		}
+
+		if ( $this->row->getError() ) {
+			if ( $isNew ) {
+				FileHelper::deleteFiles([
+					$this->row->getThumbnailPath(),
+				]);
+			}
+
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => $this->row->getError(), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+			}
+
+			$_CB_framework->enqueueMessage( $this->row->getError(), 'error' );
+
+			$this->form();
+			return;
+		}
+
+		if ( ( ! $wasPending ) && $this->row->isPending() && $this->rowGallery->getParams()->getCreateAlbumsApprovalNotify() && ( ! $this->rowGallery->canModerate( $this->row ) ) ) {
+			$cbUser					=	CBuser::getInstance( $this->row->getUserId(), false );
+
+			$recipients				=	$this->rowGallery->getModerators( $this->row );
+			$extraStrings			=	[	'folder_id'				=>	$this->row->getId(),
+											'folder_title'			=>	( $this->row->getTitle() ?: cbFormatDate( $this->row->getDate(), false, false ) ),
+											'folder_description'	=>	$this->row->getDescription(),
+											'folder_date'			=>	cbFormatDate( $this->row->getDate() ),
+											'folder_url'			=>	$_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ),
+											'gallery_url'			=>	$_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'gallery', 'folder' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ),
+											'moderation_url'		=>	( ! $recipients ? $_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'moderation' ] ) : $_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ) ),
+											'user_url'				=>	$_CB_framework->viewUrl( 'userprofile', true, [ 'user' => $this->row->getUserId() ] ),
+										];
+
+			$notifications			=	new cbNotification();
+			$subject				=	$cbUser->replaceUserVars( CBTxt::T( 'GALLERY_ALBUM_PENDING_NOTIFY_SUBJ', 'Gallery - New Album Created!' ), false, true, $extraStrings, false );
+			$body					=	$cbUser->replaceUserVars( CBTxt::T( 'GALLERY_ALBUM_PENDING_NOTIFY_MSG', '<a href="[user_url]">[formatname]</a> created album <a href="[folder_url]">[folder_title]</a> and requires <a href="[moderation_url]">approval</a>!' ), false, true, $extraStrings, false );
+
+			switch ( $this->rowGallery->getParams()->getCreateAlbumsApprovalNotify() ) {
+				case 'pm':
+				case 'notification':
+					foreach ( ( $recipients ?: UsersHelper::getModerators() ) as $recipient ) {
+						$notifications->sendUserPMSmsg( $recipient, $this->myId, $subject, $body, true, false, 1 );
+					}
+					break;
+				case 'email':
+					if ( ! $recipients ) {
+						$notifications->sendToModerators( $subject, $body, false, 1 );
+					} else {
+						foreach ( $recipients as $recipient ) {
+							$notifications->sendFromSystem( $recipient, $subject, $body, false, 1 );
+						}
+					}
+					break;
+			}
+		}
+
+		$row						=	$this->row;
+		$template					=	$this->template;
+		$gallery					=	$this->gallery;
+		$rowGallery					=	$this->rowGallery;
+
+		if ( $this->isRaw ) {
+			$success				=	[ 'message' => ( $isNew ? CBTxt::T( 'GALLERY_ALBUM_CREATE_SUCCESS', 'Album created successfully!' ) : CBTxt::T( 'GALLERY_ALBUM_SAVE_SUCCESS', 'Album saved successfully!' ) ), 'type' => 'success', 'output' => 'prepend', 'target' => 'header', 'timeout' => 10800, 'close' => true ];
+
+			if ( ( $this->input->getString( 'output', '' ) === 'modal' ) && $isNew ) {
+				$output				=	'gallery';
+				$folderHeaders		=	$this->headers();
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'gallery/folder', $this->template );
+				$display			=	ob_get_clean();
+
+				$response			=	[ [ 'message' => $display, 'output' => 'prepend', 'target' => 'folders', 'close' => true ], $success ];
+
+				GalleryHelper::reset( 'create_limit' );
+
+				if ( ! $this->gallery->canCreate( 'folders' ) ) {
+					$response[]		=	[ 'disable' => ':gallery .galleryCreateFolder' ];
+				}
+
+				$this->ajax( $response );
+			} elseif ( $this->input->getString( 'output', '' ) === 'container' ) {
+				$folderHeaders		=	$this->headers();
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'gallery/folder', $this->template );
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'folder-containers', 'close' => true ], $success ] );
+			} elseif ( ( $this->input->getString( 'output', '' ) === 'folder' ) || ( $this->input->getString( 'output', '' ) === 'gallery' ) ) {
+				ob_start();
+				$this->show();
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'gallery', 'close' => true ], $success ] );
+			}
+
+			$this->ajax( $success );
+		} else {
+			$_CB_framework->enqueueMessage( ( $isNew ? CBTxt::T( 'GALLERY_ALBUM_CREATE_SUCCESS', 'Album created successfully!' ) : CBTxt::T( 'GALLERY_ALBUM_SAVE_SUCCESS', 'Album saved successfully!' ) ) );
+
+			$this->show();
+		}
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedFolders(): bool
+	{
+		return ( $this->rowGallery->canEditMedia( $this->row ) && $this->rowGallery->getParams()->canAlbumChange() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function folders(): void
+	{
+		global $_CB_framework, $_CB_database;
+
+		$isModal				=	$this->isRaw;
+		$output					=	( $isModal ? 'modal' : '' );
+
+		if ( $this->input->getString( 'plugin', '' ) === 'cbgallery' ) {
+			$output				=	$this->input->getString( 'output', $output );
+		}
+
+		$formGalleryId			=	null;
+		$formGalleryAsset		=	null;
+
+		if ( $this->gallery->getId() !== $this->row->getGalleryId() ) {
+			$formGalleryId		=	$this->gallery->getId();
+			$formGalleryAsset	=	$this->gallery->getAsset()->getEncoded();
+		}
+
+		$formUrl				=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder.move', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] );
+		$formUrlData			=	[ 'action' => 'folder.move', 'gallery' => $formGalleryId, 'asset' => $formGalleryAsset, 'id' => $this->row->getId(), 'output' => $output ];
+
+		$currentReturnUrl		=	RouteHelper::getReturn( true, true );
+		$returnUrl				=	( $isModal ? '' : ( $currentReturnUrl ?: $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ) ) );
+		$returnUrlData			=	( $currentReturnUrl ? [] : [ 'action' => 'folder', 'gallery' => $formGalleryId, 'asset' => $formGalleryAsset, 'id' => $this->row->getId(), 'output' => $output ] );
+
+		$formId					=	\hash( 'adler32', \uniqid( $this->rowGallery->getId() . '.' . $this->row->getId() . '.', true ) );
+
+		$query					=	"SELECT *"
+								.	" FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_gallery_folders' )
+								.	" WHERE " . $_CB_database->NameQuote( 'id' ) . " != " . $this->row->getId()
+								.	" AND " . $_CB_database->NameQuote( 'gallery_id' ) . " = " . $this->row->getGalleryId()
+								.	" AND " . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->row->getUserId()
+								.	" AND " . $_CB_database->NameQuote( 'asset' ) . " = " . $_CB_database->Quote( $this->row->getInitialAsset() )
+								.	" AND " . $_CB_database->NameQuote( 'access' ) . " IN " . $_CB_database->safeArrayOfIntegers( Application::MyUser()->getAuthorisedViewLevels() )
+								.	" AND " . $_CB_database->NameQuote( 'published' ) . " = 1"
+								.	" ORDER BY " . $_CB_database->NameQuote( 'page' ) . " DESC";
+		$_CB_database->setQuery( $query );
+		$folders				=	$_CB_database->loadObjectList( 'id', FolderTable::class, [ $_CB_database ] );
+
+		QueryHelper::verifyAccess( $folders );
+
+		\array_unshift( $folders, $this->row );
+
+		$row					=	$this->row;
+		$template				=	$this->template;
+		$gallery				=	$this->gallery;
+		$rowGallery				=	$this->rowGallery;
+
+		if ( $this->isRaw ) {
+			$formHeaders		=	$this->headers();
+		}
+
+		require HtmlHelper::getTemplate( 'folder/form_folders', $this->template );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedMove(): bool
+	{
+		return ( $this->rowGallery->canEditMedia( $this->row ) && $this->rowGallery->getParams()->canAlbumChange() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function move(): void
+	{
+		global $_CB_framework, $_CB_database, $_PLUGINS;
+
+		$folderId					=	$this->input->getInt( 'folder', 0 );
+
+		if ( ( ! $folderId ) && $this->rowGallery->getParams()->getRequireAlbum() ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_FOLDER_MOVE_MISSING', 'Album selection missing.' ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+			}
+
+			$_CB_framework->enqueueMessage( CBTxt::T( 'GALLERY_FOLDER_MOVE_MISSING', 'Album selection missing.' ), 'error' );
+
+			$this->folders();
+			return;
+		}
+
+		if ( $folderId === $this->row->getId() ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_FOLDER_MOVE_ALREADY', 'Media already is in the selected album.' ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+			}
+
+			$_CB_framework->enqueueMessage( CBTxt::T( 'GALLERY_FOLDER_MOVE_ALREADY', 'Media already is in the selected album.' ), 'error' );
+
+			$this->folders();
+			return;
+		}
+
+		if ( $folderId ) {
+			$folder					=	GalleryHelper::getFolder( $folderId );
+
+			if ( ! $folder->getId() ) {
+				if ( $this->isRaw ) {
+					$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_FOLDER_MOVE_NOT_EXIST', 'Album selection does not exist.' ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+				}
+
+				$_CB_framework->enqueueMessage( CBTxt::T( 'GALLERY_FOLDER_MOVE_NOT_EXIST', 'Album selection does not exist.' ), 'error' );
+
+				$this->folders();
+				return;
+			}
+
+			if ( ( $folder->getGalleryId() !== $this->row->getGalleryId() ) || ( $folder->getUserId() !== $this->row->getUserId() ) || ( $folder->getInitialAsset() !== $this->row->getInitialAsset() ) ) {
+				if ( $this->isRaw ) {
+					$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_FOLDER_MOVE_NOT_ALLOWED', 'You do not have permission to move media into the selected album.' ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+				}
+
+				$_CB_framework->enqueueMessage( CBTxt::T( 'GALLERY_FOLDER_MOVE_NOT_ALLOWED', 'You do not have permission to move media into the selected album.' ), 'error' );
+
+				$this->folders();
+				return;
+			}
+		}
+
+		$this->row->setThumbnailId( 0 );
+
+		$source						=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'gallery_onBeforeMoveGalleryFolder', [ $this->rowGallery, $source, &$this->row ] );
+
+		if ( ( ! $this->row->check() ) || ( ! $this->row->store() ) ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => $this->row->getError(), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+			}
+
+			$_CB_framework->enqueueMessage( $this->row->getError(), 'error' );
+
+			$this->folders();
+			return;
+		}
+
+		$query						=	"SELECT *"
+									.	" FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_gallery_items' )
+									.	" WHERE " . $_CB_database->NameQuote( 'gallery_id' ) . " = " . $this->row->getGalleryId()
+									.	" AND " . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->row->getUserId()
+									.	" AND " . $_CB_database->NameQuote( 'asset' ) . " = " . $_CB_database->Quote( $this->row->getInitialAsset() )
+									.	" AND " . $_CB_database->NameQuote( 'folder_id' ) . " = " . $this->row->getId();
+		$_CB_database->setQuery( $query );
+		foreach ( $_CB_database->loadObjectList( null, ItemTable::class, [ $_CB_database ] ) as $item ) {
+			/** @var ItemTable $item */
+			$item->setFolderId( $folderId );
+
+			if ( ! $item->check() ) {
+				continue;
+			}
+
+			$item->store();
+		}
+
+		$_PLUGINS->trigger( 'gallery_onAfterMoveGalleryFolder', [ $this->rowGallery, $source, $this->row ] );
+
+		if ( $this->row->getError() ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => $this->row->getError(), 'type' => 'error', 'output' => 'prepend', 'target' => 'header', 'close' => false ] );
+			}
+
+			$_CB_framework->enqueueMessage( $this->row->getError(), 'error' );
+
+			$this->folders();
+			return;
+		}
+
+		$row						=	$this->row;
+		$template					=	$this->template;
+		$gallery					=	$this->gallery;
+		$rowGallery					=	$this->rowGallery;
+
+		if ( $this->isRaw ) {
+			$success				=	[ 'message' => CBTxt::T( 'GALLERY_FOLDER_MOVE_SUCCESS', 'Media moved successfully!' ), 'type' => 'success', 'output' => 'prepend', 'target' => 'header', 'timeout' => 10800, 'close' => true ];
+
+			if ( $this->input->getString( 'output', '' ) === 'container' ) {
+				$folderHeaders		=	$this->headers();
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'gallery/folder', $this->template );
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'folder-containers', 'close' => true ], $success ] );
+			} elseif ( ( $this->input->getString( 'output', '' ) === 'folder' ) || ( $this->input->getString( 'output', '' ) === 'gallery' ) ) {
+				ob_start();
+				$this->show();
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'gallery', 'close' => true ], $success ] );
+			}
+
+			$this->ajax( $success );
+		} else {
+			$_CB_framework->enqueueMessage( CBTxt::T( 'GALLERY_FOLDER_MOVE_SUCCESS', 'Media moved successfully!' ) );
+
+			$this->show();
+		}
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedUnpublish(): bool
+	{
+		return $this->rowGallery->canPublishMedia( $this->row );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function unpublish(): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$this->row->setPublished( 0 );
+
+		$source					=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'gallery_onBeforeUnpublishGalleryFolder', [ $this->rowGallery, $source, &$this->row ] );
+
+		if ( $this->row->getError() || ( ! $this->row->store() ) ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_ALBUM_UNPUBLISH_FAILED', 'Album failed to unpublish! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header' ] );
+			}
+
+			RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ), CBTxt::T( 'GALLERY_ALBUM_UNPUBLISH_FAILED', 'Album failed to unpublish! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		$_PLUGINS->trigger( 'gallery_onAfterUnpublishGalleryFolder', [ $this->rowGallery, $source, $this->row ] );
+
+		$row					=	$this->row;
+		$template				=	$this->template;
+		$gallery				=	$this->gallery;
+		$rowGallery				=	$this->rowGallery;
+
+		if ( $this->isRaw ) {
+			$success			=	[ 'message' => CBTxt::T( 'GALLERY_ALBUM_UNPUBLISH_SUCCESS', 'Album unpublished successfully!' ), 'type' => 'success', 'output' => 'prepend', 'target' => 'header', 'timeout' => 10800 ];
+
+			if ( $this->input->getString( 'output', '' ) === 'container' ) {
+				$folderHeaders	=	$this->headers();
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'gallery/folder', $this->template );
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'folder-containers' ], $success ] );
+			} elseif ( ( $this->input->getString( 'output', '' ) === 'folder' ) || ( $this->input->getString( 'output', '' ) === 'gallery' ) ) {
+				ob_start();
+				$this->show();
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'gallery' ], $success ] );
+			}
+
+			$this->ajax( $success );
+		}
+
+		RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ), CBTxt::T( 'GALLERY_ALBUM_UNPUBLISH_SUCCESS', 'Album unpublished successfully!' ) );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedPublish(): bool
+	{
+		return $this->rowGallery->canPublishMedia( $this->row );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function publish(): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$this->row->setPublished( 1 );
+
+		$source					=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'gallery_onBeforePublishGalleryFolder', [ $this->rowGallery, $source, &$this->row ] );
+
+		if ( $this->row->getError() || ( ! $this->row->store() ) ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_ALBUM_PUBLISH_FAILED', 'Album failed to publish! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header' ] );
+			}
+
+			RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ), CBTxt::T( 'GALLERY_ALBUM_PUBLISH_FAILED', 'Album failed to publish! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		$_PLUGINS->trigger( 'gallery_onAfterPublishGalleryFolder', [ $this->rowGallery, $source, $this->row ] );
+
+		$row					=	$this->row;
+		$template				=	$this->template;
+		$gallery				=	$this->gallery;
+		$rowGallery				=	$this->rowGallery;
+
+		if ( $this->isRaw ) {
+			$success			=	[ 'message' => CBTxt::T( 'GALLERY_ALBUM_PUBLISH_SUCCESS', 'Album published successfully!' ), 'type' => 'success', 'output' => 'prepend', 'target' => 'header', 'timeout' => 10800 ];
+
+			if ( $this->input->getString( 'output', '' ) === 'container' ) {
+				$folderHeaders	=	$this->headers();
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'gallery/folder', $this->template );
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'folder-containers' ], $success ] );
+			} elseif ( ( $this->input->getString( 'output', '' ) === 'folder' ) || ( $this->input->getString( 'output', '' ) === 'gallery' ) ) {
+				ob_start();
+				$this->show();
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'gallery' ], $success ] );
+			}
+
+			$this->ajax( $success );
+		}
+
+		RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ), CBTxt::T( 'GALLERY_ALBUM_PUBLISH_SUCCESS', 'Album published successfully!' ) );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedDelete(): bool
+	{
+		return $this->rowGallery->canDeleteMedia( $this->row );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function delete(): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$source			=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'gallery_onBeforeDeleteGalleryFolder', [ $this->rowGallery, $source, &$this->row ] );
+
+		if ( $this->row->getError() || ( ! $this->row->canDelete() ) || ( ! $this->row->delete() ) ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_ALBUM_DELETE_FAILED', 'Album failed to delete! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header' ] );
+			}
+
+			RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ), CBTxt::T( 'GALLERY_ALBUM_DELETE_FAILED', 'Album failed to delete! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		$_PLUGINS->trigger( 'gallery_onAfterDeleteGalleryFolder', [ $this->rowGallery, $source, $this->row ] );
+
+		if ( $this->isRaw ) {
+			$success	=	[ 'message' => CBTxt::T( 'GALLERY_ALBUM_DELETE_SUCCESS', 'Album deleted successfully!' ), 'type' => 'success', 'output' => 'prepend', 'target' => 'header', 'timeout' => 10800 ];
+
+			if ( $this->input->getString( 'output', '' ) === 'gallery' ) {
+				$success['remove']	=	'folder-containers';
+
+				ob_start();
+				echo $this->gallery->renderGallery();
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'gallery' ], $success ] );
+			}
+
+			$success['timeout']		=	0;
+			$success['css']			=	'galleryDeleted';
+
+			$this->ajax( $success );
+		}
+
+		RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'gallery', 'gallery' => $this->row->getGalleryId(), 'asset' => $this->row->getAsset()->getEncoded() ] ), CBTxt::T( 'GALLERY_ALBUM_DELETE_SUCCESS', 'Album deleted successfully!' ) );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedReport(): bool
+	{
+		return $this->rowGallery->canReportMedia( $this->row );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function report(): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$this->row->setReports( $this->row->getReports() + 1 );
+
+		if ( GlobalParams::getReportingLimit() && ( $this->row->getReports() >= GlobalParams::getReportingLimit() ) ) {
+			$this->row->setPublished( 3 );
+		}
+
+		$source			=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'gallery_onBeforeReportGalleryFolder', [ $this->rowGallery, $source, &$this->row ] );
+
+		if ( $this->row->getError() || ( ! $this->row->store() ) ) {
+			if ( $this->isRaw ) {
+				$this->ajax( [ 'message' => CBTxt::T( 'GALLERY_ALBUM_REPORT_FAILED', 'Album failed to report! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'type' => 'error', 'output' => 'prepend', 'target' => 'header' ] );
+			}
+
+			RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ), CBTxt::T( 'GALLERY_ALBUM_REPORT_FAILED', 'Album failed to report! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		$reported		=	FoldersHelper::getReported();
+		$reported[]		=	$this->row->getId();
+
+		setcookie( 'gallery_reported_folders', json_encode( $reported ), ( time() + ( 3600 * 24 * 30 * 12 ) ), '/', '', false, true );
+
+		$_PLUGINS->trigger( 'gallery_onAfterReportGalleryFolder', [ $this->rowGallery, $source, $this->row ] );
+
+		if ( $this->row->isReported() && GlobalParams::getReportingNotify() && ( ! $this->rowGallery->canModerate( $this->row ) ) ) {
+			$cbUser					=	CBuser::getInstance( $this->row->getUserId(), false );
+
+			$recipients				=	$this->rowGallery->getModerators( $this->row );
+			$extraStrings			=	[	'folder_id'				=>	$this->row->getId(),
+											'folder_title'			=>	( $this->row->getTitle() ?: cbFormatDate( $this->row->getDate(), false, false ) ),
+											'folder_description'	=>	$this->row->getDescription(),
+											'folder_date'			=>	cbFormatDate( $this->row->getDate() ),
+											'folder_url'			=>	$_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ),
+											'gallery_url'			=>	$_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'gallery', 'folder' => $this->row->getId() ] ),
+											'moderation_url'		=>	( ! $recipients ? $_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'moderation' ] ) : $_CB_framework->pluginClassUrl( 'cbgallery', true, [ 'action' => 'folder', 'id' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] ) ),
+											'user_url'				=>	$_CB_framework->viewUrl( 'userprofile', true, [ 'user' => $this->row->getUserId() ] ),
+										];
+
+			$notifications			=	new cbNotification();
+			$subject				=	$cbUser->replaceUserVars( CBTxt::T( 'GALLERY_ALBUM_REPORTED_NOTIFY_SUBJ', 'Gallery - New Album Reported!' ), false, true, $extraStrings, false );
+			$body					=	$cbUser->replaceUserVars( CBTxt::T( 'GALLERY_ALBUM_REPORTED_NOTIFY_MSG', '<a href="[user_url]">[formatname]</a> album <a href="[folder_url]">[folder_title]</a> has been reported and requires <a href="[moderation_url]">attention</a>!' ), false, true, $extraStrings, false );
+
+			switch ( GlobalParams::getReportingNotify() ) {
+				case 'pm':
+				case 'notification':
+					foreach ( ( $recipients ?: UsersHelper::getModerators() ) as $recipient ) {
+						$notifications->sendUserPMSmsg( $recipient, $this->myId, $subject, $body, true, false, 1 );
+					}
+					break;
+				case 'email':
+					if ( ! $recipients ) {
+						$notifications->sendToModerators( $subject, $body, false, 1 );
+					} else {
+						foreach ( $recipients as $recipient ) {
+							$notifications->sendFromSystem( $recipient, $subject, $body, false, 1 );
+						}
+					}
+					break;
+			}
+		}
+
+		$row			=	$this->row;
+		$template		=	$this->template;
+		$gallery		=	$this->gallery;
+		$rowGallery		=	$this->rowGallery;
+
+		if ( $this->isRaw ) {
+			$success	=	[ 'message' => CBTxt::T( 'GALLERY_ALBUM_REPORT_SUCCESS', 'Album reported successfully!' ), 'type' => 'success', 'output' => 'prepend', 'target' => 'header', 'timeout' => 10800 ];
+
+			if ( $this->row->isReported() ) {
+				$success['remove']		=	'folder-containers';
+
+				if ( $this->input->getString( 'output', '' ) === 'gallery' ) {
+					ob_start();
+					echo $this->gallery->renderGallery();
+					$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'gallery' ], $success ] );
+				}
+			} elseif ( $this->input->getString( 'output', '' ) === 'container' ) {
+				$folderHeaders			=	$this->headers();
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'gallery/folder', $this->template );
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'folder-containers' ], $success ] );
+			} elseif ( ( $this->input->getString( 'output', '' ) === 'folder' ) || ( $this->input->getString( 'output', '' ) === 'gallery' ) ) {
+				ob_start();
+				$this->show();
+				$this->ajax( [ [ 'message' => ob_get_clean(), 'output' => 'replace', 'target' => 'gallery' ], $success ] );
+			}
+
+			$success['timeout']			=	0;
+			$success['css']				=	'galleryObscured';
+
+			$this->ajax( $success );
+		}
+
+		RouteHelper::redirect( $_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'gallery', 'folder' => $this->row->getId() ] ), CBTxt::T( 'GALLERY_ALBUM_REPORT_SUCCESS', 'Album reported successfully!' ) );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedDownload(): bool
+	{
+		return ( ( $this->row->isPublished() || $this->rowGallery->canModerate( $this->row ) ) && $this->rowGallery->getParams()->canAccessAlbumDownload() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function download(): void
+	{
+		global $_CB_framework, $_CB_database;
+
+		/** @noinspection PhpStatementHasEmptyBodyInspection */
+		/** @noinspection LoopWhichDoesNotLoopInspection */
+		/** @noinspection MissingOrEmptyGroupStatementInspection */
+		while ( @ob_end_clean() ) {}
+
+		$query				=	"SELECT " . $_CB_database->NameQuote( 'date' )
+							.	" FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_gallery_items' )
+							.	" WHERE ( " . $_CB_database->NameQuote( 'file' ) . " IS NOT NULL AND " . $_CB_database->NameQuote( 'file' ) . " != '' )"
+							.	" AND " . $_CB_database->NameQuote( 'folder_id' ) . " = " . $this->row->getId()
+							.	" ORDER BY " . $_CB_database->NameQuote( 'date' ) . " DESC";
+		$_CB_database->setQuery( $query, 0, 1 );
+		$latestDate			=	$_CB_database->loadResult();
+
+		if ( ! $latestDate ) {
+			header( 'HTTP/1.1 404 Not Found' );
+			exit();
+		}
+
+		$cachePath			=	$_CB_framework->getCfg( 'absolute_path' ) . '/cache/gallery_downloads';
+		$cacheFile			=	$cachePath . '/' . hash( 'md5', 'album:' . $this->row->getId() . ':' . $latestDate ) . '.zip';
+
+		if ( file_exists( $cacheFile ) ) {
+			if ( $this->input->getString( 'output', '' ) === 'zip' ) {
+				header( 'HTTP/1.1 200 OK' );
+				exit();
+			}
+
+			FileHelper::downloadFile(
+				[	'name'	=>	( $this->row->getTitle() ? trim( \preg_replace( '/[^a-zA-Z0-9 ]/', '', $this->row->getTitle() ) ) . '+' : '' ) . Application::Date( $this->row->getDate(), 'UTC' )->format( 'Y.m.d.H.i.s' ) . '.zip',
+					'path'	=>	$cacheFile,
+					'date'	=>	$latestDate,
+				]
+			);
+		}
+
+		if ( $this->input->getString( 'output', '' ) === 'zipped' ) {
+			header( 'HTTP/1.1 404 Not Found' );
+			exit();
+		}
+
+		if ( $this->input->getString( 'output', '' ) === 'zip' ) {
+			FileHelper::createDirectory( $cachePath );
+
+			$query			=	"SELECT *"
+							.	" FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_gallery_items' )
+							.	" WHERE ( " . $_CB_database->NameQuote( 'file' ) . " IS NOT NULL AND " . $_CB_database->NameQuote( 'file' ) . " != '' )"
+							.	" AND " . $_CB_database->NameQuote( 'folder_id' ) . " = " . $this->row->getId();
+			$_CB_database->setQuery( $query );
+			$items			=	$_CB_database->loadObjectList( 'id', ItemTable::class, [ $_CB_database ] );
+
+			if ( ! $items ) {
+				header( 'HTTP/1.1 404 Not Found' );
+				exit();
+			}
+
+			try {
+				$zip		=	new ZipArchive();
+
+				if ( $zip->open( $cacheFile, ZipArchive::CREATE | ZipArchive::OVERWRITE ) === true ) {
+					/** @var ItemTable[] $items */
+					foreach ( $items as $item ) {
+						if ( ! FileHelper::getFileExists( $item->getFilePath() ) ) {
+							continue;
+						}
+
+						$zip->addFile( $item->getFilePath(), $item->getParams()->getFileOriginalName() );
+					}
+
+					$zip->close();
+				}
+			} catch ( Exception $e ) {
+				header( 'HTTP/1.1 404 Not Found' );
+				exit();
+			}
+
+			header( 'HTTP/1.1 200 OK' );
+			exit();
+		}
+
+		$zipUrl				=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder.download', 'id' => $this->row->getId(), 'output' => 'zip', 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ], 'raw', 0, true );
+		$downloadUrl		=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder.download', 'id' => $this->row->getId(), 'output' => 'zipped', 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ], 'raw', 0, true );
+
+		require HtmlHelper::getTemplate( 'gallery/download', $this->template );
+		exit();
+	}
+
+	/**
+	 * @param array $options
+	 * @return void
+	 */
+	public function show( array $options = [] ): void
+	{
+		global $_CB_framework;
+
+		switch ( ( $options['output'] ?? '' ) ) {
+			case 'preview':
+				require HtmlHelper::getTemplate( 'folder/preview', $this->template );
+				return;
+			case 'container':
+				require HtmlHelper::getTemplate( 'folder/container', $this->template );
+				return;
+		}
+
+		if ( $this->rowGallery->getParams()->getAlbumViews() ) {
+			$this->row->setViewed();
+		}
+
+		$itemsSearch					=	( $options['items_search'] ?? '' );
+		$itemsType						=	( $options['items_type'] ?? '' );
+		$itemsPage						=	( $options['items_page'] ?? '' );
+		$in								=	( $options['in'] ?? '' );
+
+		if ( $this->input->getString( 'plugin', '' ) === 'cbgallery' ) {
+			$in							=	$this->input->getString( 'in', $in );
+
+			if ( $this->rowGallery->getParams()->canAccessSearchMedia() ) {
+				$itemsSearch			=	$this->input->getString( 'search', $itemsSearch );
+			}
+
+			if ( $this->rowGallery->getParams()->canAccessSearchMediaType() ) {
+				$itemsType				=	$this->input->getString( 'type', $itemsType );
+			}
+
+			if ( $this->rowGallery->getParams()->getMediaPaging() ) {
+				$itemsPage				=	$this->input->getString( 'page', $itemsPage );
+			}
+		}
+
+		$hasMoreItems					=	false;
+		$items							=	$this->getItems( $itemsPage, $hasMoreItems, $this->row->getId(), $itemsSearch, $itemsType );
+
+		if ( ( ! $items ) || ( ! $this->rowGallery->getParams()->getMediaPaging() ) ) {
+			$hasMoreItems				=	false;
+		}
+
+		$folderGalleryId				=	null;
+		$folderGalleryAsset				=	null;
+
+		if ( $this->gallery->getId() !== $this->row->getGalleryId() ) {
+			$folderGalleryId			=	$this->gallery->getId();
+			$folderGalleryAsset			=	$this->gallery->getAsset()->getEncoded();
+		}
+
+		$row							=	$this->row;
+		$template						=	$this->template;
+		$gallery						=	$this->gallery;
+		$rowGallery						=	$this->rowGallery;
+		$output							=	( $options['output'] ?? '' );
+
+		if ( $this->input->getString( 'plugin', '' ) === 'cbgallery' ) {
+			$output						=	$this->input->getString( 'output', $output );
+		}
+
+		$folderBackUrl					=	'';
+		$folderBackData					=	[];
+
+		if ( $this->isRaw && ( $output === 'gallery' ) ) {
+			$folderBackUrl				=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'gallery', 'gallery' => $this->row->getGalleryId(), 'asset' => $this->row->getAsset()->getEncoded() ] );
+			$folderBackData				=	[ 'action' => 'gallery', 'gallery' => $this->row->getGalleryId(), 'asset' => $this->row->getAsset()->getEncoded(), 'in' => $in ];
+		}
+
+		$itemsPageUrl					=	'';
+		$itemsPageData					=	[];
+
+		if ( $hasMoreItems ) {
+			$itemsNextPage						=	( $items ? ArrayHelper::arrayLast( $items )->getPage() : null );
+
+			if ( $itemsNextPage ) {
+				$itemsPageUrl					=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'folder', 'id' => $this->row->getId(), 'page' => $itemsNextPage, 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] );
+				$itemsPageData					=	[ 'action' => 'folder', 'gallery' => $folderGalleryId, 'asset' => $folderGalleryAsset, 'id' => $this->row->getId(), 'output' => $output, 'in' => $in, 'page' => $itemsNextPage ];
+
+				if ( $itemsSearch ) {
+					$itemsPageData['search']	=	$itemsSearch;
+				}
+
+				if ( $itemsType ) {
+					$itemsPageData['type']		=	$itemsType;
+				}
+			}
+		}
+
+		$searchData						=	[ 'action' => 'folder', 'gallery' => $folderGalleryId, 'asset' => $folderGalleryAsset, 'id' => $this->row->getId(), 'output' => $output, 'in' => $in ];
+
+		if ( ! $output ) {
+			$output						=	'folder';
+		}
+
+		if ( $itemsPage && $this->isRaw ) {
+			if ( ! $items ) {
+				return;
+			}
+
+			require HtmlHelper::getTemplate( [ 'folder/items', 'gallery/items' ], $this->template );
+
+			echo $this->headers();
+		} else {
+			if ( $this->isRaw ) {
+				$galleryHeaders			=	$this->headers();
+			}
+
+			$newMediaUrl				=	$_CB_framework->pluginClassUrl( 'cbgallery', false, [ 'action' => 'gallery.share', 'folder' => $this->row->getId(), 'Itemid' => GalleryHelper::getGalleryMenuId( $this->row->getGalleryId() ) ] );
+			$newMediaData				=	[ 'action' => 'gallery.share', 'gallery' => $this->gallery->getId(), 'asset' => $this->gallery->getAsset()->getEncoded(), 'folder' => $this->row->getId() ];
+
+			require HtmlHelper::getTemplate( 'folder/display', $this->template );
+		}
+	}
+}

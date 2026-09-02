@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch hashType="sha256">
+    <description>Site apple-touch icons. Not present in Joomla 5.4.7 core.</description>
+
+    <object version="1" create="true">
+        <id>
+            <destPathFileName>apple-touch-icon.png</destPathFileName>
+            <description>Site-authored icon at the web root</description>
+        </id>
+        <action>
+            <operations>
+                <copy>
+                    <srcPathFileName>apple-touch-icon.png.v1</srcPathFileName>
+                    <!-- payload: PNG; line endings do not apply -->
+                    <sourceHash>9060286ff7e33a812d43a314bc00ed6f4ef1c72a2ca9cd9fc718a2be3693231b</sourceHash>
+                </copy>
+            </operations>
+        </action>
+    </object>
+
+    <object version="1" create="true">
+        <id>
+            <destPathFileName>apple-touch-icon-precomposed.png</destPathFileName>
+            <description>Site-authored precomposed icon at the web root. Same bytes as apple-touch-icon.png; each object still carries its own copy.</description>
+        </id>
+        <action>
+            <operations>
+                <copy>
+                    <srcPathFileName>apple-touch-icon-precomposed.png.v1</srcPathFileName>
+                    <!-- payload: PNG; line endings do not apply -->
+                    <sourceHash>9060286ff7e33a812d43a314bc00ed6f4ef1c72a2ca9cd9fc718a2be3693231b</sourceHash>
+                </copy>
+            </operations>
+        </action>
+    </object>
+</patch>

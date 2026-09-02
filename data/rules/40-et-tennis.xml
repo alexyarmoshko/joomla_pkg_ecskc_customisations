@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch hashType="sha256">
+    <description>et_tennis template: Helix checkbox workaround and the site override stylesheet</description>
+
+    <root path="templates/et_tennis">
+        <object version="1">
+            <id>
+                <destPathFileName>options.xml</destPathFileName>
+                <expectedHash>3872e90548261f6c01bb0f255edd3c089104344852670dcae6e897e5e4fd5a17</expectedHash>
+                <description>et_tennis vendor package stock options.xml. No prior record; authored from the live site against that archive.</description>
+            </id>
+            <action>
+                <description>
+                    29 checkbox fields: default="0" becomes default="" so Joomla 4/5
+                    does not treat them as checked.
+                </description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>templates/et_tennis/options.xml.v1</srcPathFileName>
+                        <!-- payload: CRLF, no trailing newline -->
+                        <sourceHash>6bf42960c9f15e006045209d535044984353812e3dd92d7df6c2001cbc47aba7</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+
+    <root path="templates/et_tennis/css">
+        <object version="1" create="true">
+            <id>
+                <destPathFileName>override.css</destPathFileName>
+                <description>et_tennis ships no override.css. Carries the rules that replaced customisations 1, 4, and 6.</description>
+            </id>
+            <action>
+                <description>Site stylesheet as verified in ticket 08</description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>templates/et_tennis/css/override.css</srcPathFileName>
+                        <!-- payload: CRLF, no trailing newline -->
+                        <sourceHash>8d786a53203ee7a3d6e76bec1edc1c5754dc0869c0db829a35e63c674cbe7876</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+</patch>

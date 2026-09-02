@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<patch hashType="sha256">
+    <description>Helix Ultimate contact-form Cancel button, current and legacy override trees</description>
+
+    <root path="plugins/system/helixultimate/overrides">
+        <object version="1">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <expectedHash>89c45ba645e29c40fef873e2464af8595fdd4b4a74b9f23f796c9110f529ae5f</expectedHash>
+                <description>Helix Ultimate 2.2.9 stock contact form</description>
+            </id>
+            <action>
+                <description>Adds a Cancel button beside Send</description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v1</srcPathFileName>
+                        <!-- payload: LF, trailing newline -->
+                        <sourceHash>ceeb867916466f66c71d094add49b0f7bbd98e54e799ba70c193d19713355629</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+
+    <root path="plugins/system/helixultimate/overrides_legacy">
+        <object version="1">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <expectedHash>05cac92dba2cab56c2cf86047515b2eae3300c09001c8f9b52d2a07f99989dd3</expectedHash>
+                <description>Helix Ultimate 2.2.9 stock contact form, legacy tree</description>
+            </id>
+            <action>
+                <description>Adds a Cancel button beside Send</description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides_legacy/com_contact/contact/default_form.php.v1</srcPathFileName>
+                        <!-- payload: LF, trailing newline -->
+                        <sourceHash>ceae3ac38105d5a0e8b8ae8f12e77caa337ce5b6f37a29b8f8eafb78913b1268</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+</patch>

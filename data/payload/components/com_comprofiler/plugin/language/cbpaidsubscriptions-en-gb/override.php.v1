@@ -1,0 +1,27 @@
+<?php
+/**
+* CBSubs custom English (en-GB) language OVERRIDES - site specific.
+*
+* This file is loaded with override priority by cbpaidApp::loadLang()
+* and is NOT overwritten when CBSubs is upgraded.
+*
+* Each key is the CBTxt auto-generated key for the original English phrase.
+*/
+
+defined('CBLIB') or die();
+
+return	array(
+	// Upgrade list heading on the subscriptions page. Original: 'Your current %s upgrade possibilities:'
+	'YOUR_CURRENT_S_UPGRADE_POSSIBILITIES_94bc4f'	=>	'Available for your %s:',
+	'YOUR_CURRENT_S_UPGRADE_POSSIBILITY_066848'		=>	'Available for your %s:',
+
+	// Basket/payment "Cancel" link. Original: 'Cancel payment and subscription'.
+	// Relabelled because it only abandons the pending payment, it does not
+	// cancel the user's active subscription. See processors/cancelpay/cbpaidsubscriptions.cancelpay.php
+	'CANCEL_PAYMENT_AND_SUBSCRIPTION_55c6fb'		=>	'Cancel payment',
+
+	// Confirmation shown after the cancel link (basket status 'RegistrationCancelled').
+	// Original: 'Your request to cancel the subscription and invoice has been processed successfully.'
+	// Relabelled: only the pending payment/invoice is voided; no active subscription is cancelled.
+	'YOUR_REQUEST_TO_CANCEL_THE_SUBSCRIPTION_AND_INVOIC_f71ab4'	=>	'Your request to cancel the invoice has been processed successfully.',
+);
