@@ -1,32 +1,70 @@
 # ECSKC Customisation Package
 
-A Joomla package that deploys the ECSKC site's customisations and re-applies them after
+A Joomla component that deploys the ECSKC site's customisations and re-applies them after
 extension upgrades.
+
+Every customisation is declared as an XML rule: the file it targets, the payload it installs,
+and the conditions under which it applies. The component compares what is on disk against those
+declarations, reports the state of each target, and changes a file only when it can prove the
+change is safe.
 
 ## Why
 
-Extension updates overwrite customised files. Re-applying them by hand is slow and unreliable:
-the August 2026 upgrade took a full forensic session to establish what had been lost, what had
-survived, and what had quietly become redundant because the vendor had adopted the fix upstream.
-
-This package turns that into a routine, checkable operation — install it, and apply or re-apply
-from the Joomla administrator.
+Extension updates overwrite customised files. Re-applying them by hand is slow and unreliable.
+Working out what an upgrade had lost, what had survived, and what the vendor had already fixed
+upstream cost a full forensic session. Installing this package turns that into a routine check
+run from the Joomla administrator.
 
 ## Scope
 
-**In scope** — how the site looks and what it can do: presentation and behaviour, in Joomla
+In scope is how the site looks and what it can do, meaning presentation and behaviour in Joomla
 extension and template directories.
 
-**Out of scope** — what the site says, and server or SEO configuration. Site content,
-`.htaccess` and `robots.txt` remain in the `ecskc.eu` repository.
+Out of scope is what the site says, along with server and SEO configuration. Site content,
+`.htaccess` and `robots.txt` live elsewhere.
+
+## Layout
+
+| Path | Contents |
+| --- | --- |
+| `extensions/com_ecskccustom/` | Component source, administrator only |
+| `data/rules/` | The rule set, one XML file per extension |
+| `data/payload/` | The customised files a rule installs |
+| `tests/` | PHPUnit suites |
+| `tools/` | Build helpers: deterministic packager, validator, hashing |
+| `Makefile` | Build and release entry points |
+
+A payload's bytes are its identity, line endings and final newline included, and `data/payload/`
+is pinned `-text` in `.gitattributes`. Never reformat a payload file. A normalised copy still
+passes every structural check and then matches nothing on disk.
+
+## Build
+
+Requires PHP 8.3 and Composer.
+
+```sh
+make deps       # composer install
+make test       # PHPUnit
+make lint       # PHP syntax and rule XML well-formedness
+make validate   # check the rule set against the payload tree
+make dist_dev   # build an installable dev ZIP under installation/dev/
+make info       # version, package contents, output paths
+```
+
+`make release` tags the version declared in the component manifest. It refuses to run on a dirty
+tree, on an existing tag, or without release notes for that version. `make dist_release` then
+builds the ZIP from the tag into `installation/release/`, byte-reproducible from a clean
+checkout.
+
+## Install
+
+In the Joomla administrator, go to System, Install, Extensions, and upload the ZIP. The component
+installs into the administrator and adds nothing to the site front end.
 
 ## Status
 
-Early. The design is still being worked out and nothing is implemented yet.
-
-See the project brief for the customisation inventory and the
-proposed strategy.
+Report-only, and pre-release. Nothing writes to the site yet, and there is no published release.
 
 ## Licence
 
-GNU General Public License v2 — see [`LICENSE`](LICENSE).
+GNU General Public License v2, see [`LICENSE`](LICENSE).

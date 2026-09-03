@@ -51,18 +51,14 @@ use SplFileInfo;
  * ## What deliberately is not here
  *
  * Path confinement, the extension allow list and the deny list belong to path
- * policy (ticket 14). Hashing a payload's bytes to check them against `sourceHash`
- * belongs to ticket 21, now that ticket 15 has shipped the hasher it was waiting on.
- * This layer checks that a payload is named exactly once, that it exists, and that it
+ * policy, which the build runs without a live site. Hashing a payload's bytes
+ * against `sourceHash` belongs to BuildValidator, which has the hasher. This
+ * layer checks that a payload is named exactly once, that it exists, and that it
  * resolves inside the payload directory rather than through a symbolic link to
- * somewhere else; whether its bytes agree with the declaration is a
- * question for whatever can hash them.
+ * somewhere else.
  *
  * **Nothing here warns.** Every check returns a violation or nothing, and a
- * violation stops the artefact. The plan's warning pass - a replace-only object
- * declaring no expected-original hash, a disabled object that is not the last at
- * its path, a regular expression matching the empty string - is the build's, and is
- * not implemented yet.
+ * violation stops the artefact. The plan's warning pass lives on BuildValidator.
  *
  * No Joomla dependency: the core is testable on a bare PHP CLI.
  */

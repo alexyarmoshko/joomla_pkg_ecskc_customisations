@@ -6,6 +6,10 @@
 *.ico       binary
 *.zip       binary
 
+# Rule XML is authored LF. The tag export already settles a release, but pinning
+# keeps a working-tree dist_dev byte-identical to it (plan Phase 1 work item 19).
+data/rules/**   text eol=lf
+
 # ---------------------------------------------------------------------------
 # Payload protection -- KEEP THIS BLOCK LAST.
 #

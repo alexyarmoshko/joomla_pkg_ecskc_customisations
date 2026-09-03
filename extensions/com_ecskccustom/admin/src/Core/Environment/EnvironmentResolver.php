@@ -120,7 +120,7 @@ final class EnvironmentResolver
         }
 
         $parsed = \parse_url($siteUrl, \PHP_URL_HOST);
-        $host   = \is_string($parsed) ? $this->canonicalHost($parsed) : '';
+        $host   = \is_string($parsed) ? self::canonicalHost($parsed) : '';
 
         if ($host === '') {
             $faults[EnvironmentValues::HOST] = \sprintf(
@@ -157,8 +157,12 @@ final class EnvironmentResolver
      * rewrite. A host-shaped expression written against SITE_URL is the build's to
      * warn about (plan section: "a regular expression against SITE_URL that appears
      * to describe a host").
+     *
+     * Public so the build's warning pass judges a literal HOST operand against this
+     * same rule. Folding the operand at evaluation time would make one attribute of
+     * the rule language case-insensitive with nothing saying so.
      */
-    private function canonicalHost(string $host): string
+    public static function canonicalHost(string $host): string
     {
         $host = \strtolower($host);
 
