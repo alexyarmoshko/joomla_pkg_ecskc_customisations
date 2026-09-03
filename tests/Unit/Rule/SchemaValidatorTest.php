@@ -125,7 +125,6 @@ final class SchemaValidatorTest extends TestCase
     public static function acceptedTargetPaths(): array
     {
         $inventory = [
-            'libraries/CBLib/CB/Legacy/CBInstallPlugin.php',
             'plugins/system/helixultimate/overrides/com_contact/contact/default_form.php',
             'plugins/system/helixultimate/overrides_legacy/com_contact/contact/default_form.php',
             'components/com_kunena/template/nts_kbee/config/config.xml',

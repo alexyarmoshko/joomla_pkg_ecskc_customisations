@@ -241,7 +241,7 @@ final class MergedSetValidatorTest extends TestCase
      * permissions. These two objects are alternatives for different vendor builds,
      * each expecting an original the package never wrote. Treating every unmatched
      * expectation as a broken link would reject the entire vendor half of the
-     * inventory - 8 of the 13 managed files.
+     * inventory - 7 of the 12 managed files.
      */
     public function testVendorAlternativesExpectingOriginalsThePackageNeverWroteAreAccepted(): void
     {
