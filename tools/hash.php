@@ -4,9 +4,9 @@
 declare(strict_types=1);
 
 /**
- * Authoring helper: report the sha256 and the byte shape of a file, so an
- * object's <expectedHash> and a payload's <sourceHash> are computed rather than
- * transcribed.
+ * Authoring helper: report the sha256 and the byte shape of a file. An
+ * object's <expectedHash> and a payload's <sourceHash> are taken from this
+ * output (decision 24).
  *
  * Usage:  php tools/hash.php <source> [<source>...]
  *
@@ -175,5 +175,9 @@ function lineEndings(string $bytes): string
 
 function endsWithNewline(string $bytes): bool
 {
-    return $bytes !== '' && \str_ends_with($bytes, "\n");
+    // lineEndings() treats a lone CR as a legal line ending, so a file that
+    // terminates on CR has a final newline the same way one that terminates
+    // on LF or CRLF does. CRLF ends in \n and is covered by the first check.
+    return $bytes !== ''
+        && (\str_ends_with($bytes, "\n") || \str_ends_with($bytes, "\r"));
 }

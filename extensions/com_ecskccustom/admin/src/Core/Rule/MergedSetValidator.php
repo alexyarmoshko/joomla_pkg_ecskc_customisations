@@ -45,8 +45,8 @@ use SplFileInfo;
  * Its objects are alternatives rather than a chain, each expecting an original from
  * a different vendor build, so an expectation matching no earlier payload is
  * exactly right and is not reported here. Those hashes are computed at authoring
- * time with `tools/hash.php`, straight from the bytes they describe, so there is
- * no transcription for this layer to second-guess (decision 24).
+ * time with `tools/hash.php`. Decision 24 withdrew the second copy this layer
+ * would have checked them against.
  *
  * ## What deliberately is not here
  *
