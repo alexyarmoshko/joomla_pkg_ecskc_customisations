@@ -44,9 +44,9 @@ use SplFileInfo;
  * A path whose first object may only replace is a customisation of a vendor file.
  * Its objects are alternatives rather than a chain, each expecting an original from
  * a different vendor build, so an expectation matching no earlier payload is
- * exactly right and is not reported here. Those are checked against
- * `data/baselines.xml` at authoring time instead (tickets 19 and 20), which is the
- * only place the vendor archives can be reached.
+ * exactly right and is not reported here. Those hashes are computed at authoring
+ * time with `tools/hash.php`, straight from the bytes they describe, so there is
+ * no transcription for this layer to second-guess (decision 24).
  *
  * ## What deliberately is not here
  *
@@ -287,7 +287,7 @@ final class MergedSetValidator
         if (!$head->create) {
             // Vendor-owned: the objects are alternatives, each expecting an original
             // from a different vendor build. Their expectations are established
-            // outside the rule set and are checked against data/baselines.xml.
+            // outside the rule set, computed with tools/hash.php (decision 24).
             return [];
         }
 
