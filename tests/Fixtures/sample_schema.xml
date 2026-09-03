@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Sample rule set for pkg_ecskc_customisations.
+    Illustrates the model agreed in the project brief. All values are placeholders.
+
+    Structure
+      patch  - a container. No identity and no version. Grouped by vendor package
+               by convention only; the tool has no notion of a vendor package.
+      root   - optional. A base path that the objects beneath it resolve against.
+               Absent, targets resolve from the web root.
+      object - one file at one revision. Several objects may share a path: either
+               successive revisions of one customisation, or alternative baselines
+               for different vendor builds.
+      action - conditions, and the one operation they guard. An object may carry
+               several actions; an action carries exactly one operation (v1).
+
+    Walking
+      Objects sharing a path are walked once, in document order, applying each whose
+      expectation the current state satisfies. Document order is therefore significant
+      and must ascend by version; the build enforces it.
+
+    Rule files
+      Authored in data/rules/, read in byte-order alphabetical sequence, and validated
+      by the build as one merged set - never file by file.
+
+    Payloads
+      Authored in data/payload/, named <target path>.v<N> by convention so a payload's
+      location says what it is for. srcPathFileName is resolved relative to payload/ and
+      is stated explicitly all the same: the rule set is the instruction, the payload only
+      supplies data. No payload is shared between objects - two targets needing identical
+      bytes each carry their own copy, and the build rejects a second object naming one
+      that is already spoken for.
+
+    Defaults
+      create="false"   replace="true"   enable="true"
+-->
+<patch hashType="sha256">
+    <description>Helix Ultimate — contact form and coming-soon layout</description>
+
+    <root path="plugins/system/helixultimate/overrides">
+
+        <!-- Revision 1: the original customisation, cut against Helix 2.2.9 stock. -->
+        <object version="1">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <!-- Optional. The build warns when create="false" replace="true" omits
+                     it, since for a vendor-owned file it is the only thing standing
+                     between a copy and the silent loss of the vendor's own changes. -->
+                <expectedHash>HASH_OF_HELIX_2_2_9_STOCK_DEFAULT_FORM</expectedHash>
+                <description>Helix Ultimate 2.2.9 stock contact form</description>
+            </id>
+            <action>
+                <description>Adds a Cancel button beside Send</description>
+                <operations>
+                    <!-- A copy that overwrites always backs up first; not optional.
+                         Backup: backup/<target path>/<filename>.v<version>.<file hash> -->
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v1</srcPathFileName>
+                        <sourceHash>HASH_OF_PAYLOAD_V1</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+
+        <!-- Revision 2: added, never edited in place. It expects what revision 1 wrote,
+             so a site still carrying v1 advances to v2 within the same run. -->
+        <object version="2">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <expectedHash>HASH_OF_PAYLOAD_V1</expectedHash>
+                <description>A site carrying revision 1 of this customisation</description>
+            </id>
+            <action>
+                <description>Cancel button reworded and given the vendor's own button classes</description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v2</srcPathFileName>
+                        <sourceHash>HASH_OF_PAYLOAD_V2</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+
+        <!-- Revision 3, cut but not yet wanted live. enable="false" is safe here because
+             this is the LAST object at the path: sites simply stop at v2. Mid-chain it
+             would strand every site not already past it, fresh installs included, and
+             the build warns. -->
+        <object version="3" enable="false">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <expectedHash>HASH_OF_PAYLOAD_V2</expectedHash>
+            </id>
+            <action>
+                <description>Held back pending review</description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v3</srcPathFileName>
+                        <sourceHash>HASH_OF_PAYLOAD_V3</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+
+    </root>
+
+    <!-- The same customisation exists in the vendor's parallel legacy tree.
+         A second root names the prefix once instead of repeating it per target.
+         The bytes may be identical to the pair above; the payload is still its own
+         file, because a payload belongs to exactly one object. -->
+    <root path="plugins/system/helixultimate/overrides_legacy">
+        <object version="1">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <expectedHash>HASH_OF_HELIX_2_2_9_STOCK_LEGACY_DEFAULT_FORM</expectedHash>
+            </id>
+            <action>
+                <description>Adds a Cancel button beside Send (legacy tree)</description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides_legacy/com_contact/contact/default_form.php.v1</srcPathFileName>
+                        <sourceHash>HASH_OF_LEGACY_PAYLOAD_V1</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+
+    <!-- Conditions address the environment only, never the destination file.
+         The closed attribute set is SITE_URL, HOST, JOOMLA_VERSION, PHP_VERSION.
+         This customisation is wanted on non-production copies.
+
+         Illustrative: nothing in the current inventory is conditional. Customisation
+         2 was the only one, and it was withdrawn on 2026-09-03 (execution plan
+         decision 23). The construct is kept because it is the only place the nested
+         group and the version condition type are shown. -->
+    <root path="plugins/system/examplevendor">
+        <object version="1">
+            <id>
+                <destPathFileName>helper/diagnostics.php</destPathFileName>
+                <expectedHash>HASH_OF_VENDOR_STOCK_DIAGNOSTICS</expectedHash>
+            </id>
+            <action>
+                <description>
+                    Verbose diagnostics helper, wanted on staging and development
+                    copies and never on the live site.
+                </description>
+                <conditions match="all">
+                    <!-- There is no negation operator: exclusion is an anchored pattern.
+                         Written unanchored, a lookahead matches every host including the
+                         one meant to be excluded, and does so silently.
+
+                         Match HOST, not SITE_URL. SITE_URL is "https://ecskc.eu" - a URL,
+                         not a host - so this same pattern against SITE_URL would exclude
+                         nothing and apply the patch ON PRODUCTION. See the pitfall in
+                         section 6: a correctly anchored pattern against the wrong shape
+                         of value fails open. -->
+                    <condition type="regex" attribute="HOST"
+                               description="Any host except production">^(?!ecskc\.eu$).*$</condition>
+                    <!-- Groups nest, so mixed logic needs no second element type. -->
+                    <conditions match="any">
+                        <condition type="version" attribute="JOOMLA_VERSION"
+                                   description="Joomla 5.4 and later">&gt;=5.4.0</condition>
+                        <condition type="version" attribute="PHP_VERSION"
+                                   description="PHP 8.2 and later">&gt;=8.2</condition>
+                    </conditions>
+                </conditions>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/examplevendor/helper/diagnostics.php.v1</srcPathFileName>
+                        <sourceHash>HASH_OF_DIAGNOSTICS_PAYLOAD</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+
+    <!-- An object may carry several actions. With one operation per action, this is
+         where conditional variation lives: one path, one revision, different payloads
+         under different circumstances. Exactly one action's conditions should hold. -->
+    <root path="templates/et_tennis/css">
+        <object version="1" create="true">
+            <id>
+                <destPathFileName>override.css</destPathFileName>
+                <expectedHash>HASH_OF_PREVIOUSLY_DEPLOYED_OVERRIDE_CSS</expectedHash>
+                <description>Site stylesheet; et_tennis ships no override.css</description>
+            </id>
+            <action>
+                <description>Production stylesheet</description>
+                <conditions match="all">
+                    <condition type="regex" attribute="HOST"
+                               description="Production only">^ecskc\.eu$</condition>
+                </conditions>
+                <operations>
+                    <copy>
+                        <srcPathFileName>templates/et_tennis/css/override.css.v1</srcPathFileName>
+                        <sourceHash>HASH_OF_OVERRIDE_CSS</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+            <action>
+                <description>Development stylesheet, with the staging banner</description>
+                <conditions match="all">
+                    <condition type="regex" attribute="HOST"
+                               description="Anywhere but production">^(?!ecskc\.eu$).*$</condition>
+                </conditions>
+                <operations>
+                    <copy>
+                        <srcPathFileName>templates/et_tennis/css/override.css.dev.v1</srcPathFileName>
+                        <sourceHash>HASH_OF_OVERRIDE_CSS_DEV</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+
+    <!-- A package-owned file: the vendor ships no counterpart, so it may be created.
+         With no expectedHash it is placed on path alone, and a local edit made on the
+         server would be replaced without notice; declaring one guards against that. -->
+    <root path="components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb">
+        <object version="1" create="true">
+            <id>
+                <destPathFileName>override.php</destPathFileName>
+                <description>Site-specific CBSubs wording; no vendor counterpart exists</description>
+            </id>
+            <action>
+                <operations>
+                    <copy>
+                        <srcPathFileName>components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/override.php.v1</srcPathFileName>
+                        <sourceHash>HASH_OF_CBSUBS_OVERRIDE</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+
+    <!-- Removal, shown for completeness; nothing in the current inventory needs it.
+         The object's id gates the operation, so with a hash declared only that exact
+         file is removed. backup="false" suits pruning content nobody wants retained -
+         and leaves no trace but the event log, which is why that log is required. -->
+    <root path="">
+        <object version="1">
+            <id>
+                <destPathFileName>path/to/superseded-file.php</destPathFileName>
+                <expectedHash>HASH_OF_THE_FILE_TO_REMOVE</expectedHash>
+                <description>Illustrative only</description>
+            </id>
+            <action>
+                <operations>
+                    <remove backup="true" />
+                </operations>
+            </action>
+        </object>
+    </root>
+
+</patch>
