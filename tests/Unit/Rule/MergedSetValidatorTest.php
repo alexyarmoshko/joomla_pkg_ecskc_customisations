@@ -617,6 +617,76 @@ final class MergedSetValidatorTest extends TestCase
         self::assertContains($absent . ': the payload directory does not exist', $violations);
     }
 
+    /**
+     * A directory the account cannot list throws out of the iterator, and an exception
+     * from here would leave the runner with no report at all - the one thing a check
+     * always has to produce. Review s1.v53 spec finding 1. The scan cannot see what
+     * the closed directory holds, so it says so instead of judging the set complete.
+     */
+    public function testAnUnreadablePayloadDirectoryIsReportedRatherThanThrown(): void
+    {
+        if (\function_exists('posix_geteuid') && \posix_geteuid() === 0) {
+            self::markTestSkipped('Permission bits do not stop the superuser listing the directory.');
+        }
+
+        $this->tree->write('payload/nested/one.v1', 'bytes');
+        $closed = $this->tree->path('payload/nested');
+        \chmod($closed, 0o000);
+
+        try {
+            $violations = $this->validate([
+                '10-one.xml' => RuleXml::patch(
+                    RuleXml::object(version: 1, dest: 'a/one.css', source: 'nested/one.v1', create: true)
+                ),
+            ], []);
+        } finally {
+            \chmod($closed, 0o755);
+        }
+
+        self::assertContains(
+            'the payload directory nested cannot be read. A directory that cannot be listed may '
+                . 'hold a payload, so the set cannot be judged complete.',
+            $violations
+        );
+    }
+
+    /**
+     * The root fails one step earlier, in the iterator's constructor rather than in a
+     * descent, so it needs its own guard. Nothing below it can be judged, and the
+     * directory is named in full because there is no payload-relative path to name.
+     */
+    public function testAPayloadDirectoryThatCannotBeOpenedAtAllIsReported(): void
+    {
+        if (\function_exists('posix_geteuid') && \posix_geteuid() === 0) {
+            self::markTestSkipped('Permission bits do not stop the superuser listing the directory.');
+        }
+
+        $this->tree->write('payload/index.html', '');
+        $closed = $this->tree->path('payload');
+        \chmod($closed, 0o000);
+
+        $loader = new RuleLoader(new SchemaValidator(
+            \dirname(__DIR__, 3) . '/extensions/com_ecskccustom/admin/schema/patch.xsd'
+        ));
+
+        $this->tree->write('rules/10-one.xml', RuleXml::patch(
+            RuleXml::object(version: 1, dest: 'a/one.css', source: 'one.v1', create: true)
+        ));
+
+        try {
+            $violations = (new MergedSetValidator($closed))
+                ->validate($loader->load($this->tree->path('rules'))->ruleSet);
+        } finally {
+            \chmod($closed, 0o755);
+        }
+
+        self::assertContains(
+            'the payload directory ' . $closed . ' cannot be read. A directory that cannot be '
+                . 'listed may hold a payload, so the set cannot be judged complete.',
+            $violations
+        );
+    }
+
     public function testAnEmptyRuleSetWithNoPayloadsIsSound(): void
     {
         self::assertSame([], $this->validate([], []));

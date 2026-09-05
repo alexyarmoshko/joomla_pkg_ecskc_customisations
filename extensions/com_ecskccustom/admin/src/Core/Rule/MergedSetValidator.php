@@ -18,6 +18,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
+use UnexpectedValueException;
 
 /**
  * The second validation layer: everything only visible once the files are merged.
@@ -377,6 +378,14 @@ final class MergedSetValidator
             ];
         }
 
+        foreach ($scan['unreadable'] as $directory) {
+            $violations[] = \sprintf(
+                'the payload directory %s cannot be read. A directory that cannot be listed may '
+                . 'hold a payload, so the set cannot be judged complete.',
+                $directory
+            );
+        }
+
         foreach ($scan['links'] as $link) {
             $violations[] = \sprintf(
                 'payload %s is a symbolic link. A payload is bytes the package ships, so it has '
@@ -421,8 +430,20 @@ final class MergedSetValidator
      * RecursiveDirectoryIterator does not descend into a linked directory by default,
      * so such a link arrives here as a single entry that is not a file.
      *
-     * @return array{files: list<string>, links: list<string>}|null Null when the
-     *                                                             directory does not exist.
+     * A directory the account cannot list is collected the same way, rather than
+     * being allowed to throw. Both the opening of the root and every descent below it
+     * raise UnexpectedValueException on a permission failure, and an exception here
+     * leaves the runner with no report at all - the one thing a check must always
+     * produce. CATCH_GET_CHILD keeps the walk going past such a directory, and
+     * SELF_FIRST is what puts the directory itself in front of this loop so the
+     * unreadable one can be named instead of silently skipped. Every other directory
+     * falls through the isFile() test exactly as it did before.
+     *
+     * An unreadable directory is named by its payload-relative path, or by the
+     * payload directory itself when that root cannot be opened.
+     *
+     * @return array{files: list<string>, links: list<string>, unreadable: list<string>}|null
+     *         Null when the directory does not exist.
      */
     private function scanPayloads(): ?array
     {
@@ -430,11 +451,21 @@ final class MergedSetValidator
             return null;
         }
 
-        $found    = [];
-        $links    = [];
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($this->payloadDirectory, FilesystemIterator::SKIP_DOTS)
-        );
+        $found      = [];
+        $links      = [];
+        $unreadable = [];
+
+        try {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($this->payloadDirectory, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::SELF_FIRST,
+                RecursiveIteratorIterator::CATCH_GET_CHILD
+            );
+        } catch (UnexpectedValueException) {
+            // The root exists - is_dir said so - but cannot be opened, so nothing
+            // below it can be judged and there is nothing else to collect.
+            return ['files' => [], 'links' => [], 'unreadable' => [$this->payloadDirectory]];
+        }
 
         /** @var SplFileInfo $file */
         foreach ($iterator as $file) {
@@ -442,6 +473,14 @@ final class MergedSetValidator
 
             if ($file->isLink()) {
                 $links[] = $relative;
+
+                continue;
+            }
+
+            if ($file->isDir()) {
+                if (!$file->isReadable()) {
+                    $unreadable[] = $relative;
+                }
 
                 continue;
             }
@@ -464,7 +503,8 @@ final class MergedSetValidator
 
         \sort($found, \SORT_STRING);
         \sort($links, \SORT_STRING);
+        \sort($unreadable, \SORT_STRING);
 
-        return ['files' => $found, 'links' => $links];
+        return ['files' => $found, 'links' => $links, 'unreadable' => $unreadable];
     }
 }

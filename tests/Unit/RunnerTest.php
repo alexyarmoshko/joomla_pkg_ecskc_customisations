@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace YakShaver\ECSKCCustomisation\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\ConditionEvaluator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentProviderInterface;
@@ -276,6 +277,49 @@ final class RunnerTest extends TestCase
         self::assertStringContainsString('version 1', $incomplete->objectOutcomes()[0]->describe());
         self::assertSame('templates/et_tennis/css/incomplete.css', $incomplete->targetPath());
         self::assertSame(TargetStatus::INCOMPLETE, $incomplete->describe());
+    }
+
+    /**
+     * The check has to come back with a report whatever the filesystem says. A payload
+     * directory the account cannot list throws out of the merged-set scan, and an
+     * uncaught exception here returns nothing at all - not a faulted report, not an
+     * empty one. Review s1.v53 spec finding 1; the root and a nested directory fail at
+     * different points, so both are driven.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function payloadDirectoriesThatCannotBeListed(): array
+    {
+        return [
+            'the payload root'      => [self::PACKAGE . '/payload'],
+            'a nested payload folder' => [self::PACKAGE . '/payload/nested'],
+        ];
+    }
+
+    #[DataProvider('payloadDirectoriesThatCannotBeListed')]
+    public function testAnUnreadablePayloadDirectoryFaultsTheReportInsteadOfThrowing(
+        string $closedRelative
+    ): void {
+        if (\function_exists('posix_geteuid') && \posix_geteuid() === 0) {
+            self::markTestSkipped('Permission bits do not stop the superuser listing the directory.');
+        }
+
+        $this->writeRuleSet();
+        $this->tree->write(self::PACKAGE . '/payload/nested/hidden.css.v1', self::FIRST);
+        $closed = $this->tree->path($closedRelative);
+        \chmod($closed, 0o000);
+
+        try {
+            $report = $this->build()->check();
+        } finally {
+            \chmod($closed, 0o755);
+        }
+
+        self::assertTrue($report->isFaulted(), 'an unlistable payload directory is a fault');
+        self::assertStringContainsString(
+            'cannot be read. A directory that cannot be listed may hold a payload',
+            \implode("\n", $report->faults())
+        );
     }
 
     private function report(): RunReport
