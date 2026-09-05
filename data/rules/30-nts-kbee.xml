@@ -55,7 +55,7 @@
             </id>
             <action>
                 <description>
-                    Repairs the line endings LF - CRL.
+                    Repairs the line endings LF - CRLF.
                 </description>
                 <operations>
                     <copy>
@@ -98,7 +98,7 @@
             </id>
             <action>
                 <description>
-                    Repairs the line endings LF - CRL.
+                    Repairs the line endings LF - CRLF.
                 </description>
                 <operations>
                     <copy>
