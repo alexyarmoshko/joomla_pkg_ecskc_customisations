@@ -12,6 +12,13 @@ MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 # same relative path in the archive, except script.php which also ships at
 # the archive root: the installer resolves <scriptfile> against the package
 # root, while uninstall re-reads it from the installed administrator folder.
+#
+# `admin/src/Core/Build/` is deliberately absent. Outside tests/Unit/Build/, its
+# only consumers are tools/validate.php and tools/copy_nofollow.php, all three
+# reaching it from the repository through Composer's autoloader, and
+# LinkSafeCopy::copy() is the one file-copy in the tree. A report-only package
+# that shipped it would put a write implementation on the site for nothing to
+# call.
 COMPONENT_FILES := \
 	com_ecskccustom.xml \
 	admin/script.php \
@@ -21,9 +28,6 @@ COMPONENT_FILES := \
 	admin/rules/index.html \
 	admin/schema/patch.xsd \
 	admin/services/provider.php \
-	admin/src/Core/Build/BuildCheck.php \
-	admin/src/Core/Build/BuildValidator.php \
-	admin/src/Core/Build/LinkSafeCopy.php \
 	admin/src/Core/Condition/ConditionEvaluator.php \
 	admin/src/Core/Condition/ConditionGroup.php \
 	admin/src/Core/Condition/ConditionOutcome.php \
@@ -78,9 +82,12 @@ PAYLOAD_FILES := \
 	components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/language.php.v1 \
 	components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/override.php.v1 \
 	components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v1 \
+	components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v2 \
 	components/com_kunena/template/nts_kbee/config/config.xml.v1 \
 	components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v1 \
+	components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v2 \
 	components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v1 \
+	components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v2 \
 	plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v1 \
 	plugins/system/helixultimate/overrides_legacy/com_contact/contact/default_form.php.v1 \
 	templates/et_tennis/css/override.css \

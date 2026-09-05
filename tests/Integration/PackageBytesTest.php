@@ -31,6 +31,7 @@ final class PackageBytesTest extends TestCase
 
     public function testDistDevProducesAZipWhosePayloadsMatchTheAuthoredBytes(): void
     {
+        $this->requireMake();
         $this->runMake(['dist_dev']);
 
         self::assertFileExists(self::$zip);
@@ -82,12 +83,21 @@ final class PackageBytesTest extends TestCase
         $master   = \getenv('HOME') . '/repos/ys_toolbox/src/jzip/jzip.php';
 
         self::assertFileExists($vendored);
-        self::assertFileExists($master);
+
+        // The master lives beside this repository on the authoring machine and is
+        // reachable nowhere else - not in the DDEV container, not on CI. Skipping
+        // there loses no cover: `make lint` runs the same `cmp` on the host, and
+        // `make release` runs lint, so a drifted copy still cannot be published.
+        if (!\is_file($master)) {
+            self::markTestSkipped($master . ' is not present, so the vendored copy cannot be compared here');
+        }
+
         self::assertFileEquals($master, $vendored);
     }
 
     public function testDistDevDeletesTheZipBeforeValidate(): void
     {
+        $this->requireMake();
         $this->runMake(['dist_dev']);
         self::assertFileExists(self::$zip);
 
@@ -111,9 +121,12 @@ final class PackageBytesTest extends TestCase
             'components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/language.php.v1',
             'components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/override.php.v1',
             'components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v1',
+            'components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v2',
             'components/com_kunena/template/nts_kbee/config/config.xml.v1',
             'components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v1',
+            'components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v2',
             'components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v1',
+            'components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v2',
             'plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v1',
             'plugins/system/helixultimate/overrides_legacy/com_contact/contact/default_form.php.v1',
             'templates/et_tennis/css/override.css',
@@ -133,6 +146,24 @@ final class PackageBytesTest extends TestCase
             '40-et-tennis.xml',
             '50-site-icons.xml',
         ];
+    }
+
+    /**
+     * Skip rather than fail where the build itself cannot run.
+     *
+     * These two tests drive `make`. The DDEV web container has no `make`, so
+     * without this they report a missing build tool as a packaging defect. The
+     * host builds releases and has it, so the gate still holds where it matters.
+     */
+    private function requireMake(): void
+    {
+        foreach (\explode(\PATH_SEPARATOR, (string) \getenv('PATH')) as $dir) {
+            if ($dir !== '' && \is_executable($dir . '/make')) {
+                return;
+            }
+        }
+
+        self::markTestSkipped('make is not on PATH, so the build cannot be driven here');
     }
 
     /**

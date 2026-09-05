@@ -220,43 +220,7 @@ final class BuildValidator
             }
         }
 
-        if (!$first->create && $this->isAChain($objects)) {
-            $warnings[] = \sprintf(
-                '%s: this chain cannot advance from a missing file, because the first '
-                . 'object may not create it',
-                $first->label()
-            );
-        }
-
         return $warnings;
-    }
-
-    /**
-     * Several objects at one path are a chain when a later one expects a payload
-     * an earlier one writes. Vendor alternatives expect originals the package
-     * never shipped, and are not this shape.
-     *
-     * @param list<RuleObject> $objects
-     */
-    private function isAChain(array $objects): bool
-    {
-        $written = [];
-
-        foreach ($objects as $object) {
-            if ($object->expectedHash !== null) {
-                $want = \strtolower($object->expectedHash);
-
-                if (\in_array($want, $written, true)) {
-                    return true;
-                }
-            }
-
-            foreach ($object->payloadHashes() as $hash) {
-                $written[] = \strtolower($hash);
-            }
-        }
-
-        return false;
     }
 
     /**

@@ -25,6 +25,30 @@
                 </operations>
             </action>
         </object>
+
+        <object version="2">
+            <id>
+                <destPathFileName>FolderController.php</destPathFileName>
+                <expectedHash>7b8d9d0397cd1c079492492d77f7dc3d7ddd4bb9c6fa9010e80f676962dba0d0</expectedHash>
+                <description>The version 1 payload, so a site already carrying it advances</description>
+            </id>
+            <action>
+                <description>
+                    The bytes the live site runs. Same fix as version 1, plus the
+                    ECSKC Customisation marker comment and a trailing newline, which
+                    is how the file was actually deployed. Version 1 stays as the
+                    vendor-cut record so an overwrite by CB Gallery is still
+                    recognised; the walk then carries the target through it to here.
+                </description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v2</srcPathFileName>
+                        <!-- payload: LF, trailing newline -->
+                        <sourceHash>ec454993d366c563f99610787df4f400418dbdced1504aed890c3d6ab5feb974</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
     </root>
 
     <root path="components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb">

@@ -7,7 +7,7 @@
             <id>
                 <destPathFileName>options.xml</destPathFileName>
                 <expectedHash>3872e90548261f6c01bb0f255edd3c089104344852670dcae6e897e5e4fd5a17</expectedHash>
-                <description>et_tennis vendor package stock options.xml. No prior record; authored from the live site against that archive.</description>
+                <description>et_tennis vendor package stock options.xml.</description>
             </id>
             <action>
                 <description>
@@ -29,10 +29,10 @@
         <object version="1" create="true">
             <id>
                 <destPathFileName>override.css</destPathFileName>
-                <description>et_tennis ships no override.css. Carries the rules that replaced customisations 1, 4, and 6.</description>
+                <description>et_tennis ships no override.css.</description>
             </id>
             <action>
-                <description>Site stylesheet as verified in ticket 08</description>
+                <description>Custom site stylesheet</description>
                 <operations>
                     <copy>
                         <srcPathFileName>templates/et_tennis/css/override.css</srcPathFileName>

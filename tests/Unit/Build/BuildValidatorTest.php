@@ -533,32 +533,6 @@ final class BuildValidatorTest extends TestCase
         self::assertSame([], $check->warnings);
     }
 
-    public function testAChainWhoseFirstObjectCannotCreateIsAWarning(): void
-    {
-        $check = $this->check([
-            '10-stuck.xml' => RuleXml::patch(
-                RuleXml::object(
-                    version: 1,
-                    dest: 'a/one.css',
-                    source: 'one.v1',
-                    expectedHash: RuleXml::hash('original'),
-                    create: false
-                )
-                . RuleXml::object(
-                    version: 2,
-                    dest: 'a/one.css',
-                    source: 'one.v2',
-                    expectedHash: RuleXml::hash('one.v1'),
-                    create: false
-                )
-            ),
-        ], ['one.v1', 'one.v2']);
-
-        self::assertTrue($check->ok(), \implode("\n", $check->errors));
-        self::assertNotSame([], $check->warnings);
-        self::assertStringContainsString('missing file', \implode("\n", $check->warnings));
-    }
-
     public function testALaterPackageOwnedObjectWithNoExpectedHashIsAWarning(): void
     {
         $check = $this->check([

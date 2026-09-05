@@ -7,7 +7,7 @@
             <id>
                 <destPathFileName>config.xml</destPathFileName>
                 <expectedHash>fce1e6ee7f1ae72c24745eda83f7b15212c54058ad187dd7bf7e4bcd76bb81ee</expectedHash>
-                <description>NTS KBee 6.0.9 stock config.xml, also kept on the site as config.original.xml</description>
+                <description>NTS KBee 6.0.9 stock config.xml</description>
             </id>
             <action>
                 <description>
@@ -36,11 +36,30 @@
                 <description>
                     Drops the bang from !$this->UserCanPostImage so the attachment
                     panel shows for users who can upload, not for those who cannot.
-                    Cut against the vendor CRLF file. The live copy had been stored as LF.
                 </description>
                 <operations>
                     <copy>
                         <srcPathFileName>components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v1</srcPathFileName>
+                        <!-- payload: CRLF, no trailing newline -->
+                        <sourceHash>a4760f18354410c9fb1d56d1b1242bd9440aee8fff0f8566485353ac4b157598</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+
+        <object version="2">
+            <id>
+                <destPathFileName>default.php</destPathFileName>
+                <expectedHash>d140cd605197b7e0977099746f36d5eb25495f3a3829666867475fd0f5a30725</expectedHash>
+                <description>The customisation as deployed, stored LF where NTS KBee ships CRLF</description>
+            </id>
+            <action>
+                <description>
+                    Repairs the line endings LF - CRL.
+                </description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v2</srcPathFileName>
                         <!-- payload: CRLF, no trailing newline -->
                         <sourceHash>a4760f18354410c9fb1d56d1b1242bd9440aee8fff0f8566485353ac4b157598</sourceHash>
                     </copy>
@@ -59,11 +78,31 @@
             <action>
                 <description>
                     HTTP 401 shows COM_KUNENA_LOGIN_FORUM instead of the generic error
-                    list. Cut against the vendor CRLF file. The live copy had been stored as LF.
+                    list.
                 </description>
                 <operations>
                     <copy>
                         <srcPathFileName>components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v1</srcPathFileName>
+                        <!-- payload: CRLF, trailing newline -->
+                        <sourceHash>ccaa5a810aabc9342c4a3f415efc7310db9f4c86278fb3db4851ab84a43780fb</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+
+        <object version="2">
+            <id>
+                <destPathFileName>default.php</destPathFileName>
+                <expectedHash>e861d85b680a21cc7f2a6d330996f4f66e8fd506c7ec844bdae621f7d75bf9c5</expectedHash>
+                <description>The customisation as deployed, stored LF where NTS KBee ships CRLF</description>
+            </id>
+            <action>
+                <description>
+                    Repairs the line endings LF - CRL.
+                </description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v2</srcPathFileName>
                         <!-- payload: CRLF, trailing newline -->
                         <sourceHash>ccaa5a810aabc9342c4a3f415efc7310db9f4c86278fb3db4851ab84a43780fb</sourceHash>
                     </copy>
