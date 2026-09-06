@@ -40,6 +40,8 @@ COMPONENT_FILES := \
 	admin/src/Core/Hash/Hasher.php \
 	admin/src/Core/Hash/HashResult.php \
 	admin/src/Core/Package/PackagePaths.php \
+	admin/src/Core/Package/StateArchive.php \
+	admin/src/Core/Package/StateArchiveFailure.php \
 	admin/src/Core/Path/PathDecision.php \
 	admin/src/Core/Path/PathPolicy.php \
 	admin/src/Core/Report/OperationalCheck.php \

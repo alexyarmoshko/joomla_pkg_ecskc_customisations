@@ -12,9 +12,13 @@
 
 \defined('_JEXEC') or die;
 
+use Joomla\CMS\Factory;
 use Joomla\CMS\Installer\InstallerAdapter;
 use Joomla\CMS\Language\Text;
+use Joomla\CMS\Log\Log;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
 
 /**
  * Creates and protects the package's own state folders.
@@ -57,8 +61,12 @@ class Com_EcskccustomInstallerScript
 
         HTACCESS;
 
+    /** The folder inside the site's temporary folder that holds uninstall archives. */
+    private const ARCHIVE_FOLDER = 'com_ecskccustom-state';
+
     /**
-     * Runs after install, update and discover_install alike.
+     * Runs after install, update and discover_install - and after uninstall, which
+     * this returns from at once.
      *
      * Idempotent: an update finds the folders already there and must leave their
      * contents alone. They carry a site's backups, freeze markers and event log,
@@ -74,6 +82,16 @@ class Com_EcskccustomInstallerScript
      */
     public function postflight($type, InstallerAdapter $adapter): bool
     {
+        // Joomla runs postflight after an uninstall too - InstallerAdapter::uninstall()
+        // triggers it once finaliseUninstall() has deleted the tree - and $type is
+        // 'uninstall' there. Creating the folders again would put three empty
+        // directories back where the component used to be, and the protection pass
+        // that follows would then throw on payload/, which no longer exists: the
+        // operator was told "Extension not removed" after a successful uninstall.
+        if ($type === 'uninstall') {
+            return true;
+        }
+
         $root = JPATH_ADMINISTRATOR . '/components/com_ecskccustom';
         $this->loadPackagePaths($root);
 
@@ -101,6 +119,214 @@ class Com_EcskccustomInstallerScript
         }
 
         return true;
+    }
+
+    /**
+     * Runs before Joomla deletes the component's directories.
+     *
+     * `InstallerAdapter::uninstall()` triggers this hook and only then reaches
+     * `ComponentAdapter::finaliseUninstall()`, which removes the administrator tree
+     * and with it `backup/`, `staging/` and `state/`. Until now that loss was silent:
+     * the operator was told the component was removed and not that every displaced
+     * original, every freeze marker and the whole event log went with it.
+     *
+     * So the history is copied to a zip in the temporary folder first. The uninstall
+     * itself is not obstructed - it is deliberate, and Joomla discards a false return
+     * from this hook anyway (`triggerManifestScript()` guards the abort with
+     * `if ($method !== 'uninstall')`). Only `preflight` can refuse an uninstall.
+     *
+     * **Never throws.** A failure here must not leave the component half-removed, so
+     * the reason is enqueued and the uninstall carries on.
+     *
+     * @param   InstallerAdapter  $adapter  Installer adapter.
+     *
+     * @return  boolean
+     */
+    public function uninstall(InstallerAdapter $adapter): bool
+    {
+        $root = JPATH_ADMINISTRATOR . '/components/com_ecskccustom';
+
+        try {
+            $this->loadCoreClass($root, PackagePaths::class, 'src/Core/Package/PackagePaths.php');
+            $this->loadCoreClass(
+                $root,
+                StateArchiveFailure::class,
+                'src/Core/Package/StateArchiveFailure.php'
+            );
+            $this->loadCoreClass($root, StateArchive::class, 'src/Core/Package/StateArchive.php');
+
+            $paths   = new PackagePaths($root);
+            $history = new StateArchive($paths);
+
+            // The archive folder is created only when there is something to put
+            // in it. Creating it first left an empty guarded directory in tmp/
+            // after a fresh install that never wrote history.
+            if ($history->contents() === []) {
+                return true;
+            }
+
+            $archive = $history->write($this->archiveFolder($paths));
+
+            if ($archive !== null) {
+                $this->enqueue('COM_ECSKCCUSTOM_UNINSTALL_ARCHIVED', 'warning', $archive);
+            }
+        } catch (StateArchiveFailure $failure) {
+            $this->enqueue($this->reasonKey($failure->reason), 'error', $failure->path);
+        } catch (\Throwable $error) {
+            // Nothing the core raises reaches here: everything it knows how to fail at
+            // arrives above with a reason and a path. What is left is unforeseen, and
+            // its message is English from a stack trace, so the operator gets the
+            // translated wrapper and the detail goes to a log file.
+            $this->enqueue('COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_FAILED', 'error');
+            $this->log($error->getMessage());
+        }
+
+        return true;
+    }
+
+    /**
+     * Where the archive goes: a guarded folder of the package's own inside the
+     * site's temporary folder.
+     *
+     * Outside the component tree, which is the whole point - anywhere under it is
+     * deleted moments later. Not the temporary folder itself: measured on the DDEV
+     * reference site, a file written there is served over HTTP with status 200, and
+     * this archive holds displaced site files and the event log. It gets the same
+     * deny-all treatment as backup/ and state/ had, in a folder of its own so that
+     * nothing else in tmp/ is affected.
+     *
+     * A folder that cannot be created or protected raises, and the hook above turns
+     * that into the message that the history could not be saved. An unprotected dump
+     * of displaced site files is worse than no dump.
+     *
+     * @throws StateArchiveFailure When the folder is a link, sits inside the
+     *                              component, or cannot be created or protected.
+     */
+    private function archiveFolder(PackagePaths $paths): string
+    {
+        $folder = $this->temporaryFolder() . '/' . self::ARCHIVE_FOLDER;
+
+        // A link here is refused rather than followed. is_dir() says yes to a link to
+        // a directory, so without this check a link left in the temporary folder would
+        // send the archive somewhere the administrator never configured, and protect()
+        // would write the deny-all guard over whatever .htaccess that directory has.
+        // The package makes this folder itself; a link with its name is not it.
+        if (is_link($folder)) {
+            throw new StateArchiveFailure(
+                StateArchiveFailure::UNWRITABLE,
+                $folder,
+                sprintf('%s is a symbolic link', $folder)
+            );
+        }
+
+        // tmp_path is taken as configured. If that setting is the component tree, or
+        // aliases into it with "..", mkdir would put the archive where Joomla is
+        // about to delete it, and the operator would be told the history was saved.
+        if ($paths->contains($folder)) {
+            throw new StateArchiveFailure(
+                StateArchiveFailure::UNWRITABLE,
+                $folder,
+                sprintf('%s is inside the component tree', $folder)
+            );
+        }
+
+        if (!is_dir($folder) && !@mkdir($folder, 0755, true) && !is_dir($folder)) {
+            throw new StateArchiveFailure(
+                StateArchiveFailure::UNWRITABLE,
+                $folder,
+                sprintf('%s could not be created', $folder)
+            );
+        }
+
+        if (!$this->protect($folder)) {
+            throw new StateArchiveFailure(
+                StateArchiveFailure::UNSECURED,
+                $folder,
+                sprintf('%s could not be given its deny-all guard', $folder)
+            );
+        }
+
+        return $folder;
+    }
+
+    /**
+     * The language key for one archive failure.
+     *
+     * A match rather than a built string, so every key appears here as a literal that
+     * `InstallerLanguageTest` can find in this file and check against the .sys language
+     * file. A key assembled from a code would pass that test while missing at run time.
+     */
+    private function reasonKey(string $reason): string
+    {
+        return match ($reason) {
+            StateArchiveFailure::UNREADABLE  => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNREADABLE',
+            StateArchiveFailure::UNSECURED   => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNSECURED',
+            StateArchiveFailure::UNPUBLISHED => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNPUBLISHED',
+            default                          => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNWRITABLE',
+        };
+    }
+
+    /**
+     * The site's configured temporary folder.
+     *
+     * Taken as configured, and not checked here. A configured folder that is missing
+     * or unwritable is reported by archiveFolder() as the failure it is; quietly
+     * writing somewhere else instead would put an archive of displaced site files in
+     * a folder the administrator did not choose, and the message would name a path
+     * they never configured.
+     *
+     * The default applies only when Joomla returns an empty setting, which names no
+     * folder at all. It is Joomla's own default location, not a second guess at the
+     * setting. A failure to reach the application or its configuration is not caught
+     * here either: it reaches the hook's error path, because a lookup that failed is
+     * not the same as a site configured with no temporary folder.
+     */
+    private function temporaryFolder(): string
+    {
+        $configured = \trim((string) Factory::getApplication()->get('tmp_path', ''));
+
+        return $configured !== '' ? $configured : JPATH_ROOT . '/tmp';
+    }
+
+    /**
+     * Write one line to a log file of the package's own.
+     *
+     * The category has to bring its own logger. Joomla registers loggers for `system`
+     * and `deprecated`, and covers everything else only when `log_everything` is on,
+     * which it is not by default - so a category-only `Log::add()` would be discarded
+     * and the message telling the operator to look in the log would be a lie.
+     *
+     * Runs after the operator has been told, and swallows its own failures. The hook
+     * this serves must not throw, and a diagnostic that cannot be written is not worth
+     * leaving a component half-removed for.
+     */
+    private function log(string $message): void
+    {
+        try {
+            Log::addLogger(['text_file' => 'com_ecskccustom.php'], Log::ALL, ['com_ecskccustom']);
+            Log::add($message, Log::ERROR, 'com_ecskccustom');
+        } catch (\Throwable) {
+            // Nothing left to try, and nothing that would help the operator.
+        }
+    }
+
+    /**
+     * Translate and tell the operator, without letting either step stop the uninstall.
+     *
+     * Text::sprintf() delegates to PHP sprintf(), which raises ValueError on a
+     * malformed format string. A broken language override would otherwise escape
+     * the catch handlers that call this, and Joomla's uninstall caller catches
+     * RuntimeException rather than Throwable, so the removal would stop before
+     * file cleanup.
+     */
+    private function enqueue(string $key, string $type, ?string $path = null): void
+    {
+        try {
+            $message = $path === null ? Text::_($key) : Text::sprintf($key, $path);
+            Factory::getApplication()->enqueueMessage($message, $type);
+        } catch (\Throwable $error) {
+            $this->log($error->getMessage());
+        }
     }
 
     /**
@@ -156,15 +382,24 @@ class Com_EcskccustomInstallerScript
      */
     private function loadPackagePaths(string $root): void
     {
-        if (class_exists(PackagePaths::class, false)) {
+        $this->loadCoreClass($root, PackagePaths::class, 'src/Core/Package/PackagePaths.php');
+    }
+
+    /**
+     * @param string $class    Fully qualified class name.
+     * @param string $relative Its file, relative to the installed administrator root.
+     */
+    private function loadCoreClass(string $root, string $class, string $relative): void
+    {
+        if (class_exists($class, false)) {
             return;
         }
 
-        $file = $root . '/src/Core/Package/PackagePaths.php';
+        $file = $root . '/' . $relative;
 
         if (!is_file($file)) {
             throw new RuntimeException(
-                Text::sprintf('COM_ECSKCCUSTOM_ERROR_STATE_FOLDER', 'src/Core/Package')
+                Text::sprintf('COM_ECSKCCUSTOM_ERROR_STATE_FOLDER', dirname($relative))
             );
         }
 

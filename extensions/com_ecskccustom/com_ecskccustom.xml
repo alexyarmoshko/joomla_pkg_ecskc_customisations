@@ -30,8 +30,10 @@
         here. backup/, staging/ and state/ are deliberately NOT
         declared: Joomla removes files by comparing the old and new manifests and
         ignores what appears in neither, which is what carries a site's backups,
-        freeze markers and event log across an update. None of the three survives
-        uninstall, and that is the documented data-loss boundary.
+        freeze markers and event log across an update. Uninstall still deletes the
+        three directories. The uninstall hook copies the contents of backup/ and
+        state/ to a guarded archive outside the component first. staging/ is not
+        archived: it holds nothing that outlives a completed run.
     -->
     <administration>
         <files folder="admin">

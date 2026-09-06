@@ -33,8 +33,10 @@ use InvalidArgumentException;
  * | state/     | events.log, run.lock, run.marker                   | no              |
  *
  * The three undeclared folders survive a package update because Joomla removes
- * files by comparing manifests and ignores what appears in neither. None survives
- * uninstall; that is the accepted, documented data-loss boundary.
+ * files by comparing manifests and ignores what appears in neither. Uninstall
+ * still deletes all three directories. The uninstall hook copies the contents
+ * of backup/ and state/ to a guarded archive outside the component first.
+ * staging/ is not archived: it holds nothing that outlives a completed run.
  *
  * No Joomla dependency: the core is testable on a bare PHP CLI, and tests build
  * one of these over a temporary tree.
@@ -124,6 +126,92 @@ final class PackagePaths
     public function root(): string
     {
         return $this->root;
+    }
+
+    /**
+     * Does $path resolve inside this tree, including through "." and ".." aliases?
+     *
+     * The uninstall archive asks before it writes. A configured temporary folder
+     * that sits under the component looks like a destination and is deleted with
+     * the rest of the tree a moment later. A path that does not exist yet is
+     * judged by where mkdir would put it, so a spelling with ".." is not a way
+     * around the check.
+     *
+     * A path that cannot be resolved is not inside. The archive callers still
+     * refuse a missing or unwritable destination on their own terms.
+     */
+    public function contains(string $path): bool
+    {
+        $root      = self::resolve($this->root);
+        $candidate = self::resolve($path);
+
+        if ($root === null || $candidate === null) {
+            return false;
+        }
+
+        $root      = \rtrim($root, '/');
+        $candidate = \rtrim($candidate, '/');
+
+        return $candidate === $root || \str_starts_with($candidate, $root . '/');
+    }
+
+    /**
+     * Canonicalise as much of the path as exists, then apply the rest, including "..".
+     *
+     * realpath() on the whole path returns false when the destination does not
+     * exist yet, which is the archive folder's usual state at the moment the
+     * installer is about to create it. The deepest existing ancestor is what can
+     * be canonicalised; the missing suffix is then applied with "." skipped and
+     * ".." popping, so an alias is judged by where it lands.
+     *
+     * A dangling symbolic link is not guessed at. realpath() fails the same way
+     * for a missing name and for a link whose target does not exist, and writing
+     * through one would land wherever the link points.
+     */
+    private static function resolve(string $path): ?string
+    {
+        if ($path === '') {
+            return null;
+        }
+
+        $existing = $path;
+        $missing  = [];
+
+        while (($resolved = \realpath($existing)) === false) {
+            if (\is_link($existing)) {
+                return null;
+            }
+
+            $missing[] = \basename($existing);
+            $parent    = \dirname($existing);
+
+            if ($parent === $existing) {
+                return null;
+            }
+
+            $existing = $parent;
+        }
+
+        foreach (\array_reverse($missing) as $part) {
+            if ($part === '.' || $part === '') {
+                continue;
+            }
+
+            if ($part === '..') {
+                $parent = \dirname($resolved);
+
+                if ($parent === $resolved) {
+                    return null;
+                }
+
+                $resolved = $parent;
+                continue;
+            }
+
+            $resolved .= '/' . $part;
+        }
+
+        return $resolved;
     }
 
     public function rules(): string

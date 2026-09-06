@@ -63,7 +63,10 @@ installs into the administrator and adds nothing to the site front end.
 
 ## Status
 
-Report-only, and pre-release. Nothing writes to the site yet, and there is no published release.
+Report-only, and pre-release. No managed customisation is written yet, and there is no published
+release. The one thing the component does write is its own: uninstalling it copies `backup/` and
+`state/` to a guarded archive under the site's temporary folder first, because Joomla deletes
+those folders with the component — decision 26 of [`docs/execution_plan.md`](docs/execution_plan.md).
 
 ## Licence
 

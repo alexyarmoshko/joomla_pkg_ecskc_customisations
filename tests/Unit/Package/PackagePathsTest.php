@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 #[CoversClass(PackagePaths::class)]
 final class PackagePathsTest extends TestCase
@@ -37,6 +38,20 @@ final class PackagePathsTest extends TestCase
         }
 
         return $folders;
+    }
+
+    /**
+     * A quoted folder name in $source is a second copy of the layout.
+     */
+    private static function assertNoLiteralFolderNames(string $source, string $where): void
+    {
+        foreach (PackagePaths::ALL_FOLDERS as $folder) {
+            self::assertStringNotContainsString(
+                \sprintf("'%s'", $folder),
+                $source,
+                \sprintf('%s is named literally in %s; take it from PackagePaths.', $folder, $where)
+            );
+        }
     }
 
     /**
@@ -107,13 +122,27 @@ final class PackagePathsTest extends TestCase
         self::assertStringContainsString('PackagePaths::CREATED_FOLDERS', $script);
         self::assertStringContainsString('PackagePaths::ALL_FOLDERS', $script);
 
-        foreach (PackagePaths::ALL_FOLDERS as $folder) {
-            self::assertStringNotContainsString(
-                \sprintf("'%s'", $folder),
-                $script,
-                \sprintf('%s is named literally in the installer; take it from PackagePaths.', $folder)
-            );
-        }
+        self::assertNoLiteralFolderNames($script, 'the installer');
+    }
+
+    /**
+     * StateArchive used to re-declare backup/ and state/ and rebuild their paths
+     * from root(). A rename in PackagePaths then produced a silent no-archive:
+     * collect() returns early on a directory that is not there, write() returns
+     * null, and the uninstall hook enqueues nothing.
+     */
+    public function testTheArchiveTakesItsFoldersFromPackagePaths(): void
+    {
+        $source = \file_get_contents(
+            \dirname(__DIR__, 3)
+            . '/extensions/com_ecskccustom/admin/src/Core/Package/StateArchive.php'
+        );
+        self::assertIsString($source);
+
+        self::assertStringContainsString('->backup()', $source);
+        self::assertStringContainsString('->state()', $source);
+
+        self::assertNoLiteralFolderNames($source, 'StateArchive');
     }
 
     /**
@@ -202,6 +231,41 @@ final class PackagePathsTest extends TestCase
 
         foreach (self::declaredFolders() as $folder) {
             self::assertDirectoryExists($base . $folder);
+        }
+    }
+
+    /**
+     * Containment is where a path lands, not how it is spelled.
+     *
+     * The uninstall archive uses this to refuse a configured temporary folder that
+     * sits under the component. A direct child is the obvious case; a ".." alias
+     * that re-enters is the one a string prefix would miss, and a sibling whose
+     * name merely starts the same way is the one a string prefix would catch.
+     */
+    public function testContainsFollowsAliasesAndDoesNotPrefixMatch(): void
+    {
+        $tree = TempTree::create('ecskc-paths-');
+
+        try {
+            $tree->write('com_ecskccustom/state/events.log', 'kept');
+            $root  = $tree->path('com_ecskccustom');
+            $paths = new PackagePaths($root);
+
+            $inside = $root . '/archive-here';
+            \mkdir($inside, 0755, true);
+            $outside = $tree->path('tmp');
+            \mkdir($outside, 0755, true);
+            $similar = $tree->path('com_ecskccustom-other');
+            \mkdir($similar, 0755, true);
+
+            self::assertTrue($paths->contains($inside));
+            self::assertTrue($paths->contains($outside . '/../com_ecskccustom/archive-here'));
+            self::assertTrue($paths->contains($root));
+            self::assertFalse($paths->contains($outside));
+            self::assertFalse($paths->contains($root . '/../tmp'));
+            self::assertFalse($paths->contains($similar));
+        } finally {
+            $tree->remove();
         }
     }
 }
