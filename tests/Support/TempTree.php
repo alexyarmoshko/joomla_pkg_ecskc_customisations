@@ -305,8 +305,10 @@ final class TempTree
     private static function removeRecursively(string $path): void
     {
         // A link is unlinked, never followed: recursing through one would delete
-        // whatever it points at.
-        if (\is_link($path) || \is_file($path)) {
+        // whatever it points at. Everything else that is not a directory goes the
+        // same way, ordinary file or not: a test tree can hold a FIFO, and skipping
+        // it would leave a directory that cannot be removed.
+        if (\is_link($path) || (\file_exists($path) && !\is_dir($path))) {
             if (!\unlink($path)) {
                 throw new RuntimeException(\sprintf('Could not remove %s', $path));
             }

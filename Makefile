@@ -60,7 +60,16 @@ COMPONENT_FILES := \
 	admin/src/Core/Runner.php \
 	admin/src/Core/State/FreezeMarkers.php \
 	admin/src/Core/State/ReportOnlyHistory.php \
+	admin/src/Core/State/RunLock.php \
+	admin/src/Core/State/RunMarker.php \
+	admin/src/Core/State/RunPhase.php \
+	admin/src/Core/State/RunState.php \
+	admin/src/Core/State/RunStateReader.php \
+	admin/src/Core/State/StateFile.php \
 	admin/src/Core/State/WriteHistoryInterface.php \
+	admin/src/Core/State/WriteIntent.php \
+	admin/src/Core/State/WriteIntentRead.php \
+	admin/src/Core/State/WriteIntentStore.php \
 	admin/src/Core/Walk/ActionSelection.php \
 	admin/src/Core/Walk/ObjectOutcome.php \
 	admin/src/Core/Walk/ObjectWalker.php \

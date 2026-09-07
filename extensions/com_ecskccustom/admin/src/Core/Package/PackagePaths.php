@@ -18,8 +18,8 @@ use InvalidArgumentException;
  * Where the installed package keeps its own files.
  *
  * One source for the layout, so the installer that creates these folders and the
- * runner that reads them cannot drift apart. The runner reads the event log, lock
- * and marker by the fixed names below rather than discovering them.
+ * runner that reads them cannot drift apart. The runner reads the event log, lock,
+ * marker and write intent by the fixed names below rather than discovering them.
  *
  * Five folders. The plan's package-owned state table names four; rules/ became an
  * installed folder of its own after it was written, and is treated as one here:
@@ -30,7 +30,7 @@ use InvalidArgumentException;
  * | rules/     | the rule set shipped by the package                | yes             |
  * | backup/    | displaced files and the freeze markers beside them| no              |
  * | staging/   | files prepared before an atomic move               | no              |
- * | state/     | events.log, run.lock, run.marker                   | no              |
+ * | state/     | events.log, run.lock, run.marker, write.intent     | no              |
  *
  * The three undeclared folders survive a package update because Joomla removes
  * files by comparing manifests and ignores what appears in neither. Uninstall
@@ -85,9 +85,29 @@ final class PackagePaths
      */
     public const FREEZE_MARKER = '.frozen';
 
-    public const EVENT_LOG = 'events.log';
-    public const LOCK      = 'run.lock';
-    public const MARKER    = 'run.marker';
+    public const EVENT_LOG    = 'events.log';
+    public const LOCK         = 'run.lock';
+    public const MARKER       = 'run.marker';
+    public const WRITE_INTENT = 'write.intent';
+
+    /**
+     * The name a state file is written under before it is renamed into place.
+     *
+     * `run.marker` and `write.intent` are published the way protect() publishes the
+     * folder guard: a complete record is written to a unique temporary name in the
+     * same directory and renamed onto the final path, so a crash during the write
+     * never leaves truncated content where a reader expects a complete record.
+     *
+     * The token is twelve hex characters, the shape brief 5.6 names, and the pattern
+     * matches that length and no other. The sweep unlinks what it matches, so the
+     * pattern is the whole of what protects a file that merely looks like a
+     * temporary: widening it to any hex length would put `run.marker.a.tmp`, a name
+     * this package never writes, inside a delete.
+     *
+     * Both halves live here so the name a publish writes and the pattern a sweep
+     * matches cannot drift apart.
+     */
+    public const PUBLICATION_TEMPORARY_BYTES = 6;
 
     /**
      * Folders the installer creates. payload/ and rules/ ship with the package, so
@@ -272,6 +292,28 @@ final class PackagePaths
         return $this->backup() . '/' . $targetPath . self::FREEZE_MARKER;
     }
 
+    /**
+     * The name to publish $basename under, before the rename onto it.
+     *
+     * @param string $token Hex, PUBLICATION_TEMPORARY_BYTES bytes of it.
+     */
+    public static function publicationTemporaryName(string $basename, string $token): string
+    {
+        return $basename . '.' . $token . '.tmp';
+    }
+
+    /**
+     * The pattern matching a publication temporary of $basename, and only those.
+     *
+     * The token length is the one publicationTemporaryName() writes, so a sweep
+     * cannot reach a name this package did not put there.
+     */
+    public static function publicationTemporaryPattern(string $basename): string
+    {
+        return '/\\A' . \preg_quote($basename, '/')
+            . '\\.[0-9a-f]{' . (self::PUBLICATION_TEMPORARY_BYTES * 2) . '}\\.tmp\\z/';
+    }
+
     public function eventLog(): string
     {
         return $this->state() . '/' . self::EVENT_LOG;
@@ -285,5 +327,10 @@ final class PackagePaths
     public function marker(): string
     {
         return $this->state() . '/' . self::MARKER;
+    }
+
+    public function writeIntent(): string
+    {
+        return $this->state() . '/' . self::WRITE_INTENT;
     }
 }
