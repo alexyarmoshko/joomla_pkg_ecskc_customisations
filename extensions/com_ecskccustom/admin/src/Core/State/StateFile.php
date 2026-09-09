@@ -29,8 +29,9 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  * Publication temporaries are named `<basename>.<12 hex>.tmp` and swept by the
  * process holding the run lock. Sweeping is not part of publishing: a temporary
  * abandoned by a process that died is indistinguishable from one being written right
- * now, and only the lock says which. This object keeps the names it is part-way
- * through writing, so its own live temporary survives a sweep in the same process.
+ * now, and only the lock says which. Every live temporary in this process is kept
+ * out of a sweep, no matter which StateFile began it, so a second object for the
+ * same path cannot delete the lock holder's in-flight record.
  *
  * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
@@ -43,8 +44,30 @@ final class StateFile
      */
     private array $live = [];
 
+    /**
+     * Every temporary any instance in this process is writing right now.
+     *
+     * @var array<string, true>
+     */
+    private static array $processLive = [];
+
     public function __construct(private readonly string $path)
     {
+    }
+
+    /**
+     * Drop this instance's names from the process table.
+     *
+     * A discarded object has abandoned its temporary: nothing can complete that
+     * publish, and the next sweep must be free to remove the file. Leaving the
+     * name in the process table would keep an orphan unsweepable for as long as
+     * this process lives.
+     */
+    public function __destruct()
+    {
+        foreach (\array_keys($this->live) as $temporary) {
+            unset(self::$processLive[$temporary]);
+        }
     }
 
     public function path(): string
@@ -128,8 +151,8 @@ final class StateFile
             return null;
         }
 
-        $this->live[$temporary] = true;
-        $written                = @\fwrite($handle, $bytes);
+        $this->markLive($temporary);
+        $written = @\fwrite($handle, $bytes);
         @\fclose($handle);
 
         if ($written !== \strlen($bytes)) {
@@ -164,7 +187,7 @@ final class StateFile
             return false;
         }
 
-        unset($this->live[$temporary]);
+        $this->unmarkLive($temporary);
         \clearstatcache(true, $this->path);
 
         return true;
@@ -180,7 +203,7 @@ final class StateFile
         }
 
         @\unlink($temporary);
-        unset($this->live[$temporary]);
+        $this->unmarkLive($temporary);
     }
 
     /**
@@ -210,8 +233,8 @@ final class StateFile
      * at this moment, and removing the second one turns a healthy publish into a
      * failed one.
      *
-     * A temporary this instance is writing right now is left alone, so a sweep that
-     * runs inside its own process during a publish does not delete its own record.
+     * A temporary any instance in this process is writing right now is left alone, so
+     * a sweep from a different object during a publish does not delete the record.
      * A directory that happens to carry the pattern is left alone as well: unlink
      * would not remove it, and this is a sweep of the package's own leftovers, not
      * a recursive delete.
@@ -237,7 +260,7 @@ final class StateFile
 
             $temporary = $directory . '/' . $entry;
 
-            if (isset($this->live[$temporary])) {
+            if (isset(self::$processLive[$temporary])) {
                 continue;
             }
 
@@ -255,5 +278,16 @@ final class StateFile
         }
 
         return $left;
+    }
+
+    private function markLive(string $temporary): void
+    {
+        $this->live[$temporary]        = true;
+        self::$processLive[$temporary] = true;
+    }
+
+    private function unmarkLive(string $temporary): void
+    {
+        unset($this->live[$temporary], self::$processLive[$temporary]);
     }
 }

@@ -7,6 +7,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\State;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\StateFile;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
@@ -101,6 +102,33 @@ final class StateFileTest extends TestCase
 
         self::assertTrue($file->completePublication($live));
         self::assertSame("mine\n", $file->read());
+    }
+
+    public function testASecondStateFileUnderTheSameRunLockPreservesAnotherObjectsLiveTemporary(): void
+    {
+        // The lock holder, not the object, owns a live temporary. A second
+        // StateFile for the same path is still that holder, and must not treat
+        // the in-flight record as abandoned. The test above uses one object for
+        // both operations, so it cannot catch that mistake.
+        $lock = new RunLock($this->paths);
+        self::assertTrue($lock->acquire());
+
+        $publisher = new StateFile($this->paths->marker());
+        $live      = $publisher->beginPublication("mine\n");
+        self::assertIsString($live);
+        self::assertFileExists($live);
+
+        $sweeper = new StateFile($this->paths->marker());
+        self::assertSame([], $sweeper->sweepTemporaries());
+
+        self::assertFileExists(
+            $live,
+            'A live temporary belongs to the lock holder, not to the object that began it.'
+        );
+        self::assertTrue($publisher->completePublication($live));
+        self::assertSame("mine\n", $publisher->read());
+
+        $lock->release();
     }
 
     public function testASweepIgnoresRecordsThatAreNotPublicationTemporaries(): void
