@@ -114,6 +114,9 @@ final class Runner
             );
         }
 
-        return RunReport::of($targets, $checks, $interruption);
+        // Damaged records are a fault about the package's own history, not about the
+        // site, so they travel beside the targets the walk just reported. The two
+        // faulted returns above do not ask: that run never reached the log.
+        return RunReport::of($targets, $checks, $interruption, $this->history->recordFaults());
     }
 }

@@ -34,8 +34,8 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetVali
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventLogHistory;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\ReportOnlyHistory;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteHistoryInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Environment\JoomlaEnvironmentProvider;
@@ -139,7 +139,9 @@ return new class () implements ServiceProviderInterface {
 
         $container->set(
             WriteHistoryInterface::class,
-            static fn (): WriteHistoryInterface => new ReportOnlyHistory()
+            static fn (Container $container): WriteHistoryInterface => new EventLogHistory(
+                $container->get(PackagePaths::class)
+            )
         );
 
         $container->set(

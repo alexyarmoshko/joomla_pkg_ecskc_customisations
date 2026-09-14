@@ -17,20 +17,17 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
 /**
  * What the package's own records say about earlier runs.
  *
- * Two questions, both of which the report has to answer and the walk cannot: when
- * the package last wrote at a target, and whether the previous run was interrupted.
- * Brief 5.6 says why they need a record at all. A file created where none existed
- * leaves no backup behind it, an unfreeze deletes its own evidence, and a target
- * that was reported rather than written leaves nothing anywhere, so the event log is
- * the only place several of these events exist.
- *
- * Both the log and the run marker are written by the write path, which lands in
- * Phase 2. This is the seam that lets the report carry the fields now and Phase 2
- * fill them without the report shape moving.
+ * Three questions, all of which the report has to answer and the walk cannot: when
+ * the package last wrote at a target, whether the previous run was interrupted, and
+ * which of its own records it could not read. Brief 5.6 says why they need a record at
+ * all. A file created where none existed leaves no backup behind it, an unfreeze
+ * deletes its own evidence, and a target that was reported rather than written leaves
+ * nothing anywhere, so the event log is the only place several of these events exist.
  *
  * An implementation reads records and answers. It writes nothing, and a check that
  * cannot read its own records reports a fault rather than a clean history: a
- * ReportedValue holds the reason either way.
+ * ReportedValue holds the reason either way, and a damaged record is a fault of its
+ * own that sits beside a valid answer rather than replacing one.
  */
 interface WriteHistoryInterface
 {
@@ -45,4 +42,16 @@ interface WriteHistoryInterface
      * What an interrupted previous run left behind, if the records show one.
      */
     public function interruption(): ReportedValue;
+
+    /**
+     * One reason per record the history could not read, which is rarely any.
+     *
+     * Separate from `lastWriteFor()` because a damaged line and a valid last write are
+     * both true at once, and one ReportedValue cannot hold two answers. The runner
+     * maps these onto the report as run-level faults that coexist with the walked
+     * targets: a damaged line does not discard the walk.
+     *
+     * @return list<string>
+     */
+    public function recordFaults(): array;
 }

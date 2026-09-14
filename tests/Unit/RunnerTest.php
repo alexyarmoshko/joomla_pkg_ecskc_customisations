@@ -16,6 +16,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalCheck;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalChecks;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedValue;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\RunCounts;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\RunReport;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\TargetReport;
@@ -25,6 +26,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidat
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\ReportOnlyHistory;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteHistoryInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
@@ -242,6 +244,46 @@ final class RunnerTest extends TestCase
     }
 
     /**
+     * A damaged history record says nothing about the bytes at any target.
+     *
+     * So it is a fault the report carries beside the walk rather than instead of it,
+     * decision 29. Only the history port is substituted here: the event log it reads is
+     * ticket 29's, and ticket 34 runs this case again over a real damaged log.
+     */
+    public function testADamagedHistoryRecordFaultsTheRunAndStillReportsEveryTarget(): void
+    {
+        $this->writeRuleSet();
+
+        $report = $this->build(new class () implements WriteHistoryInterface {
+            public function lastWriteFor(string $targetPath): ReportedValue
+            {
+                return ReportedValue::unavailable('the event log could not be read');
+            }
+
+            public function interruption(): ReportedValue
+            {
+                return ReportedValue::none('no run marker');
+            }
+
+            /**
+             * @return list<string>
+             */
+            public function recordFaults(): array
+            {
+                return ['the event log has a damaged record on line 2'];
+            }
+        })->check();
+
+        self::assertTrue($report->isFaulted());
+        self::assertNotSame([], $report->targets(), 'The walk stands.');
+        self::assertSame(\count($report->targets()), $report->counts->targets);
+        self::assertSame(
+            ['the event log has a damaged record on line 2'],
+            $report->faults()
+        );
+    }
+
+    /**
      * Report only. The runner loads, validates, resolves, hashes and reads a freeze
      * marker, and that is the whole of its contact with the site.
      */
@@ -350,7 +392,7 @@ final class RunnerTest extends TestCase
         self::fail(\sprintf('the fixture produced no %s target', $status));
     }
 
-    private function build(): Runner
+    private function build(?WriteHistoryInterface $history = null): Runner
     {
         $paths = new PackagePaths($this->tree->path(self::PACKAGE));
 
@@ -376,7 +418,7 @@ final class RunnerTest extends TestCase
                 new ConditionEvaluator(),
                 new FreezeMarkers($paths)
             ),
-            new ReportOnlyHistory()
+            $history ?? new ReportOnlyHistory()
         );
     }
 

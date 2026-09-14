@@ -47,7 +47,14 @@ final class WriteIntent
      */
     private const ID_BYTES = 16;
 
-    private const ID = '/\A[A-Za-z0-9._-]{1,64}\z/';
+    /**
+     * Public because the event record accepts exactly the ids this class mints.
+     *
+     * The committed event carries the intent's correlation id, decision 32, so the
+     * two have to agree about what an id may look like. A second copy of the pattern
+     * is how they would come to disagree.
+     */
+    public const ID = '/\A[A-Za-z0-9._-]{1,64}\z/';
 
     /**
      * @param array<string, mixed> $event

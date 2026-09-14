@@ -19,6 +19,11 @@ MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 # LinkSafeCopy::copy() is the one file-copy in the tree. A report-only package
 # that shipped it would put a write implementation on the site for nothing to
 # call.
+#
+# `admin/src/Core/State/ReportOnlyHistory.php` is absent on the same grounds from
+# Phase 2 on. The provider wires EventLogHistory, so nothing installed calls it;
+# it stays in the repository as the answer for a caller with no state tree, and
+# as what the report's own tests compose against.
 COMPONENT_FILES := \
 	com_ecskccustom.xml \
 	admin/script.php \
@@ -58,8 +63,11 @@ COMPONENT_FILES := \
 	admin/src/Core/Rule/RuleSet.php \
 	admin/src/Core/Rule/SchemaValidator.php \
 	admin/src/Core/Runner.php \
+	admin/src/Core/State/EventLog.php \
+	admin/src/Core/State/EventLogHistory.php \
+	admin/src/Core/State/EventLogRead.php \
+	admin/src/Core/State/EventRecord.php \
 	admin/src/Core/State/FreezeMarkers.php \
-	admin/src/Core/State/ReportOnlyHistory.php \
 	admin/src/Core/State/RunLock.php \
 	admin/src/Core/State/RunMarker.php \
 	admin/src/Core/State/RunPhase.php \

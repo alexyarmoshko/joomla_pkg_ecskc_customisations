@@ -275,21 +275,39 @@ final class PackagePaths
      */
     public function freezeMarker(string $targetPath): string
     {
-        if ($targetPath === '' || \str_starts_with($targetPath, '/') || \str_contains($targetPath, '\\')) {
+        if (!self::isCanonicalTargetPath($targetPath)) {
             throw new InvalidArgumentException(
                 \sprintf('%s is not a canonical root-relative target path', $targetPath)
             );
         }
 
+        return $this->backup() . '/' . $targetPath . self::FREEZE_MARKER;
+    }
+
+    /**
+     * Is this the shape RuleObject carries a target path in?
+     *
+     * Relative, forward slashes, and no segment that could climb out of the tree it
+     * is joined to. Here rather than beside one caller because two places build a
+     * path from a target and a third records one: a marker under `backup/`, and an
+     * event-log record that names the target it happened at. A record whose target
+     * field held `../../etc/passwd` would claim the package wrote outside the site.
+     */
+    public static function isCanonicalTargetPath(string $targetPath): bool
+    {
+        if ($targetPath === ''
+            || \str_starts_with($targetPath, '/')
+            || \str_contains($targetPath, '\\')) {
+            return false;
+        }
+
         foreach (\explode('/', $targetPath) as $segment) {
             if ($segment === '' || $segment === '.' || $segment === '..') {
-                throw new InvalidArgumentException(
-                    \sprintf('%s has an empty, "." or ".." segment', $targetPath)
-                );
+                return false;
             }
         }
 
-        return $this->backup() . '/' . $targetPath . self::FREEZE_MARKER;
+        return true;
     }
 
     /**

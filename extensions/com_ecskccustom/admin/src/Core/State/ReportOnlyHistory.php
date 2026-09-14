@@ -15,16 +15,20 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\State;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedValue;
 
 /**
- * The write history of a package that has no write path.
+ * The write history of a caller that has no package state tree to read.
  *
- * Phase 1 builds check and report only. Nothing exists that could write a target,
- * append to the event log, or leave a run marker, so both answers are a determined
- * negative rather than a fault: the package is not failing to read a record, there
- * is no record to read and it can say why.
+ * Phase 1 wired this, because nothing existed then that could write a target, append
+ * to the event log, or leave a run marker: both answers were a determined negative
+ * rather than a fault - the package was not failing to read a record, there was no
+ * record to read and it could say why.
+ *
+ * Phase 2's runtime reads the records instead, through EventLogHistory. This stays as
+ * the report-only answer, and as what the report's own tests compose against: the
+ * report shape does not depend on there being a log, and that is worth being able to
+ * demonstrate rather than assert.
  *
  * It answers the same way for every target, which is the honest answer and not a
- * placeholder. Phase 2 replaces this with the reader over `state/events.log` and
- * `state/run.marker`, and nothing else in the report changes.
+ * placeholder.
  */
 final class ReportOnlyHistory implements WriteHistoryInterface
 {
@@ -42,5 +46,15 @@ final class ReportOnlyHistory implements WriteHistoryInterface
     public function interruption(): ReportedValue
     {
         return ReportedValue::none(self::NO_MARKER);
+    }
+
+    /**
+     * No records were read, so none of them was damaged.
+     *
+     * @return list<string>
+     */
+    public function recordFaults(): array
+    {
+        return [];
     }
 }
