@@ -18,9 +18,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 /**
  * The append-only log at `state/events.log`: one record per line, never rewritten.
  *
- * Brief 5.6 requires it because the backups cannot cover every event. A file created
- * where none existed displaces nothing, a removal can be told to keep no copy, a
- * reported target leaves no trace at all, and an unfreeze deletes its own evidence.
+ * Brief 5.6 requires it because the backups cannot cover every mutation. A file created
+ * where none existed displaces nothing, a removal can be told to keep no copy, and
+ * an unfreeze deletes its own evidence. It records only mutation and recovery outcomes.
+ * Checks, dry runs, ordinary skips and pre-intent faults stay in the current report.
  * Without the log, a path frozen and released three times reads exactly like one
  * nobody touched. The runtime reads it to fill report fields. It is not authoritative
  * target state, which is the file's own bytes, and it is not the recovery record,
@@ -45,12 +46,19 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  *
  * ## Locking
  *
- * Checks and dry runs append as well as write runs, so appends are not covered by
- * `run.lock`. Each append takes an exclusive lock on the log itself and each read
- * takes a shared one. The append lock waits rather than refusing: two runs appending
- * at the same moment must both produce a whole record, and a record dropped because
- * another process held the lock for a millisecond would be history lost for no
- * reason. The holds are short, one seek and one write.
+ * Only write runs append, and each already holds `run.lock`. The log still takes an
+ * exclusive lock for each append and a shared lock for each read, so this module does
+ * not depend on a caller keeping that wider run invariant. The append lock waits
+ * rather than dropping durable mutation history. The holds are short, one seek and
+ * one write.
+ *
+ * A first append creates the log exclusively. PHP's `fopen()` follows a symbolic
+ * link and will open a FIFO until a writer appears, so a path that is already
+ * something else is refused before the open. After the lock, the opened inode is
+ * compared with `lstat()` of the path: another process can replace the name
+ * between the type check and the open, and writing or reading then would follow
+ * whatever now sits there. Mode 0644 is set through the handle, not the path,
+ * for the same reason.
  *
  * ## A log that cannot be read or appended to
  *
@@ -94,6 +102,9 @@ final class EventLog
     private const NOT_A_RECORD = 'the event log at %s has a damaged record on line %d: the '
         . 'committed object is not an event record';
 
+    private const NOT_A_MUTATION = 'the event log accepts only mutation and recovery records, '
+        . 'not %s';
+
     private ?string $failure = null;
 
     public function __construct(private readonly PackagePaths $paths)
@@ -108,8 +119,9 @@ final class EventLog
     /**
      * Append one committed record, creating the log if this is the first.
      *
-     * A false return is an I/O fault for the current report, carrying `failure()`.
-     * The caller does not retry it into the log.
+     * A false return carries `failure()`. It is either an I/O fault for the current
+     * report or a caller trying to append a readable future or legacy kind that this
+     * version does not write. The caller does not retry it into the log.
      *
      * A short write is reported the same way, and leaves a line with no commit token,
      * which the reader reports as damaged. That is the honest outcome: the bytes are
@@ -119,6 +131,12 @@ final class EventLog
     public function append(EventRecord $record): bool
     {
         $this->failure = null;
+
+        if (!$record->isMutation()) {
+            $this->failure = \sprintf(self::NOT_A_MUTATION, $record->kind);
+
+            return false;
+        }
 
         try {
             $bytes = $record->toJson() . self::COMMITTED . "\n";
@@ -130,29 +148,13 @@ final class EventLog
             return false;
         }
 
-        \clearstatcache(true, $this->path());
-        $isNew = !\file_exists($this->path()) && !\is_link($this->path());
+        $opened = $this->openForAppend();
 
-        // Only the regular file this class created, for the reasons read() gives, and
-        // for one more that belongs to writing: fopen() follows a symbolic link, so a
-        // link put here would have the package append its own history into whatever
-        // the link names. Nothing in the package ever writes a link at this path.
-        if (!$isNew && !$this->isOwnFile()) {
-            $this->failure = \sprintf(self::NOT_A_FILE, $this->path());
-
+        if ($opened === null) {
             return false;
         }
 
-        // 'a' would leave the file's own end out of this process's control on some
-        // platforms; 'c+b' creates without truncating and leaves the seek to the code
-        // below, which has to read the last byte before it decides what to write.
-        $handle = @\fopen($this->path(), 'c+b');
-
-        if ($handle === false) {
-            $this->failure = \sprintf(self::UNWRITABLE, $this->path());
-
-            return false;
-        }
+        [$handle, $created] = $opened;
 
         // Blocking, for the reason in the class comment. LOCK_EX can still fail, on a
         // filesystem that does not support it, and that is a fault rather than a
@@ -164,10 +166,19 @@ final class EventLog
             return false;
         }
 
-        if ($isNew) {
+        if (!$this->isStillTheOpenedFile($handle)) {
+            \flock($handle, \LOCK_UN);
+            \fclose($handle);
+            $this->failure = \sprintf(self::NOT_A_FILE, $this->path());
+
+            return false;
+        }
+
+        if ($created) {
             // Before the first record goes in, so the log is never briefly readable
-            // on terms the process umask decided.
-            @\chmod($this->path(), 0644);
+            // on terms the process umask decided. Through the handle: chmod of the
+            // path would follow a name swapped in after the exclusive create.
+            $this->chmodOpened($handle, 0o644);
         }
 
         $appended = $this->write($handle, $bytes);
@@ -217,6 +228,13 @@ final class EventLog
             return EventLogRead::unavailable(
                 \sprintf(self::UNLOCKABLE, $this->path(), 'reading')
             );
+        }
+
+        if (!$this->isStillTheOpenedFile($handle)) {
+            \flock($handle, \LOCK_UN);
+            \fclose($handle);
+
+            return EventLogRead::unavailable(\sprintf(self::NOT_A_FILE, $this->path()));
         }
 
         $bytes = \stream_get_contents($handle);
@@ -365,6 +383,52 @@ final class EventLog
     }
 
     /**
+     * Open the log for appending, creating it only when the name is still absent.
+     *
+     * Exclusive create (`x+b`) is `O_CREAT|O_EXCL`: a name that already exists,
+     * including as a symbolic link or a FIFO, is refused rather than followed or
+     * waited on. `c+b` would create after an absence check, which is the same race
+     * as opening a file that was replaced since `isOwnFile()`.
+     *
+     * @return array{0: resource, 1: bool}|null The handle and whether this call created
+     *                                         the log, or null when `failure` is set.
+     */
+    private function openForAppend(): ?array
+    {
+        \clearstatcache(true, $this->path());
+
+        $handle = @\fopen($this->path(), 'x+b');
+
+        if ($handle !== false) {
+            return [$handle, true];
+        }
+
+        if (!\file_exists($this->path()) && !\is_link($this->path())) {
+            $this->failure = \sprintf(self::UNWRITABLE, $this->path());
+
+            return null;
+        }
+
+        if (!$this->isOwnFile()) {
+            $this->failure = \sprintf(self::NOT_A_FILE, $this->path());
+
+            return null;
+        }
+
+        // Existing file only: `r+b` does not create, so a name that vanished
+        // after the type check is a fault rather than a new file this open made.
+        $handle = @\fopen($this->path(), 'r+b');
+
+        if ($handle === false) {
+            $this->failure = \sprintf(self::UNWRITABLE, $this->path());
+
+            return null;
+        }
+
+        return [$handle, false];
+    }
+
+    /**
      * Is what is at the path the file this class writes, and nothing else?
      *
      * Every other shape misleads a reader or a writer in its own way, so each is
@@ -376,11 +440,83 @@ final class EventLog
      * there. The package writes its log directly rather than through a link, so a link at
      * this path was not put there by the package.
      *
-     * The caller establishes that the path exists first. This answers what it is.
+     * This is the pre-open filter. `isStillTheOpenedFile()` is the same question
+     * after the lock, against the inode actually opened.
      */
     private function isOwnFile(): bool
     {
         return !\is_link($this->path()) && \is_file($this->path());
+    }
+
+    /**
+     * Is the opened handle still the regular file at this path?
+     *
+     * `isOwnFile()` cannot close the window between its check and `fopen()`. A
+     * replacement in that window is a different inode, or no longer a regular file
+     * at the name. Compared after the lock, before any read or write.
+     *
+     * @param resource $handle
+     */
+    private function isStillTheOpenedFile($handle): bool
+    {
+        \clearstatcache(true, $this->path());
+
+        $opened = \fstat($handle);
+        $named  = @\lstat($this->path());
+
+        if ($opened === false || $named === false) {
+            return false;
+        }
+
+        // POSIX S_IFMT / S_IFREG. `lstat()` of a symlink is the link, so a followed
+        // open cannot match even when the target happens to share nothing else.
+        return ($named['mode'] & 0o170000) === 0o100000
+            && $opened['dev'] === $named['dev']
+            && $opened['ino'] === $named['ino'];
+    }
+
+    /**
+     * Set the mode on the opened inode, not on whatever the path now names.
+     *
+     * PHP has no `fchmod()`. On Linux, `/proc/self/fd/N` is the opened file; `chmod`
+     * of that path changes the inode this handle holds even if the log's name was
+     * replaced after the exclusive create.
+     *
+     * @param resource $handle
+     */
+    private function chmodOpened($handle, int $mode): void
+    {
+        $want = \fstat($handle);
+
+        if ($want === false) {
+            return;
+        }
+
+        $entries = @\scandir('/proc/self/fd');
+
+        if ($entries === false) {
+            return;
+        }
+
+        foreach ($entries as $entry) {
+            if (!\ctype_digit($entry)) {
+                continue;
+            }
+
+            $candidate = '/proc/self/fd/' . $entry;
+            $got       = @\stat($candidate);
+
+            if ($got === false
+                || $got['dev'] !== $want['dev']
+                || $got['ino'] !== $want['ino']
+            ) {
+                continue;
+            }
+
+            if (@\chmod($candidate, $mode)) {
+                return;
+            }
+        }
     }
 
     /**

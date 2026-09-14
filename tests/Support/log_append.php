@@ -30,11 +30,16 @@ $count = (int) ($argv[3] ?? 0);
 $log = new EventLog(new PackagePaths($root));
 
 for ($appended = 0; $appended < $count; ++$appended) {
-    $record = EventRecord::reportOnly(
-        EventRecord::REPORT,
-        $tag,
+    $seed   = $tag . ':' . $appended;
+    $digest = \hash('sha256', $seed);
+    $record = EventRecord::mutation(
+        EventRecord::WRITE,
+        EventRecord::COPY,
         \sprintf('templates/et_tennis/css/override.%s.%d.css', $tag, $appended),
-        EventRecord::ABSENT
+        EventRecord::ABSENT,
+        $digest,
+        \substr($digest, 0, 32),
+        reason: $tag
     );
 
     if (!$log->append($record)) {

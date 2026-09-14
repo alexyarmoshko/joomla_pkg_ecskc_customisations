@@ -31,17 +31,16 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
  * re-reading a file that is append-only for each of them would give later targets a
  * different history from earlier ones within one report. A run that appends while it
  * works therefore builds its report from a history object it has not yet asked
- * anything of. That is how the runner uses it, since the log entries a run writes go
- * in before the report is composed.
+ * anything of. That is how a write runner uses it, since the mutation records a run
+ * writes go in before the report is composed.
  *
  * ## What is a write here
  *
  * `lastWriteFor()` is the last record that changed the target's own bytes: a write, a
- * removal, a revert or a redo. Never a check, a dry run or a skip, however recently
- * one ran, because a later run of checks appends to the same log and must not displace
- * the answer. Never a freeze either: that mutates the marker beside the target's
- * backups. Attribution travels on the record, so a write recovery observed rather
- * than performed is still the last write, and still says which it was.
+ * removal, a revert or a redo. Checks and dry runs are not durable history. A freeze
+ * is durable but mutates the marker beside the target's backups, not the target.
+ * Attribution travels on the record, so a write recovery observed rather than
+ * performed is still the last write, and still says which it was.
  *
  * ## A log that cannot be read
  *

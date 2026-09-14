@@ -101,6 +101,27 @@ final class EventLogTest extends TestCase
         self::assertFileDoesNotExist($this->paths->eventLog());
     }
 
+    public function testAnUnknownReadableKindCannotBeAppendedByThisVersion(): void
+    {
+        $record = EventRecord::fromPayload([
+            'event' => 'report',
+            'at'    => '2026-09-09T11:22:33Z',
+            'by'    => EventRecord::PACKAGE,
+            'reason' => 'a legacy check record',
+        ]);
+
+        self::assertNotNull($record, 'Unknown kinds remain readable for compatibility.');
+
+        $log = $this->log();
+
+        self::assertFalse($log->append($record));
+        self::assertSame(
+            'the event log accepts only mutation and recovery records, not report',
+            $log->failure()
+        );
+        self::assertFileDoesNotExist($this->paths->eventLog());
+    }
+
     public function testACommittedRecordIsOneJsonObjectThenTabCommittedThenLineFeed(): void
     {
         self::assertTrue($this->log()->append($this->write()));
@@ -118,11 +139,11 @@ final class EventLogTest extends TestCase
     }
 
     /**
-     * Every event kind the brief names, including the ones nothing else records.
+     * Every mutation kind the brief names, including the ones nothing else records.
      *
      * @return array<string, array{0: EventRecord}>
      */
-    public static function everyRecordedEvent(): array
+    public static function everyRecordedMutation(): array
     {
         $id = 'b2c3d4e5b2c3d4e5b2c3d4e5b2c3d4e5';
 
@@ -199,6 +220,17 @@ final class EventLogTest extends TestCase
                     EventRecord::OBSERVED
                 ),
             ],
+            'a mutation failure after intent publication' => [
+                EventRecord::mutation(
+                    EventRecord::MUTATION_FAILED,
+                    EventRecord::COPY,
+                    self::TARGET,
+                    self::ORIGINAL_HASH,
+                    self::PAYLOAD_HASH,
+                    $id,
+                    reason: 'the move failed and the target still holds its pre-state'
+                ),
+            ],
             'an abandoned intent' => [
                 EventRecord::mutation(
                     EventRecord::INTENT_ABANDONED,
@@ -224,42 +256,11 @@ final class EventLogTest extends TestCase
                     reason: 'the target matches neither state'
                 ),
             ],
-            'a target reported rather than written' => [
-                EventRecord::reportOnly(
-                    EventRecord::REPORT,
-                    'present and matching the payload, so nothing to do',
-                    self::TARGET,
-                    self::PAYLOAD_HASH
-                ),
-            ],
-            'a dry run' => [
-                EventRecord::reportOnly(
-                    EventRecord::DRY_RUN,
-                    'would advance from v1 to v3 through v2',
-                    self::TARGET,
-                    self::ORIGINAL_HASH,
-                    EventRecord::COPY
-                ),
-            ],
-            'a skip' => [
-                EventRecord::reportOnly(
-                    EventRecord::SKIP,
-                    'the path is already frozen, so the freeze is not a mutation',
-                    self::TARGET,
-                    EventRecord::PRESENT
-                ),
-            ],
-            'a fault with no target at all' => [
-                EventRecord::reportOnly(
-                    EventRecord::FAULT,
-                    'the rule set did not load, so no target was walked'
-                ),
-            ],
         ];
     }
 
-    #[DataProvider('everyRecordedEvent')]
-    public function testTheLogRecordsEveryEventTheBriefNames(EventRecord $record): void
+    #[DataProvider('everyRecordedMutation')]
+    public function testTheLogRecordsEveryMutationTheBriefNames(EventRecord $record): void
     {
         $log = $this->log();
 
@@ -272,42 +273,17 @@ final class EventLogTest extends TestCase
         self::assertSame($record->toPayload(), $read->records()[0]->toPayload());
     }
 
-    public function testAReportOnlyRecordCarriesTheOneStateTheRunSawAsBothPreAndPost(): void
-    {
-        $record = EventRecord::reportOnly(
-            EventRecord::REPORT,
-            'the check wrote nothing',
-            self::TARGET,
-            self::PAYLOAD_HASH
-        );
-
-        self::assertSame(self::PAYLOAD_HASH, $record->pre);
-        self::assertSame(self::PAYLOAD_HASH, $record->post);
-        self::assertNull($record->correlationId, 'Nothing was mutated, so nothing correlates.');
-        self::assertFalse($record->isWriteAtTarget());
-    }
-
-    public function testATargetWhoseBytesCouldNotBeReadRecordsTheReasonAndNoState(): void
-    {
-        $record = EventRecord::reportOnly(
-            EventRecord::FAULT,
-            'the target is present and could not be read',
-            self::TARGET
-        );
-
-        self::assertNull($record->pre);
-        self::assertNull($record->post);
-        self::assertSame(
-            ['event', 'at', 'by', 'target', 'reason'],
-            \array_keys($record->toPayload()),
-            'A state nobody could read is left out rather than guessed at.'
-        );
-    }
-
     public function testRecordsAreAppendedInOrderAndNothingEarlierIsRewritten(): void
     {
         $log   = $this->log();
-        $first = EventRecord::reportOnly(EventRecord::REPORT, 'checked', self::TARGET, EventRecord::ABSENT);
+        $first = EventRecord::mutation(
+            EventRecord::FREEZE,
+            EventRecord::FREEZING,
+            self::TARGET,
+            EventRecord::ABSENT,
+            EventRecord::PRESENT,
+            'b2c3d4e5b2c3d4e5b2c3d4e5b2c3d4e5'
+        );
 
         self::assertTrue($log->append($first));
         self::assertTrue($log->append($this->write()));
@@ -315,7 +291,7 @@ final class EventLogTest extends TestCase
         $read = $log->read();
 
         self::assertCount(2, $read->records());
-        self::assertSame(EventRecord::REPORT, $read->records()[0]->kind);
+        self::assertSame(EventRecord::FREEZE, $read->records()[0]->kind);
         self::assertSame(EventRecord::WRITE, $read->records()[1]->kind);
     }
 
@@ -446,6 +422,50 @@ final class EventLogTest extends TestCase
         self::assertSame([], $read->records());
         self::assertCount(1, $read->recordFaults());
         self::assertStringContainsString('is not an event record', $read->recordFaults()[0]);
+    }
+
+    public function testAMalformedKnownWriteIsARecordFaultAndDoesNotDisplaceTheLastWrite(): void
+    {
+        $log   = $this->log();
+        $write = $this->write();
+
+        self::assertTrue($log->append($write));
+
+        // A committed object labelled write, with a target and none of the mutation
+        // fields recovery would need. Structure is fine; the known kind is not.
+        \file_put_contents(
+            $this->paths->eventLog(),
+            '{"event":"write","at":"2026-09-10T00:00:00Z","by":"package","target":"'
+            . self::TARGET . '"}' . EventLog::COMMITTED . "\n",
+            \FILE_APPEND
+        );
+
+        $read = $log->read();
+
+        self::assertCount(1, $read->records());
+        self::assertCount(1, $read->recordFaults());
+        self::assertStringContainsString('is not an event record', $read->recordFaults()[0]);
+        self::assertSame(
+            $write->toPayload(),
+            $read->lastWriteAt(self::TARGET)?->toPayload(),
+            'A known write missing its mutation fields is damaged, not the latest write.'
+        );
+    }
+
+    public function testANewLogIsMode0644EvenWhenUmaskWouldLeaveItWider(): void
+    {
+        $previous = \umask(0o000);
+
+        try {
+            self::assertTrue($this->log()->append($this->write()));
+            self::assertSame(
+                0o644,
+                \fileperms($this->paths->eventLog()) & 0o777,
+                'The mode is set on the opened inode, not left to the process umask.'
+            );
+        } finally {
+            \umask($previous);
+        }
     }
 
     public function testCompleteRecordsOnBothSidesOfADamagedLineStayReadable(): void
@@ -594,17 +614,13 @@ final class EventLogTest extends TestCase
         $id = 'f6a7b8c9f6a7b8c9f6a7b8c9f6a7b8c9';
 
         return [
-            'a mutation kind that is report-only' => [static fn (): EventRecord => EventRecord::mutation(
-                EventRecord::REPORT,
+            'a kind that is not a mutation' => [static fn (): EventRecord => EventRecord::mutation(
+                'report',
                 EventRecord::COPY,
                 self::TARGET,
                 EventRecord::ABSENT,
                 self::PAYLOAD_HASH,
                 $id
-            )],
-            'a report-only kind that is a mutation' => [static fn (): EventRecord => EventRecord::reportOnly(
-                EventRecord::WRITE,
-                'a write is not a report'
             )],
             'a target that climbs out of the tree' => [static fn (): EventRecord => EventRecord::mutation(
                 EventRecord::WRITE,
@@ -641,9 +657,6 @@ final class EventLogTest extends TestCase
                 $id,
                 'probably us'
             )],
-            'a report-only record with no reason' => [
-                static fn (): EventRecord => EventRecord::reportOnly(EventRecord::REPORT, ''),
-            ],
         ];
     }
 

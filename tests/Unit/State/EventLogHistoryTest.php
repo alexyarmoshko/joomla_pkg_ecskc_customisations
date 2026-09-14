@@ -108,34 +108,34 @@ final class EventLogHistoryTest extends TestCase
         );
     }
 
-    public function testAWriteFollowedBySeveralChecksStillReportsTheWrite(): void
+    public function testAWriteFollowedByFreezeChangesStillReportsTheWrite(): void
     {
         $this->append($this->write('a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4'));
 
-        foreach (['first check', 'second check', 'third check'] as $reason) {
-            $this->append(EventRecord::reportOnly(
-                EventRecord::REPORT,
-                $reason,
-                self::TARGET,
-                self::PAYLOAD_HASH,
-                at: self::AT + 600
-            ));
-        }
-
-        $this->append(EventRecord::reportOnly(
-            EventRecord::DRY_RUN,
-            'would advance to v3',
+        $this->append(EventRecord::mutation(
+            EventRecord::FREEZE,
+            EventRecord::FREEZING,
             self::TARGET,
-            self::PAYLOAD_HASH,
-            EventRecord::COPY,
-            self::AT + 900
+            EventRecord::ABSENT,
+            EventRecord::PRESENT,
+            'b2c3d4e5b2c3d4e5b2c3d4e5b2c3d4e5',
+            at: self::AT + 600
+        ));
+        $this->append(EventRecord::mutation(
+            EventRecord::UNFREEZE,
+            EventRecord::RELEASE,
+            self::TARGET,
+            EventRecord::PRESENT,
+            EventRecord::ABSENT,
+            'c3d4e5f6c3d4e5f6c3d4e5f6c3d4e5f6',
+            at: self::AT + 900
         ));
 
         self::assertSame(
             '2026-09-09T11:22:33Z write (package), ' . self::ORIGINAL_HASH . ' to '
             . self::PAYLOAD_HASH,
             $this->history()->lastWriteFor(self::TARGET)->describe(),
-            'A later check appends to the same log and must not displace the write.'
+            'A marker mutation is durable history but is not a write at the target.'
         );
     }
 
@@ -296,13 +296,15 @@ final class EventLogHistoryTest extends TestCase
 
         self::assertSame([], $faults, 'A commit mark without LF is not damage.');
 
-        // A check rather than a write, so that what the later append changes is only
-        // the line boundary and not which record is the last write.
-        $this->append(EventRecord::reportOnly(
-            EventRecord::REPORT,
-            'a later run of checks',
+        // A freeze rather than a target write, so the later append changes the line
+        // boundary without changing which record is the last write at the target.
+        $this->append(EventRecord::mutation(
+            EventRecord::FREEZE,
+            EventRecord::FREEZING,
             self::TARGET,
-            self::PAYLOAD_HASH,
+            EventRecord::ABSENT,
+            EventRecord::PRESENT,
+            'd4e5f6a7d4e5f6a7d4e5f6a7d4e5f6a7',
             at: self::AT + 3600
         ));
 

@@ -21,25 +21,17 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  *
  * Brief 5.6 needs the log to answer two questions the site's own files cannot. The
  * first is when the package last wrote at a path, which wants a time, a target and
- * an outcome. The second is the events that leave no other trace at all: a file
- * created where none existed, a removal told to keep no copy, a target reported
- * rather than written, a dry run, and every freeze and unfreeze, since unfreezing
- * deletes its own evidence.
+ * an outcome. The second is durable mutation and recovery history: writes, removals,
+ * reverts, redos, freeze and unfreeze changes, failures after intent publication,
+ * and recovery outcomes. Checks, dry runs, ordinary skips and pre-intent faults stay
+ * only in the current report.
  *
- * ## Two kinds of record, and why the split is in the factories
- *
- * A **mutation** record says the package, or recovery, found a target in one state
+ * A record says the package, or recovery, found a target in one state
  * and left it in another. Decision 32 makes the pre-state, the post-state and the
  * correlation id mandatory there: recovery matches a leftover intent on the id, and
  * compares the current bytes with those two states to decide whether the mutation
  * happened. A record missing any of the three cannot be settled by anything.
- *
- * A **report-only** record says a run looked and did not write: a check, a dry run, a
- * skip, or a fault. It carries no correlation id because no mutation was attempted,
- * and it may leave a state out, because a target whose bytes could not be read has no
- * state to record and the reason says why.
- *
- * Both factories validate. A caller that mislabels a record is a bug, and a bug that
+ * The factory validates. A caller that mislabels a record is a bug, and a bug that
  * reached the log would be durable: the log is never truncated or rewritten.
  *
  * ## Attribution
@@ -55,8 +47,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  *
  * `fromPayload()` accepts a kind this version does not define and ignores keys it
  * does not know. A log written by a later release is then still history a reader can
- * use, rather than a file of damaged records. It stays strict about structure, so a
- * line that is merely valid JSON does not become a record.
+ * use, rather than a file of damaged records. `EventLog` will not append that unknown
+ * kind. A kind this version does define must
+ * still carry that kind's full contract: a committed object labelled `write` with
+ * no operation, states or correlation id is not a write, it is a damaged record.
+ * Structure is still required, so a line that is merely valid JSON does not become
+ * a record.
  *
  * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
@@ -67,11 +63,7 @@ final class EventRecord
      *
      * `write` and `remove` are the two target mutations, `revert` and `redo` the two
      * steps along the backup and payload chain. `freeze` and `unfreeze` mutate the
-     * marker beside a target's backups rather than the target. `report` is a target
-     * reported and not written, `dry-run` a previewed operation, `skip` an operation
-     * the run declined, including a freeze of an already-frozen path. `fault` is any
-     * failure that is not an event-log I/O failure. That one is exempt, decision 33,
-     * because a log that cannot be appended to cannot record its own failure.
+     * marker beside a target's backups rather than the target.
      *
      * The last three are decision 32's unsettled mutations. `mutation-failed` is a
      * mutation that reported failure with the target still in its pre-state.
@@ -85,10 +77,6 @@ final class EventRecord
     public const REDO              = 'redo';
     public const FREEZE            = 'freeze';
     public const UNFREEZE          = 'unfreeze';
-    public const REPORT            = 'report';
-    public const DRY_RUN           = 'dry-run';
-    public const SKIP              = 'skip';
-    public const FAULT             = 'fault';
     public const MUTATION_FAILED   = 'mutation-failed';
     public const INTENT_ABANDONED  = 'intent-abandoned';
     public const UNRESOLVED_INTENT = 'unresolved-intent';
@@ -110,16 +98,6 @@ final class EventRecord
         self::MUTATION_FAILED,
         self::INTENT_ABANDONED,
         self::UNRESOLVED_INTENT,
-    ];
-
-    /**
-     * The kinds a run appends without touching a managed file.
-     */
-    public const REPORT_ONLY = [
-        self::REPORT,
-        self::DRY_RUN,
-        self::SKIP,
-        self::FAULT,
     ];
 
     /**
@@ -259,67 +237,17 @@ final class EventRecord
     }
 
     /**
-     * A record of a run that looked and wrote nothing.
-     *
-     * The target is optional because a run that cannot load its rule set has no
-     * target to name, and a fault there is still an event. The state is optional
-     * because a target whose bytes could not be read has none to record; the reason
-     * is what an operator reads in that case, so it is required.
-     *
-     * @param string      $kind      One of REPORT_ONLY.
-     * @param string      $reason    Why this was reported rather than written.
-     * @param string|null $target    The canonical root-relative target path, if one.
-     * @param string|null $state     The state the run observed, if it could read one.
-     * @param string|null $operation The operation a dry run previewed, if one.
-     * @param int|null    $at        Unix timestamp, or null for the current time.
-     *
-     * @throws InvalidArgumentException On a record that claims to be a mutation.
-     */
-    public static function reportOnly(
-        string $kind,
-        string $reason,
-        ?string $target = null,
-        ?string $state = null,
-        ?string $operation = null,
-        ?int $at = null,
-    ): self {
-        self::require(\in_array($kind, self::REPORT_ONLY, true), 'report-only kind', $kind);
-        self::require($reason !== '', 'reason', $reason);
-        self::require(
-            $target === null || PackagePaths::isCanonicalTargetPath($target),
-            'target path',
-            $target
-        );
-        self::require($state === null || \preg_match(self::STATE, $state) === 1, 'state', $state);
-        self::require(
-            $operation === null || \in_array($operation, self::OPERATIONS, true),
-            'operation',
-            $operation
-        );
-
-        // Nothing was written, so the state before and the state after are the one
-        // state the run saw. Recording it twice says that in the same field a
-        // mutation uses, so a reader needs no second rule for report-only lines.
-        return new self(
-            $kind,
-            \gmdate(self::TIMESTAMP, $at ?? \time()),
-            self::PACKAGE,
-            $target,
-            $operation,
-            $state,
-            $state,
-            null,
-            null,
-            $reason
-        );
-    }
-
-    /**
      * Is this a write at the target itself, rather than at a marker beside it?
      */
     public function isWriteAtTarget(): bool
     {
         return \in_array($this->kind, self::WRITES_AT_TARGET, true);
+    }
+
+    /** Is this one of the mutation and recovery kinds this version may append? */
+    public function isMutation(): bool
+    {
+        return \in_array($this->kind, self::MUTATIONS, true);
     }
 
     /**
@@ -367,7 +295,7 @@ final class EventRecord
      * would break the record, a line feed, a tab or a quote, whatever the flags.
      *
      * @throws JsonException On a payload that will not encode, which cannot come from
-     *                       the factories above and would be a caller building a
+     *                       the factory above and would be a caller building a
      *                       record by hand. It surfaces before anything is appended.
      */
     public function toJson(): string
@@ -409,10 +337,14 @@ final class EventRecord
     /**
      * Read a payload back, or null when it is not a record.
      *
-     * Structure is checked; vocabulary is not. An unknown kind round-trips so that a
-     * log written by a later release stays readable, and a kind this version does not
-     * know simply never answers `isWriteAtTarget()`. Unknown keys are dropped rather
-     * than refused, for the same reason.
+     * Structure is checked, and a kind this version writes must still hold the
+     * contract its factory would have required. Vocabulary of unknown kinds is not.
+     * An unknown kind round-trips so that a log written by a later release stays
+     * readable, and a kind this version does not know simply never answers
+     * `isWriteAtTarget()`. A known `write` that omits its mutation fields is not
+     * that: it would count as the latest write while carrying none of the states
+     * recovery needs. Unknown keys are dropped rather than refused, for the same
+     * forward-compatibility reason unknown kinds are kept.
      *
      * @param array<array-key, mixed> $payload
      */
@@ -437,9 +369,21 @@ final class EventRecord
             }
         }
 
-        $target = self::field($payload, 'target');
+        $target    = self::field($payload, 'target');
+        $operation = self::field($payload, 'operation');
+        $pre       = self::field($payload, 'pre');
+        $post      = self::field($payload, 'post');
+        $observed  = self::field($payload, 'observed');
+        $id        = self::field($payload, 'id');
+        $reason    = self::field($payload, 'reason');
 
         if ($target !== null && !PackagePaths::isCanonicalTargetPath($target)) {
+            return null;
+        }
+
+        if (\in_array($kind, self::MUTATIONS, true)
+            && !self::isReadableMutation($target, $operation, $pre, $post, $observed, $id)
+        ) {
             return null;
         }
 
@@ -448,12 +392,12 @@ final class EventRecord
             $at,
             $attribution,
             $target,
-            self::field($payload, 'operation'),
-            self::field($payload, 'pre'),
-            self::field($payload, 'post'),
-            self::field($payload, 'observed'),
-            self::field($payload, 'id'),
-            self::field($payload, 'reason')
+            $operation,
+            $pre,
+            $post,
+            $observed,
+            $id,
+            $reason
         );
     }
 
@@ -484,6 +428,26 @@ final class EventRecord
         $value = $payload[$key] ?? null;
 
         return \is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * The mutation factory's contract, used on read so a known kind cannot arrive
+     * half-built. Unknown future kinds skip this and stay records.
+     */
+    private static function isReadableMutation(
+        ?string $target,
+        ?string $operation,
+        ?string $pre,
+        ?string $post,
+        ?string $observed,
+        ?string $id,
+    ): bool {
+        return $target !== null
+            && $operation !== null && \in_array($operation, self::OPERATIONS, true)
+            && $pre !== null && \preg_match(self::STATE, $pre) === 1
+            && $post !== null && \preg_match(self::STATE, $post) === 1
+            && $id !== null && \preg_match(WriteIntent::ID, $id) === 1
+            && ($observed === null || \preg_match(self::STATE, $observed) === 1);
     }
 
     private static function require(bool $held, string $what, ?string $value): void
