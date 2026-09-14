@@ -285,13 +285,51 @@ final class PackagePaths
     }
 
     /**
+     * Where the backup of one target's displaced content lives.
+     *
+     * `backup/<target path>.v<version>.<digest>`, brief decision 4, mirroring the site
+     * tree the way a freeze marker does. The name ends in a hex digest, so it can
+     * never end in FREEZE_MARKER and never be read as one.
+     *
+     * @param string $targetPath The canonical root-relative target path.
+     * @param int    $version    The version of the object whose write displaces the
+     *                           content.
+     * @param string $digest     The hex digest of the displaced content. The name
+     *                           carries it in lower case, the form `hash()` answers
+     *                           in, so one content has one name.
+     *
+     * @throws InvalidArgumentException On a path that could leave the backup tree, a
+     *                                  version below 1, or a digest that is not hex.
+     *                                  A validated rule produces none of them.
+     */
+    public function backupFile(string $targetPath, int $version, string $digest): string
+    {
+        if (!self::isCanonicalTargetPath($targetPath)) {
+            throw new InvalidArgumentException(
+                \sprintf('%s is not a canonical root-relative target path', $targetPath)
+            );
+        }
+
+        if ($version < 1) {
+            throw new InvalidArgumentException(\sprintf('%d is not an object version', $version));
+        }
+
+        if (\preg_match('/\A[0-9a-fA-F]+\z/', $digest) !== 1) {
+            throw new InvalidArgumentException(\sprintf('%s is not a hex digest', $digest));
+        }
+
+        return $this->backup() . '/' . $targetPath . '.v' . $version . '.' . \strtolower($digest);
+    }
+
+    /**
      * Is this the shape RuleObject carries a target path in?
      *
      * Relative, forward slashes, and no segment that could climb out of the tree it
      * is joined to. Here rather than beside one caller because two places build a
-     * path from a target and a third records one: a marker under `backup/`, and an
-     * event-log record that names the target it happened at. A record whose target
-     * field held `../../etc/passwd` would claim the package wrote outside the site.
+     * path from a target and a third records one: a backup file and a marker under
+     * `backup/`, and an event-log record that names the target it happened at. A
+     * record whose target field held `../../etc/passwd` would claim the package
+     * wrote outside the site.
      */
     public static function isCanonicalTargetPath(string $targetPath): bool
     {

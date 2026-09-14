@@ -204,6 +204,47 @@ final class PackagePathsTest extends TestCase
         (new PackagePaths(self::ROOT))->freezeMarker($targetPath);
     }
 
+    public function testABackupMirrorsTheSiteTreeUnderBackupWithItsVersionAndLowerCaseDigest(): void
+    {
+        $paths  = new PackagePaths(self::ROOT);
+        $digest = \hash('sha256', 'displaced');
+
+        self::assertSame(
+            self::ROOT . '/backup/templates/et_tennis/css/override.css.v3.' . $digest,
+            $paths->backupFile('templates/et_tennis/css/override.css', 3, \strtoupper($digest))
+        );
+    }
+
+    #[DataProvider('pathsThatLeaveTheBackupTree')]
+    public function testABackupIsRefusedForAPathThatIsNotCanonical(string $targetPath): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new PackagePaths(self::ROOT))->backupFile($targetPath, 1, \hash('sha256', ''));
+    }
+
+    /**
+     * @return array<string, array{int, string}>
+     */
+    public static function versionsAndDigestsNoRuleProduces(): array
+    {
+        return [
+            'version zero'     => [0, \hash('sha256', '')],
+            'negative version' => [-1, \hash('sha256', '')],
+            'empty digest'     => [1, ''],
+            'not hex'          => [1, 'not-a-digest'],
+            'path in digest'   => [1, 'ab/../cd'],
+        ];
+    }
+
+    #[DataProvider('versionsAndDigestsNoRuleProduces')]
+    public function testABackupIsRefusedForAVersionOrDigestNoRuleProduces(int $version, string $digest): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new PackagePaths(self::ROOT))->backupFile('templates/override.css', $version, $digest);
+    }
+
     public function testTheManifestDeclaresPayloadAndRulesAndNoStateFolder(): void
     {
         // The three undeclared folders survive a package update because Joomla
