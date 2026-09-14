@@ -15,6 +15,7 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\State;
 use InvalidArgumentException;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\HashAlgorithm;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ExclusiveCopy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 
 /**
@@ -33,15 +34,16 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  * replaced even when its destination holds the right bytes, because a link is a
  * pointer somebody else controls, not a backup.
  *
- * A new backup is copied to an exclusive temporary beside its destination, so it is
- * written in the backup filesystem and the rename is atomic. The copy is hashed and
- * compared with the digest the caller decided on, then renamed onto the name. A crash
- * before the rename leaves `<name>.<12 hex>.tmp`. No lookup reads that name, so a
- * partial copy is never taken for a backup. Sweeping those leftovers needs the run
- * lock, and this class does not take it.
+ * A new backup is copied through ExclusiveCopy to an exclusive temporary beside
+ * its destination, so it is written in the backup filesystem and the rename is
+ * atomic. The copy is hashed and compared with the digest the caller decided on,
+ * then renamed onto the name. A crash before the rename leaves
+ * `<name>.<12 hex>.tmp`. No lookup reads that name, so a partial copy is never
+ * taken for a backup. Sweeping those leftovers needs the run lock, and this class
+ * does not take it.
  *
- * The exclusive create is what owns the temporary. An incomplete copy unlinks the
- * file it created. A verify, chmod or rename failure does the same from preserve().
+ * ExclusiveCopy owns the temporary. An incomplete copy unlinks the file it
+ * created. A verify, chmod or rename failure does the same from preserve().
  * A source that cannot be opened, or a name that cannot be created exclusively, is
  * left alone, because this call never created it.
  *
@@ -166,10 +168,25 @@ final class BackupStore
             \bin2hex(\random_bytes(PackagePaths::PUBLICATION_TEMPORARY_BYTES))
         );
 
-        $reason = $this->copy($sourcePath, $temporary);
+        $kind = ExclusiveCopy::copy($sourcePath, $temporary);
 
-        if ($reason !== null) {
-            return BackupOutcome::failed($destination, $reason);
+        if ($kind !== null) {
+            return BackupOutcome::failed($destination, match ($kind) {
+                ExclusiveCopy::NOT_A_FILE  => \sprintf(
+                    '%s is not a regular file, so there are no bytes to back up',
+                    $sourcePath
+                ),
+                ExclusiveCopy::UNREADABLE  => \sprintf('%s could not be opened for reading', $sourcePath),
+                ExclusiveCopy::UNCREATABLE => \sprintf(
+                    'the temporary backup %s could not be created',
+                    $temporary
+                ),
+                ExclusiveCopy::INCOMPLETE  => \sprintf(
+                    'the copy of %s into %s did not complete',
+                    $sourcePath,
+                    $temporary
+                ),
+            });
         }
 
         $reason = $this->verify($hashType, $digest, $temporary);
@@ -185,7 +202,7 @@ final class BackupStore
         \clearstatcache(true, $destination);
 
         if ($reason !== null) {
-            @\unlink($temporary);
+            ExclusiveCopy::discard($temporary);
 
             return BackupOutcome::failed($destination, $reason);
         }
@@ -234,53 +251,6 @@ final class BackupStore
             if (!\is_dir($directory) && !@\mkdir($directory, 0o755) && !\is_dir($directory)) {
                 return \sprintf('the backup directory %s could not be created', $directory);
             }
-        }
-
-        return null;
-    }
-
-    /**
-     * Copy the source into a temporary this call creates.
-     *
-     * The temporary is opened exclusively, so the copy cannot land in a file or
-     * through a link somebody else put at that name. A source that is not a regular
-     * file is refused before it is opened: a FIFO would block the open. An
-     * incomplete copy unlinks the temporary this call created. A source that cannot
-     * be opened, or a name that cannot be created exclusively, is left alone.
-     *
-     * @return string|null Why the copy did not complete, or null when it did.
-     */
-    private function copy(string $sourcePath, string $temporary): ?string
-    {
-        \clearstatcache(true, $sourcePath);
-
-        if (\is_link($sourcePath) || !\is_file($sourcePath)) {
-            return \sprintf('%s is not a regular file, so there are no bytes to back up', $sourcePath);
-        }
-
-        $source = @\fopen($sourcePath, 'rb');
-
-        if ($source === false) {
-            return \sprintf('%s could not be opened for reading', $sourcePath);
-        }
-
-        $target = @\fopen($temporary, 'xb');
-
-        if ($target === false) {
-            @\fclose($source);
-
-            return \sprintf('the temporary backup %s could not be created', $temporary);
-        }
-
-        $copied  = @\stream_copy_to_stream($source, $target);
-        $flushed = @\fflush($target);
-        $closed  = @\fclose($target);
-        @\fclose($source);
-
-        if ($copied === false || !$flushed || !$closed) {
-            @\unlink($temporary);
-
-            return \sprintf('the copy of %s into %s did not complete', $sourcePath, $temporary);
         }
 
         return null;

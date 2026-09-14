@@ -15,10 +15,11 @@ MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 #
 # `admin/src/Core/Build/` is deliberately absent. Outside tests/Unit/Build/, its
 # only consumers are tools/validate.php and tools/copy_nofollow.php, all three
-# reaching it from the repository through Composer's autoloader, and
-# LinkSafeCopy::copy() is the one file-copy in the tree. A report-only package
-# that shipped it would put a write implementation on the site for nothing to
-# call.
+# reaching it from the repository through Composer's autoloader.
+# LinkSafeCopy::copy() is the build-time copy. A report-only package that shipped
+# it would put a write implementation on the site for nothing to call. Runtime
+# exclusive copies go through ExclusiveCopy, which BackupStore and TargetWriter
+# both call.
 #
 # `admin/src/Core/State/ReportOnlyHistory.php` is absent on the same grounds from
 # Phase 2 on. The provider wires EventLogHistory, so nothing installed calls it;
@@ -44,6 +45,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Hash/HashAlgorithm.php \
 	admin/src/Core/Hash/Hasher.php \
 	admin/src/Core/Hash/HashResult.php \
+	admin/src/Core/Package/ExclusiveCopy.php \
 	admin/src/Core/Package/PackagePaths.php \
 	admin/src/Core/Package/StateArchive.php \
 	admin/src/Core/Package/StateArchiveFailure.php \
@@ -87,6 +89,8 @@ COMPONENT_FILES := \
 	admin/src/Core/Walk/TargetState.php \
 	admin/src/Core/Walk/TargetStatus.php \
 	admin/src/Core/Walk/WalkContext.php \
+	admin/src/Core/Write/TargetWriter.php \
+	admin/src/Core/Write/WriteOutcome.php \
 	admin/src/Environment/JoomlaEnvironmentProvider.php \
 	admin/src/Extension/ECSKCCustomisationComponent.php
 

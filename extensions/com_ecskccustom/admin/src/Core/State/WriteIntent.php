@@ -73,7 +73,18 @@ final class WriteIntent
      */
     public static function begin(array $event): self
     {
-        return self::of(\bin2hex(\random_bytes(self::ID_BYTES)), $event);
+        return self::of(self::mintId(), $event);
+    }
+
+    /**
+     * A new correlation id, for a caller that builds the event before the intent.
+     *
+     * The event record carries the id too, so a writer needs it before the payload the
+     * intent will hold exists. It then publishes `of($id, $record->toPayload())`.
+     */
+    public static function mintId(): string
+    {
+        return \bin2hex(\random_bytes(self::ID_BYTES));
     }
 
     /**
