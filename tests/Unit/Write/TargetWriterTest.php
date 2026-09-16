@@ -18,6 +18,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventRecord;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\MutationTransaction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\TargetWriter;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteOutcome;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
@@ -31,6 +32,7 @@ use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
  */
 #[CoversClass(TargetWriter::class)]
 #[CoversClass(WriteOutcome::class)]
+#[CoversClass(MutationTransaction::class)]
 final class TargetWriterTest extends TestCase
 {
     private const TARGET = 'templates/et_tennis/css/override.css';

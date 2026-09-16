@@ -17,9 +17,9 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 /**
  * Whether a target is frozen, read from the marker beside its backups.
  *
- * The read half only. Freezing and unfreezing are writes and land with the rest of
- * the state records in Phase 2; the walk needs the question answered before then,
- * because a check reports `frozen` and Phase 1 reports.
+ * The read half only. `Core\Write\Freezer` freezes and unfreezes, and
+ * `Core\Write\FreezeGuard` is what a write consults. The walk asks this directly,
+ * because a check reports `frozen`.
  *
  * Decision 13 of the brief: everything else about a target is read from the file's
  * own content, so the package recognises a customisation it did not write as readily
@@ -27,10 +27,14 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  * than a property of the file - which is why it needs a marker at all.
  *
  * Existence is the whole signal, and it is answered generously: a truncated file, an
- * empty one, a directory, a symbolic link, a link whose destination is gone. The
- * marker's content says nothing, so an operator who creates one by hand gets what
- * they intended, and every malformed shape still holds the path. Anything ambiguous
- * has to fail in some direction, and for a freeze the safe direction is "held".
+ * empty one, an unreadable one, a directory. The marker's content says nothing, so an
+ * operator who creates one by hand gets what they intended, and every malformed shape
+ * still holds the path.
+ *
+ * A symbolic link holds nothing, decision 40 of the execution plan. The package tree
+ * has no links, so a link at the marker name, or as any directory from `backup/` down
+ * to it, was not put there as an instruction and is ignored. That withdraws review
+ * s1.v24's rule that a dangling marker link holds the path.
  *
  * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
@@ -46,18 +50,29 @@ final class FreezeMarkers
     public function isFrozen(string $targetPath): bool
     {
         $marker = $this->paths->freezeMarker($targetPath);
+        $parent = \dirname($targetPath);
+        $paths  = [$this->paths->backup()];
 
-        // A marker written moments ago by the same request would otherwise answer
-        // from cached metadata.
-        \clearstatcache(true, $marker);
+        if ($parent !== '.') {
+            foreach (\explode('/', $parent) as $segment) {
+                $paths[] = $paths[\array_key_last($paths)] . '/' . $segment;
+            }
+        }
+
+        $paths[] = $marker;
+
+        foreach ($paths as $path) {
+            // A marker written moments ago by the same request would otherwise answer
+            // from cached metadata.
+            \clearstatcache(true, $path);
+
+            if (\is_link($path)) {
+                return false;
+            }
+        }
 
         // file_exists() rather than is_file(), because a marker the operator made a
-        // directory is still an instruction to hold the path. is_link() is asked as
-        // well, because file_exists() follows a symbolic link and answers false for
-        // one whose destination is gone. A dangling marker link would otherwise
-        // release the freeze silently, which is the one direction this must not fail
-        // in: a freeze is deliberate operator state, and nothing but an unfreeze may
-        // end it. Review s1.v24, standards finding 1.
-        return \file_exists($marker) || \is_link($marker);
+        // directory is still an instruction to hold the path.
+        return \file_exists($marker);
     }
 }

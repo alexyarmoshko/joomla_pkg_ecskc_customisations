@@ -19,7 +19,8 @@ MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 # LinkSafeCopy::copy() is the build-time copy. A report-only package that shipped
 # it would put a write implementation on the site for nothing to call. Runtime
 # exclusive copies go through ExclusiveCopy, which BackupStore and TargetWriter
-# both call.
+# both call. Decision 32's intent sequence goes through MutationTransaction, which
+# Freezer and TargetWriter both call.
 #
 # `admin/src/Core/State/ReportOnlyHistory.php` is absent on the same grounds from
 # Phase 2 on. The provider wires EventLogHistory, so nothing installed calls it;
@@ -89,6 +90,9 @@ COMPONENT_FILES := \
 	admin/src/Core/Walk/TargetState.php \
 	admin/src/Core/Walk/TargetStatus.php \
 	admin/src/Core/Walk/WalkContext.php \
+	admin/src/Core/Write/FreezeGuard.php \
+	admin/src/Core/Write/Freezer.php \
+	admin/src/Core/Write/MutationTransaction.php \
 	admin/src/Core/Write/TargetWriter.php \
 	admin/src/Core/Write/WriteOutcome.php \
 	admin/src/Environment/JoomlaEnvironmentProvider.php \

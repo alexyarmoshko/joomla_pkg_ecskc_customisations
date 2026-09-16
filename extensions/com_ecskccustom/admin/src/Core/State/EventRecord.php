@@ -206,9 +206,17 @@ final class EventRecord
     ): self {
         self::require(\in_array($kind, self::MUTATIONS, true), 'mutation kind', $kind);
         self::require(\in_array($operation, self::OPERATIONS, true), 'operation', $operation);
+        self::require(self::operationFitsKind($kind, $operation), 'kind and operation pair', $kind . '/' . $operation);
         self::require(PackagePaths::isCanonicalTargetPath($target), 'target path', $target);
         self::require(\preg_match(self::STATE, $pre) === 1, 'pre-state', $pre);
         self::require(\preg_match(self::STATE, $post) === 1, 'post-state', $post);
+        self::require(
+            !self::isMarkerMutation($kind, $operation)
+                || (\in_array($pre, [self::ABSENT, self::PRESENT], true)
+                    && \in_array($post, [self::ABSENT, self::PRESENT], true)),
+            'freeze-marker transition',
+            $pre . ' to ' . $post
+        );
         self::require(
             $observed === null || \preg_match(self::STATE, $observed) === 1,
             'observed state',
@@ -382,7 +390,7 @@ final class EventRecord
         }
 
         if (\in_array($kind, self::MUTATIONS, true)
-            && !self::isReadableMutation($target, $operation, $pre, $post, $observed, $id)
+            && !self::isReadableMutation($kind, $target, $operation, $pre, $post, $observed, $id)
         ) {
             return null;
         }
@@ -435,6 +443,7 @@ final class EventRecord
      * half-built. Unknown future kinds skip this and stay records.
      */
     private static function isReadableMutation(
+        string $kind,
         ?string $target,
         ?string $operation,
         ?string $pre,
@@ -442,12 +451,52 @@ final class EventRecord
         ?string $observed,
         ?string $id,
     ): bool {
-        return $target !== null
-            && $operation !== null && \in_array($operation, self::OPERATIONS, true)
-            && $pre !== null && \preg_match(self::STATE, $pre) === 1
-            && $post !== null && \preg_match(self::STATE, $post) === 1
-            && $id !== null && \preg_match(WriteIntent::ID, $id) === 1
-            && ($observed === null || \preg_match(self::STATE, $observed) === 1);
+        if ($target === null
+            || $operation === null || !\in_array($operation, self::OPERATIONS, true)
+            || !self::operationFitsKind($kind, $operation)
+            || $pre === null || \preg_match(self::STATE, $pre) !== 1
+            || $post === null || \preg_match(self::STATE, $post) !== 1
+            || $id === null || \preg_match(WriteIntent::ID, $id) !== 1
+            || ($observed !== null && \preg_match(self::STATE, $observed) !== 1)
+        ) {
+            return false;
+        }
+
+        return !self::isMarkerMutation($kind, $operation)
+            || (\in_array($pre, [self::ABSENT, self::PRESENT], true)
+                && \in_array($post, [self::ABSENT, self::PRESENT], true));
+    }
+
+    /**
+     * A known kind carries only the operation that kind records.
+     *
+     * Recovery kinds keep the original operation, so they accept any of them.
+     */
+    private static function operationFitsKind(string $kind, string $operation): bool
+    {
+        return match ($kind) {
+            self::WRITE             => $operation === self::COPY,
+            self::REMOVE            => $operation === self::REMOVAL,
+            self::REVERT, self::REDO => \in_array($operation, [self::COPY, self::REMOVAL], true),
+            self::FREEZE            => $operation === self::FREEZING,
+            self::UNFREEZE          => $operation === self::RELEASE,
+            self::MUTATION_FAILED, self::INTENT_ABANDONED, self::UNRESOLVED_INTENT => true,
+            default                 => false,
+        };
+    }
+
+    /**
+     * Freeze-marker state is `absent` or `present` whether the kind or the
+     * operation is the freeze. A `mutation-failed` freeze still has operation
+     * `freeze`, and a `freeze` kind with operation `copy` is already refused as
+     * a pair.
+     */
+    private static function isMarkerMutation(string $kind, string $operation): bool
+    {
+        return $kind === self::FREEZE
+            || $kind === self::UNFREEZE
+            || $operation === self::FREEZING
+            || $operation === self::RELEASE;
     }
 
     private static function require(bool $held, string $what, ?string $value): void

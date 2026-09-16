@@ -103,9 +103,7 @@ final class TargetWriter
 
     private readonly BackupStore $backups;
 
-    private readonly EventLog $log;
-
-    private readonly WriteIntentStore $intents;
+    private readonly MutationTransaction $mutations;
 
     /**
      * @param Closure(string, string|null): void|null $checkpoint Called with a point name
@@ -116,10 +114,15 @@ final class TargetWriter
         private readonly PathPolicy $policy,
         private readonly ?Closure $checkpoint = null,
     ) {
-        $this->hasher  = new Hasher();
-        $this->backups = new BackupStore($paths);
-        $this->log     = new EventLog($paths);
-        $this->intents = new WriteIntentStore($paths);
+        $this->hasher    = new Hasher();
+        $this->backups   = new BackupStore($paths);
+        $this->mutations = new MutationTransaction(
+            new WriteIntentStore($paths),
+            new EventLog($paths),
+            function (string $point): void {
+                $this->reach($point, null);
+            },
+        );
     }
 
     /**
@@ -423,96 +426,26 @@ final class TargetWriter
             ), $backup);
         }
 
-        $id = (string) $record->correlationId;
+        return $this->mutations->run(
+            $record,
+            static function () use ($mutation, $resolved): bool {
+                $mutated = $mutation();
+                \clearstatcache(true, $resolved);
 
-        if (!$this->intents->publish(WriteIntent::of($id, $record->toPayload()))) {
-            return WriteOutcome::refused(
-                'the write intent could not be published, so nothing was written',
-                $backup
-            );
-        }
+                return $mutated;
+            },
+            function () use ($resolved): string {
+                $reason  = null;
+                $current = $this->state($resolved, $reason);
 
-        $this->reach(self::INTENT_PUBLISHED, null);
-
-        $mutated = $mutation();
-        \clearstatcache(true, $resolved);
-
-        if (!$mutated) {
-            return $this->settleFailure($record, $resolved, $failure, $backup);
-        }
-
-        $this->reach(self::MUTATED, null);
-
-        if (!$this->log->append($record)) {
-            return WriteOutcome::faulted($id, true, true, \sprintf(
-                '%s, but its event could not be appended (%s), so the write intent stays for recovery',
-                $done,
-                (string) $this->log->failure()
-            ), $backup);
-        }
-
-        $this->reach(self::EVENT_COMMITTED, null);
-
-        if (!$this->intents->remove()) {
-            return WriteOutcome::faulted($id, true, true, \sprintf(
-                '%s and its event is committed, but the write intent at %s could not be removed',
-                $done,
-                $this->intents->path()
-            ), $backup);
-        }
-
-        return WriteOutcome::changed($id, $done, $backup);
-    }
-
-    /**
-     * A mutation that reported failure after its intent was published, decision 32 case 2.
-     */
-    private function settleFailure(
-        EventRecord $record,
-        string $resolved,
-        string $failure,
-        ?BackupOutcome $backup,
-    ): WriteOutcome {
-        $id      = (string) $record->correlationId;
-        $reason  = null;
-        $current = $this->state($resolved, $reason);
-
-        if ($current !== $record->pre) {
-            return WriteOutcome::faulted($id, false, true, \sprintf(
-                '%s, and the target is now %s rather than its pre-state, so the write intent stays '
-                . 'for recovery',
-                $failure,
-                $current ?? (string) $reason
-            ), $backup);
-        }
-
-        $fault = EventRecord::mutation(
-            EventRecord::MUTATION_FAILED,
-            (string) $record->operation,
-            (string) $record->target,
-            (string) $record->pre,
-            (string) $record->post,
-            $id,
-            reason: $failure
+                return $current ?? (string) $reason;
+            },
+            $failure,
+            $done,
+            'nothing was written',
+            'the target',
+            $backup
         );
-
-        if (!$this->log->append($fault)) {
-            return WriteOutcome::faulted($id, false, true, \sprintf(
-                '%s, and the fault could not be appended (%s), so the write intent stays for recovery',
-                $failure,
-                (string) $this->log->failure()
-            ), $backup);
-        }
-
-        if (!$this->intents->remove()) {
-            return WriteOutcome::faulted($id, false, true, \sprintf(
-                '%s, and the fault is committed, but the write intent at %s could not be removed',
-                $failure,
-                $this->intents->path()
-            ), $backup);
-        }
-
-        return WriteOutcome::faulted($id, false, false, $failure, $backup);
     }
 
     /**

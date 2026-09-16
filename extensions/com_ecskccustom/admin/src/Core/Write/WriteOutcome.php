@@ -16,7 +16,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupOutcom
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 
 /**
- * What one write or removal did at its target.
+ * What one write or removal did at its target, or a freeze or unfreeze at its marker.
  *
  * The status is the report's own vocabulary: `ok` when the target is where the
  * caller asked for it, `faulted` otherwise. Three facts beside it matter to the

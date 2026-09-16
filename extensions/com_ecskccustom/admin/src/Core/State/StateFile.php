@@ -78,8 +78,8 @@ final class StateFile
     /**
      * Is there anything at all at the path?
      *
-     * Answered as generously as FreezeMarkers answers a freeze: a directory, an
-     * unreadable file and a dangling link all count. Each is a record that is
+     * Answered generously: a directory, an unreadable file and a dangling link all
+     * count. Each is a record that is
      * present and cannot be parsed, which is a fault; treating any of them as
      * absence would report a clean tree over a state nobody can explain.
      */

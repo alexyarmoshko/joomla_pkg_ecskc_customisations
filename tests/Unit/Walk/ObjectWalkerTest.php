@@ -927,11 +927,10 @@ final class ObjectWalkerTest extends TestCase
     }
 
     /**
-     * A marker whose destination is gone still holds the path. `file_exists()` follows
-     * a link and answers false for a dangling one, which would release a freeze that
-     * nobody lifted. Review s1.v24, standards finding 1.
+     * Decision 40: the package tree holds no symbolic links, so a marker that is one
+     * holds nothing, dangling or not. This replaces review s1.v24's rule.
      */
-    public function testAMarkerThatIsADanglingSymbolicLinkStillHoldsThePath(): void
+    public function testAMarkerThatIsADanglingSymbolicLinkDoesNotHoldThePath(): void
     {
         $this->tree->write('templates/et_tennis/css/held.css', self::ORIGINAL);
         $this->tree->symlink(
@@ -947,8 +946,8 @@ final class ObjectWalkerTest extends TestCase
             expectedHash: self::digest(self::ORIGINAL)
         )));
 
-        self::assertSame(TargetStatus::FROZEN, $state->status);
-        self::assertSame([], $state->operations());
+        self::assertSame(TargetStatus::ACTIONABLE, $state->status);
+        self::assertCount(1, $state->operations());
     }
 
     /**

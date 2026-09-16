@@ -220,9 +220,12 @@ final class BackupStore
      * under it. `backup/` itself is the installer's, and a missing one is a fault
      * rather than something to create without its deny-all guard.
      *
+     * Public because a freeze marker sits in the same directory as the backups, and
+     * `Freezer` has to create that directory on the same terms.
+     *
      * @return string|null Why the directory is not usable, or null when it is.
      */
-    private function prepareDirectory(string $targetPath): ?string
+    public function prepareDirectory(string $targetPath): ?string
     {
         $directory = $this->paths->backup();
         \clearstatcache(true, $directory);
@@ -243,7 +246,7 @@ final class BackupStore
 
             if (\is_link($directory)) {
                 return \sprintf(
-                    '%s is a symbolic link, and a backup is never written through one',
+                    '%s is a symbolic link, and nothing under backup/ is written through one',
                     $directory
                 );
             }

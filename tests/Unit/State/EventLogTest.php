@@ -657,6 +657,22 @@ final class EventLogTest extends TestCase
                 $id,
                 'probably us'
             )],
+            'a freeze kind with a copy operation' => [static fn (): EventRecord => EventRecord::mutation(
+                EventRecord::FREEZE,
+                EventRecord::COPY,
+                self::TARGET,
+                self::ORIGINAL_HASH,
+                self::PAYLOAD_HASH,
+                $id
+            )],
+            'a freeze kind whose states are digests' => [static fn (): EventRecord => EventRecord::mutation(
+                EventRecord::FREEZE,
+                EventRecord::FREEZING,
+                self::TARGET,
+                self::ORIGINAL_HASH,
+                self::PAYLOAD_HASH,
+                $id
+            )],
         ];
     }
 
@@ -669,6 +685,44 @@ final class EventLogTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         $build();
+    }
+
+    /**
+     * @return array<string, array{array<string, string>}>
+     */
+    public static function freezePayloadsNoReaderMayAccept(): array
+    {
+        $id     = 'a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4';
+        $common = [
+            'at'     => '2026-09-09T11:22:33Z',
+            'by'     => EventRecord::PACKAGE,
+            'target' => self::TARGET,
+            'id'     => $id,
+        ];
+
+        return [
+            'kind freeze with operation copy and digest states' => [\array_merge($common, [
+                'event'     => EventRecord::FREEZE,
+                'operation' => EventRecord::COPY,
+                'pre'       => self::ORIGINAL_HASH,
+                'post'      => self::PAYLOAD_HASH,
+            ])],
+            'kind freeze with freeze-marker operation and digest states' => [\array_merge($common, [
+                'event'     => EventRecord::FREEZE,
+                'operation' => EventRecord::FREEZING,
+                'pre'       => self::ORIGINAL_HASH,
+                'post'      => self::PAYLOAD_HASH,
+            ])],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $payload
+     */
+    #[DataProvider('freezePayloadsNoReaderMayAccept')]
+    public function testAKnownFreezeEventWithDigestStatesIsNotReadable(array $payload): void
+    {
+        self::assertNull(EventRecord::fromPayload($payload));
     }
 
     public function testTheRecordAcceptsExactlyTheCorrelationIdsTheIntentMints(): void
