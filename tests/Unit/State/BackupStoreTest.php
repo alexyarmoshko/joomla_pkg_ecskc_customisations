@@ -9,13 +9,17 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ProcDescriptor;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupOutcome;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupStore;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BoundBackupDirectory;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 #[CoversClass(BackupStore::class)]
 #[CoversClass(BackupOutcome::class)]
+#[CoversClass(BoundBackupDirectory::class)]
+#[CoversClass(ProcDescriptor::class)]
 final class BackupStoreTest extends TestCase
 {
     private const TARGET = 'templates/et_tennis/css/override.css';

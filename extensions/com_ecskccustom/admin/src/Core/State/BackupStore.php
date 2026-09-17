@@ -216,45 +216,22 @@ final class BackupStore
      * Create the mirrored directories below `backup/`, one level at a time.
      *
      * A recursive mkdir() would follow a symbolic link part-way down and create
-     * directories wherever it pointed. Each level is checked before anything is made
-     * under it. `backup/` itself is the installer's, and a missing one is a fault
-     * rather than something to create without its deny-all guard.
-     *
-     * Public because a freeze marker sits in the same directory as the backups, and
-     * `Freezer` has to create that directory on the same terms.
+     * directories wherever it pointed. BoundBackupDirectory opens each level from
+     * `backup/` down and creates a missing segment through that handle. `backup/`
+     * itself is the installer's, and a missing one is a fault rather than
+     * something to create without its deny-all guard.
      *
      * @return string|null Why the directory is not usable, or null when it is.
      */
-    public function prepareDirectory(string $targetPath): ?string
+    private function prepareDirectory(string $targetPath): ?string
     {
-        $directory = $this->paths->backup();
-        \clearstatcache(true, $directory);
+        $bound = BoundBackupDirectory::open($this->paths, $targetPath, true);
 
-        if (\is_link($directory) || !\is_dir($directory)) {
-            return \sprintf('the backup folder %s is not a directory', $directory);
+        if (\is_string($bound)) {
+            return $bound;
         }
 
-        $parent = \dirname($targetPath);
-
-        if ($parent === '.') {
-            return null;
-        }
-
-        foreach (\explode('/', $parent) as $segment) {
-            $directory .= '/' . $segment;
-            \clearstatcache(true, $directory);
-
-            if (\is_link($directory)) {
-                return \sprintf(
-                    '%s is a symbolic link, and nothing under backup/ is written through one',
-                    $directory
-                );
-            }
-
-            if (!\is_dir($directory) && !@\mkdir($directory, 0o755) && !\is_dir($directory)) {
-                return \sprintf('the backup directory %s could not be created', $directory);
-            }
-        }
+        $bound->close();
 
         return null;
     }

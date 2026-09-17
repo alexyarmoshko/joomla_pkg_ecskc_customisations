@@ -77,7 +77,7 @@ final class FreezeGuardTest extends TestCase
         $marker = $this->paths->freezeMarker(self::TARGET);
         \symlink($this->tree->write('outside.txt', ''), $marker);
 
-        self::assertNull($this->guard()->refusal(self::TARGET), 'Decision 40: a link is not a freeze.');
+        self::assertNull($this->guard()->refusal(self::TARGET), 'Decision 40: a symbolic link is not a freeze.');
 
         \unlink($marker);
         \symlink($marker . '.gone', $marker);

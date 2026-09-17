@@ -14,6 +14,7 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\State;
 
 use JsonException;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ProcDescriptor;
 
 /**
  * The append-only log at `state/events.log`: one record per line, never rewritten.
@@ -492,27 +493,7 @@ final class EventLog
             return;
         }
 
-        $entries = @\scandir('/proc/self/fd');
-
-        if ($entries === false) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if (!\ctype_digit($entry)) {
-                continue;
-            }
-
-            $candidate = '/proc/self/fd/' . $entry;
-            $got       = @\stat($candidate);
-
-            if ($got === false
-                || $got['dev'] !== $want['dev']
-                || $got['ino'] !== $want['ino']
-            ) {
-                continue;
-            }
-
+        foreach (ProcDescriptor::pathsFor($want) as $candidate) {
             if (@\chmod($candidate, $mode)) {
                 return;
             }

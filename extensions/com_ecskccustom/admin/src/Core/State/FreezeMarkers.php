@@ -32,9 +32,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  * still holds the path.
  *
  * A symbolic link holds nothing, decision 40 of the execution plan. The package tree
- * has no links, so a link at the marker name, or as any directory from `backup/` down
- * to it, was not put there as an instruction and is ignored. That withdraws review
- * s1.v24's rule that a dangling marker link holds the path.
+ * has no symbolic links, so a symbolic link at the marker name, or as any directory
+ * from `backup/` down to it, was not put there as an instruction and is ignored.
+ * That withdraws review s1.v24's rule that a dangling marker symbolic link holds
+ * the path.
  *
  * No Joomla dependency: the core is testable on a bare PHP CLI.
  */

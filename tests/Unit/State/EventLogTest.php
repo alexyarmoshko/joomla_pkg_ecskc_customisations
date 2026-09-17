@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ProcDescriptor;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventLog;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventLogRead;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventRecord;
@@ -27,6 +28,7 @@ use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
 #[CoversClass(EventLog::class)]
 #[CoversClass(EventLogRead::class)]
 #[CoversClass(EventRecord::class)]
+#[CoversClass(ProcDescriptor::class)]
 final class EventLogTest extends TestCase
 {
     private const TARGET = 'templates/et_tennis/css/override.css';
@@ -673,6 +675,30 @@ final class EventLogTest extends TestCase
                 self::PAYLOAD_HASH,
                 $id
             )],
+            'an unresolved freeze whose observed state is a digest' => [
+                static fn (): EventRecord => EventRecord::mutation(
+                    EventRecord::UNRESOLVED_INTENT,
+                    EventRecord::FREEZING,
+                    self::TARGET,
+                    EventRecord::ABSENT,
+                    EventRecord::PRESENT,
+                    $id,
+                    EventRecord::OBSERVED,
+                    observed: self::ORIGINAL_HASH,
+                    reason: 'the marker matches neither state'
+                ),
+            ],
+            'a freeze failure whose observed state is a digest' => [
+                static fn (): EventRecord => EventRecord::mutation(
+                    EventRecord::MUTATION_FAILED,
+                    EventRecord::FREEZING,
+                    self::TARGET,
+                    EventRecord::ABSENT,
+                    EventRecord::PRESENT,
+                    $id,
+                    observed: self::ORIGINAL_HASH
+                ),
+            ],
         ];
     }
 
@@ -712,6 +738,22 @@ final class EventLogTest extends TestCase
                 'operation' => EventRecord::FREEZING,
                 'pre'       => self::ORIGINAL_HASH,
                 'post'      => self::PAYLOAD_HASH,
+            ])],
+            'unresolved-intent with freeze operation and a digest as observed' => [\array_merge($common, [
+                'event'     => EventRecord::UNRESOLVED_INTENT,
+                'operation' => EventRecord::FREEZING,
+                'pre'       => EventRecord::ABSENT,
+                'post'      => EventRecord::PRESENT,
+                'observed'  => self::ORIGINAL_HASH,
+                'by'        => EventRecord::OBSERVED,
+                'reason'    => 'the marker matches neither state',
+            ])],
+            'mutation-failed freeze with a digest as observed' => [\array_merge($common, [
+                'event'     => EventRecord::MUTATION_FAILED,
+                'operation' => EventRecord::FREEZING,
+                'pre'       => EventRecord::ABSENT,
+                'post'      => EventRecord::PRESENT,
+                'observed'  => self::ORIGINAL_HASH,
             ])],
         ];
     }

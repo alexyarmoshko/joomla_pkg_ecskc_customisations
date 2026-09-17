@@ -213,7 +213,8 @@ final class EventRecord
         self::require(
             !self::isMarkerMutation($kind, $operation)
                 || (\in_array($pre, [self::ABSENT, self::PRESENT], true)
-                    && \in_array($post, [self::ABSENT, self::PRESENT], true)),
+                    && \in_array($post, [self::ABSENT, self::PRESENT], true)
+                    && ($observed === null || \in_array($observed, [self::ABSENT, self::PRESENT], true))),
             'freeze-marker transition',
             $pre . ' to ' . $post
         );
@@ -464,13 +465,16 @@ final class EventRecord
 
         return !self::isMarkerMutation($kind, $operation)
             || (\in_array($pre, [self::ABSENT, self::PRESENT], true)
-                && \in_array($post, [self::ABSENT, self::PRESENT], true));
+                && \in_array($post, [self::ABSENT, self::PRESENT], true)
+                && ($observed === null || \in_array($observed, [self::ABSENT, self::PRESENT], true)));
     }
 
     /**
      * A known kind carries only the operation that kind records.
      *
-     * Recovery kinds keep the original operation, so they accept any of them.
+     * Recovery kinds keep the original operation. `mutation-failed` and
+     * `intent-abandoned` therefore accept any of them. `unresolved-intent` is a
+     * file-target case, decision 32, so it does not keep a freeze-marker operation.
      */
     private static function operationFitsKind(string $kind, string $operation): bool
     {
@@ -480,7 +484,8 @@ final class EventRecord
             self::REVERT, self::REDO => \in_array($operation, [self::COPY, self::REMOVAL], true),
             self::FREEZE            => $operation === self::FREEZING,
             self::UNFREEZE          => $operation === self::RELEASE,
-            self::MUTATION_FAILED, self::INTENT_ABANDONED, self::UNRESOLVED_INTENT => true,
+            self::MUTATION_FAILED, self::INTENT_ABANDONED => true,
+            self::UNRESOLVED_INTENT => $operation !== self::FREEZING && $operation !== self::RELEASE,
             default                 => false,
         };
     }

@@ -48,6 +48,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Hash/HashResult.php \
 	admin/src/Core/Package/ExclusiveCopy.php \
 	admin/src/Core/Package/PackagePaths.php \
+	admin/src/Core/Package/ProcDescriptor.php \
 	admin/src/Core/Package/StateArchive.php \
 	admin/src/Core/Package/StateArchiveFailure.php \
 	admin/src/Core/Path/PathDecision.php \
@@ -68,6 +69,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Runner.php \
 	admin/src/Core/State/BackupOutcome.php \
 	admin/src/Core/State/BackupStore.php \
+	admin/src/Core/State/BoundBackupDirectory.php \
 	admin/src/Core/State/EventLog.php \
 	admin/src/Core/State/EventLogHistory.php \
 	admin/src/Core/State/EventLogRead.php \
