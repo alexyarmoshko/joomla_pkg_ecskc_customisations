@@ -911,10 +911,11 @@ final class FreezerTest extends TestCase
     }
 
     /**
-     * Unfreeze has already seen a real, unlistable directory at the marker name when
-     * the marker is swapped for a symbolic link to one whose mode it cannot change.
-     * `lstat` of the last component sees the link, so the listing refuses before
-     * `chmod` and must not read that as empty.
+     * Unfreeze has already recorded a real, unlistable directory at the marker name
+     * when the marker is swapped for a symbolic link to one whose mode it cannot
+     * change. The bound listing cannot match that follow, and identity is checked
+     * before the pathname `chmod`, so the listing refuses without changing the
+     * foreign directory and must not read that as empty.
      */
     public function testADirectoryWhoseEntriesCannotBeDeterminedIsNotTreatedAsEmpty(): void
     {
@@ -954,10 +955,11 @@ final class FreezerTest extends TestCase
     }
 
     /**
-     * Unfreeze has already seen a real, unlistable directory at the marker name when
-     * the marker is swapped for a symbolic link to an owned, empty, unlistable
-     * directory outside `backup/`. `chmod` and `scandir` follow that last component,
-     * so the listing must refuse on `lstat` of the name and leave the target alone.
+     * Unfreeze has already recorded a real, unlistable directory at the marker name
+     * when the marker is swapped for a symbolic link to an owned, empty, unlistable
+     * directory outside `backup/`. `opendir` and `chmod` follow that last component,
+     * so the listing must refuse on the bound descriptor and the pre-`chmod` identity
+     * check, and leave the target alone.
      */
     public function testInspectingAnUnlistableDirectoryDoesNotFollowASymbolicLinkSwappedOntoTheMarker(): void
     {
@@ -1012,6 +1014,162 @@ final class FreezerTest extends TestCase
         );
         self::assertSame($before['ctime'], $after['ctime'], 'The directory outside backup/ must not be chmod()ed through the link.');
         self::assertSame(false, @\scandir($victim), 'The directory outside backup/ must still be unlistable.');
+        \chmod($this->marker() . '.real', 0755);
+        self::assertSame('kept', \file_get_contents($this->marker() . '.real/note.txt'));
+        self::assertFileDoesNotExist($this->paths->eventLog());
+        $this->assertNoRunLeftovers();
+    }
+
+    /**
+     * The same swap after `lstat`, but both directories are listable, so the first
+     * `opendir` follows. The bound descriptor cannot match, so the listing must
+     * refuse without reading the target and without treating it as empty.
+     */
+    public function testListingADirectoryDoesNotFollowASymbolicLinkSwappedOntoTheMarker(): void
+    {
+        $victim = $this->tree->path('outside/victim');
+        \mkdir($victim);
+        \file_put_contents($victim . '/secret.txt', 'secret');
+
+        $this->markerDirectory();
+        \mkdir($this->marker());
+        \file_put_contents($this->marker() . '/note.txt', 'kept');
+
+        $swapped = false;
+
+        $outcome = $this->freezer(function (string $point) use ($victim, &$swapped): void {
+            if ($point === Freezer::INTENT_PUBLISHED) {
+                self::fail('A symbolic link swapped onto the marker must fault before any intent.');
+            }
+
+            if ($point === Freezer::LISTING_MARKER) {
+                $swapped = true;
+                \rename($this->marker(), $this->marker() . '.real');
+                \symlink($victim, $this->marker());
+            }
+        })->unfreeze(self::TARGET);
+
+        self::assertTrue($swapped, 'The unfreeze never reached the listing.');
+        self::assertSame(TargetStatus::FAULTED, $outcome->status, $outcome->reason);
+        self::assertFalse($outcome->changed);
+        self::assertNull($outcome->correlationId);
+        self::assertFalse($outcome->intentLeft, $outcome->reason);
+        self::assertStringContainsString('symbolic link', $outcome->reason);
+        self::assertStringContainsString('not known to be empty', $outcome->reason);
+        self::assertTrue(\is_link($this->marker()));
+        self::assertSame('secret', \file_get_contents($victim . '/secret.txt'));
+        self::assertSame('kept', \file_get_contents($this->marker() . '.real/note.txt'));
+        self::assertFileDoesNotExist($this->paths->eventLog());
+        $this->assertNoRunLeftovers();
+    }
+
+    /**
+     * The same swap after `lstat`, but the link points at the renamed original
+     * marker directory. `opendir` follows that inode, so the descriptor match
+     * is not enough: the last component must still be that real directory.
+     */
+    public function testListingDoesNotFollowASymbolicLinkToTheRenamedMarkerDirectory(): void
+    {
+        $this->markerDirectory();
+        \mkdir($this->marker());
+
+        $swapped = false;
+
+        $outcome = $this->freezer(function (string $point) use (&$swapped): void {
+            if ($point === Freezer::INTENT_PUBLISHED) {
+                self::fail('A symbolic link swapped onto the marker must fault before any intent.');
+            }
+
+            if ($point === Freezer::LISTING_MARKER) {
+                $swapped = true;
+                \rename($this->marker(), $this->marker() . '.real');
+                \symlink($this->marker() . '.real', $this->marker());
+            }
+        })->unfreeze(self::TARGET);
+
+        self::assertTrue($swapped, 'The unfreeze never reached the listing.');
+        self::assertSame(TargetStatus::FAULTED, $outcome->status, $outcome->reason);
+        self::assertFalse($outcome->changed);
+        self::assertNull($outcome->correlationId);
+        self::assertFalse($outcome->intentLeft, $outcome->reason);
+        self::assertStringContainsString('symbolic link', $outcome->reason);
+        self::assertStringContainsString('not known to be empty', $outcome->reason);
+        self::assertTrue(\is_link($this->marker()));
+        self::assertDirectoryExists($this->marker() . '.real');
+        self::assertFileDoesNotExist($this->paths->eventLog());
+        $this->assertNoRunLeftovers();
+    }
+
+    /**
+     * After a successful 0700 change the post-0700 open is made to fail while the
+     * inode still matches, so unfreeze pathname-restores. A swap at that restore
+     * `LISTING_MARKER` must be reported as an identity change, not as a listing
+     * that merely failed.
+     */
+    public function testRestoringAnUnlistableDirectoryModeReportsAReplacementIdentity(): void
+    {
+        if (\function_exists('posix_geteuid') && \posix_geteuid() === 0) {
+            self::markTestSkipped('root ignores directory permissions, so the marker cannot be made unlistable');
+        }
+
+        $victim = $this->tree->path('outside/victim');
+        \mkdir($victim);
+        \file_put_contents($victim . '/secret.txt', 'secret');
+        $this->readOnly[] = $victim;
+
+        $this->markerDirectory();
+        \mkdir($this->marker());
+        \file_put_contents($this->marker() . '/note.txt', 'kept');
+        \chmod($this->marker(), 0000);
+        $this->readOnly[] = $this->marker() . '.real';
+
+        $openedAt0700 = false;
+        $swapped      = false;
+
+        $outcome = $this->freezer(function (string $point) use ($victim, &$openedAt0700, &$swapped): void {
+            if ($point === Freezer::INTENT_PUBLISHED) {
+                self::fail('A replacement during the restore must fault before any intent.');
+            }
+
+            if ($point !== Freezer::LISTING_MARKER) {
+                return;
+            }
+
+            if ($openedAt0700) {
+                $swapped = true;
+                \rename($this->marker(), $this->marker() . '.real');
+                \symlink($victim, $this->marker());
+
+                return;
+            }
+
+            \clearstatcache(true, $this->marker());
+            $perms = @\fileperms($this->marker());
+
+            if ($perms !== false && ($perms & 0o7777) === 0o700) {
+                $openedAt0700 = true;
+                \chmod($this->marker(), 0000);
+            }
+        })->unfreeze(self::TARGET);
+
+        self::assertTrue($openedAt0700, 'The unfreeze never reached the post-0700 open.');
+        self::assertTrue($swapped, 'The unfreeze never reached the pathname restore.');
+        self::assertSame(TargetStatus::FAULTED, $outcome->status, $outcome->reason);
+        self::assertFalse($outcome->changed);
+        self::assertNull($outcome->correlationId);
+        self::assertFalse($outcome->intentLeft, $outcome->reason);
+        self::assertStringContainsString('identity changed', $outcome->reason);
+        self::assertTrue(\is_link($this->marker()));
+        \clearstatcache(true, $victim);
+        $victimMode = \fileperms($victim);
+        self::assertNotFalse($victimMode);
+        self::assertSame(
+            0000,
+            $victimMode & 0o7777,
+            \sprintf('The restore chmod must have hit the replacement, not left it at %04o.', $victimMode & 0o7777)
+        );
+        \chmod($victim, 0755);
+        self::assertSame('secret', \file_get_contents($victim . '/secret.txt'));
         \chmod($this->marker() . '.real', 0755);
         self::assertSame('kept', \file_get_contents($this->marker() . '.real/note.txt'));
         self::assertFileDoesNotExist($this->paths->eventLog());

@@ -57,13 +57,22 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentS
  * publishes an intent. An unreadable empty directory is still a freeze, so unfreeze
  * publishes intent and removes it with `rmdir`. An unlistable directory is opened
  * by changing its mode long enough to read the entries, then the full saved mode,
- * special bits included, is put back on the opened inode. Each listing and mode
- * change is checked against `lstat` of the bound last component, so a symbolic
- * link swapped onto the marker name is not listed or changed. A directory whose
- * entries still cannot be determined, or whose mode cannot be put back, is not
- * known to be empty, and unfreeze refuses it before any intent. Unknown is not
- * empty. A non-empty directory whose entries become readable that way faults
- * before intent, the same as one `scandir` could list.
+ * special bits included, is put back on the opened inode. The listing opens the
+ * last component and keeps the descriptor that open added. A follow of a
+ * different inode cannot match. A follow of the recorded inode is refused
+ * because `lstat` of the last component must still be that real directory. The
+ * 0700 change still goes through the name, because PHP has no `fchmod` and a
+ * mode-0000 directory cannot be opened first. Identity is checked immediately
+ * before each pathname `chmod` and after it, so a replacement already visible
+ * then is not changed. A rename that lands between that last `lstat` and the
+ * pathname `chmod` can still change another inode; unfreeze then reports the
+ * identity change and publishes no intent. A restore is not attempted once
+ * identity has already moved. A restore that itself races is reported as that
+ * identity change rather than as a listing failure. A directory whose entries
+ * still cannot be determined, or whose mode cannot be put back, is not known to
+ * be empty, and unfreeze refuses it before any intent. Unknown is not empty. A
+ * non-empty directory whose entries become readable that way faults before
+ * intent, the same as one the bound listing could read.
  *
  * Freeze creates a regular empty file with an exclusive create. Unfreeze removes an
  * empty directory with `rmdir` and any other shape with `unlink`. It never deletes
@@ -101,8 +110,9 @@ final class Freezer
      *
      * A test seam, as in TargetWriter. LOCKED is after the lock and the run marker,
      * before the freeze marker is inspected. CREATING_DIRECTORY is immediately before
-     * a missing mirrored directory is created. LISTING_MARKER is immediately before
-     * a directory marker's entries are read. Production passes none.
+     * a missing mirrored directory is created. LISTING_MARKER is after `lstat` of the
+     * bound last component, before that name is opened or pathname-`chmod`ed. It is
+     * reached before each of those pathname operations. Production passes none.
      */
     public const LOCKED              = 'locked';
     public const CREATING_DIRECTORY  = 'creating-directory';
@@ -335,7 +345,6 @@ final class Freezer
             $directory = \is_dir($path) && !\is_link($path);
 
             if ($directory) {
-                $this->reach(self::LISTING_MARKER);
                 $entries = $this->entriesOf($path, $named);
 
                 if (\is_string($entries)) {
@@ -421,11 +430,16 @@ final class Freezer
      * Directory entries, including those of a directory whose mode forbids listing.
      *
      * The last component is identified with `lstat` through the bound parent, which
-     * does not follow a symbolic link there. `scandir` and `chmod` do, so each of
-     * those is followed by the same identity check. PHP has no `fchmod`, and a
-     * mode-0000 directory cannot be opened first, so the 0700 change still goes
-     * through the name. The saved mode is put back on the opened inode through
-     * `/proc/self/fd`, with every permission and special bit it had. A directory
+     * does not follow a symbolic link there. The listing then opens that name and
+     * keeps the descriptor that open added. `opendir` follows, so a replacement
+     * at a different inode cannot match. A symbolic link to the recorded inode is
+     * refused because `lstat` of the last component must still be that real
+     * directory. PHP has no `fchmod`, and a mode-0000 directory cannot be opened
+     * first, so the 0700 change still goes through the name. Identity is checked
+     * immediately before each pathname `chmod` and after it. The saved mode is
+     * put back on the opened inode through `/proc/self/fd` when that open
+     * succeeded, with every permission and special bit it had. A pathname restore
+     * after a failed open is checked the same way as the 0700 change. A directory
      * whose entries cannot be determined, whose identity moved, or whose mode
      * cannot be put back, is not known to be empty, and the caller refuses it
      * before any intent.
@@ -442,22 +456,27 @@ final class Freezer
             return $this->undeterminedEntries($named, $path);
         }
 
-        $entries = @\scandir($path);
+        $this->reach(self::LISTING_MARKER);
 
-        if ($entries !== false) {
-            if ($this->isStillTheDirectory($inode, $path)) {
-                return $entries;
+        $bound = $this->openBoundDirectory($path, $inode);
+
+        if ($bound !== null) {
+            [$handle] = $bound;
+
+            try {
+                return $this->readEntries($handle);
+            } finally {
+                \closedir($handle);
             }
+        }
 
-            return \sprintf(
-                'the freeze marker %s is a directory whose identity changed while it was listed, so it is '
-                . 'not known to be empty and was not removed',
-                $named
-            );
+        if (!$this->isStillTheDirectory($inode, $path)) {
+            return $this->undeterminedEntries($named, $path);
         }
 
         $mode = $inode['mode'] & 0o7777;
 
+        $this->reach(self::LISTING_MARKER);
         if (!@\chmod($path, 0o700)) {
             return \sprintf(
                 'the freeze marker %s is a directory whose entries could not be listed, and its mode could '
@@ -470,20 +489,16 @@ final class Freezer
             return $this->identityMovedAfterModeChange($named);
         }
 
-        $before = ProcDescriptor::pathsFor($inode);
-        $handle = @\opendir($path);
+        $this->reach(self::LISTING_MARKER);
+        $bound = $this->openBoundDirectory($path, $inode);
 
-        if ($handle === false) {
+        if ($bound === null) {
             return $this->unreadableAfterModeChange($path, $named, $inode, $mode);
         }
 
+        [$handle, $opened] = $bound;
+
         try {
-            $opened = ProcDescriptor::pathOpenedSince($inode, $before);
-
-            if ($opened === null) {
-                return $this->unreadableAfterModeChange($path, $named, $inode, $mode);
-            }
-
             $entries  = $this->readEntries($handle);
             $restored = @\chmod($opened, $mode);
 
@@ -500,6 +515,38 @@ final class Freezer
         } finally {
             \closedir($handle);
         }
+    }
+
+    /**
+     * Open `$path` and the `/proc/self/fd/N` that open added for `$inode`.
+     *
+     * `opendir` follows a symbolic link. A follow of a different inode cannot
+     * match `$inode`. A follow of `$inode` is still refused unless `lstat` of
+     * `$path` remains that real directory, so a symbolic link to the recorded
+     * inode is not listed.
+     *
+     * @param array<string, mixed> $inode
+     *
+     * @return array{0: resource, 1: string}|null
+     */
+    private function openBoundDirectory(string $path, array $inode): ?array
+    {
+        $before = ProcDescriptor::pathsFor($inode);
+        $handle = @\opendir($path);
+
+        if ($handle === false) {
+            return null;
+        }
+
+        $opened = ProcDescriptor::pathOpenedSince($inode, $before);
+
+        if ($opened === null || !$this->isStillTheDirectory($inode, $path)) {
+            \closedir($handle);
+
+            return null;
+        }
+
+        return [$handle, $opened];
     }
 
     /**
@@ -529,7 +576,9 @@ final class Freezer
     /**
      * The listing still failed after a successful 0700 change of the same inode.
      *
-     * A restore that also fails is the reason: the directory is left at 0700.
+     * A restore that also fails is the reason: the directory is left at 0700. A
+     * replacement between the restore `lstat` and `chmod` is reported as an
+     * identity change, not as this listing failure.
      *
      * @param array<string, mixed> $inode `lstat()` of the directory before the change.
      */
@@ -539,7 +588,12 @@ final class Freezer
             return $this->identityMovedAfterModeChange($named);
         }
 
+        $this->reach(self::LISTING_MARKER);
         $restored = @\chmod($path, $mode);
+
+        if (!$this->isStillTheDirectory($inode, $path)) {
+            return $this->identityMovedAfterModeChange($named);
+        }
 
         if (!$restored) {
             return \sprintf(
