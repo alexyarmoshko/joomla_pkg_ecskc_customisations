@@ -28,7 +28,7 @@ final class BackupOutcome
     /** No backup was at the name, and one was published. */
     public const CREATED = 'created';
 
-    /** A backup was at the name, it hashes to the name, and the source still does. Nothing was written. */
+    /** A backup was at the name, it hashes to the name, and the source still does. Recency is updated; the bytes are not rewritten. */
     public const KEPT = 'kept';
 
     /** Something was at the name that was not a valid backup, and was replaced by one. */

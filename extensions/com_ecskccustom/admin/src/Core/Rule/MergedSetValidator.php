@@ -49,6 +49,11 @@ use UnexpectedValueException;
  * time with `tools/hash.php`. Decision 24 withdrew the second copy this layer
  * would have checked them against.
  *
+ * A removal told to keep no copy is different. Apply leaves no backup of the
+ * predecessor, so revert can restore it only when an earlier object at the target
+ * ships those bytes as a payload. A `remove backup="false"` whose expectedHash no
+ * earlier object writes is permanently one-way and is rejected here.
+ *
  * ## What deliberately is not here
  *
  * Path confinement, the extension allow list and the deny list belong to path
@@ -179,7 +184,7 @@ final class MergedSetValidator
 
     /**
      * Duplicate path and version pairs, version order, the two spellings of one
-     * target, and chain links.
+     * target, chain links, and no-copy removals that can never restore a predecessor.
      *
      * @return list<string>
      */
@@ -193,6 +198,7 @@ final class MergedSetValidator
                 ...$this->spellingViolations($targetPath, $objects),
                 ...$this->versionViolations($targetPath, $objects),
                 ...$this->chainViolations($objects),
+                ...$this->noCopyRemovalViolations($objects),
             ];
         }
 
@@ -310,6 +316,60 @@ final class MergedSetValidator
 
             // A disabled object still links the chain structurally; that it strands
             // a site not already past it is a build warning, not a broken link.
+            foreach ($object->payloadHashes() as $hash) {
+                $available[\strtolower($hash)] = $object->label();
+            }
+        }
+
+        return $violations;
+    }
+
+    /**
+     * A no-copy removal keeps no backup of what it takes away. Revert can put the
+     * predecessor back only when an earlier object at this target ships those
+     * bytes. Vendor-owned chains are included: a first-object vendor removal with
+     * backup="false" expects an original the package never wrote, and would be
+     * permanently one-way if it passed.
+     *
+     * Naming no expected original at all is the same removal with the check taken
+     * off: it matches whatever file happens to be there, keeps no copy, and names
+     * no state for revert to put back. That is a wider hole than a mis-linked
+     * hash, not a narrower one, so it is rejected on the same grounds.
+     *
+     * @param list<RuleObject> $objects
+     *
+     * @return list<string>
+     */
+    private function noCopyRemovalViolations(array $objects): array
+    {
+        $violations = [];
+        $available  = [];
+
+        foreach ($objects as $object) {
+            $expected = $object->expectedHash !== null ? \strtolower($object->expectedHash) : null;
+
+            foreach ($object->actions as $action) {
+                if (!$action->isRemove() || $action->backup) {
+                    continue;
+                }
+
+                if ($expected !== null && isset($available[$expected])) {
+                    continue;
+                }
+
+                $violations[] = $expected === null
+                    ? \sprintf(
+                        '%s: removes with backup="false" and names no expected original, so it may '
+                        . 'take away any file it finds and leaves revert nothing to restore',
+                        $object->label()
+                    )
+                    : \sprintf(
+                        '%s: removes with backup="false" and expects a hash no earlier object at '
+                        . 'this target ships, so revert can never restore the predecessor',
+                        $object->label()
+                    );
+            }
+
             foreach ($object->payloadHashes() as $hash) {
                 $available[\strtolower($hash)] = $object->label();
             }

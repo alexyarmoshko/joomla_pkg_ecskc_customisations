@@ -20,7 +20,9 @@ MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 # it would put a write implementation on the site for nothing to call. Runtime
 # exclusive copies go through ExclusiveCopy, which BackupStore and TargetWriter
 # both call. Decision 32's intent sequence goes through MutationTransaction, which
-# Freezer and TargetWriter both call.
+# Freezer and TargetWriter both call. The lock, run marker, interrupted-run
+# refusal and marker cleanup go through WriteRun, which Freezer and Reverter both
+# call.
 #
 # `admin/src/Core/State/ReportOnlyHistory.php` is absent on the same grounds from
 # Phase 2 on. The provider wires EventLogHistory, so nothing installed calls it;
@@ -95,8 +97,10 @@ COMPONENT_FILES := \
 	admin/src/Core/Write/FreezeGuard.php \
 	admin/src/Core/Write/Freezer.php \
 	admin/src/Core/Write/MutationTransaction.php \
+	admin/src/Core/Write/Reverter.php \
 	admin/src/Core/Write/TargetWriter.php \
 	admin/src/Core/Write/WriteOutcome.php \
+	admin/src/Core/Write/WriteRun.php \
 	admin/src/Environment/JoomlaEnvironmentProvider.php \
 	admin/src/Extension/ECSKCCustomisationComponent.php
 

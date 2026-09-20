@@ -29,6 +29,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
  * A fault before the intent is published changed nothing and left no intent. A
  * fault after it carries the correlation id, because the intent or the event log
  * holds the same id and that is how an operator matches them.
+ *
+ * `warning` is the one field addressed to the operator rather than to the runner.
+ * A revert that succeeded leaves the target behind the rule set's head, and the
+ * next apply carries it forward again, so decision 19 has the report say so. It is
+ * carried on the outcome because only the operation knows it happened; the write
+ * itself does nothing about it, and nothing here freezes a path on its own.
  */
 final class WriteOutcome
 {
@@ -40,6 +46,7 @@ final class WriteOutcome
         public readonly string $reason,
         public readonly ?BackupOutcome $backup,
         public readonly ?string $leftover = null,
+        public readonly ?string $warning = null,
     ) {
     }
 
@@ -90,6 +97,27 @@ final class WriteOutcome
             \sprintf('%s. The staged payload %s could not be removed', $this->reason, $path),
             $this->backup,
             $path,
+            $this->warning,
+        );
+    }
+
+    /**
+     * The same outcome with something the report has to tell the operator.
+     *
+     * Nothing about the write changes, including its status: a revert that
+     * succeeded is still `ok`, and the warning is the sentence beside it.
+     */
+    public function withWarning(string $warning): self
+    {
+        return new self(
+            $this->status,
+            $this->changed,
+            $this->intentLeft,
+            $this->correlationId,
+            $this->reason,
+            $this->backup,
+            $this->leftover,
+            $warning,
         );
     }
 }

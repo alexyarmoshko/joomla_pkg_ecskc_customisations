@@ -32,7 +32,19 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  * stale caller digest certify an outside edit the backup does not contain.
  * Anything at the name that does not hash to it is replaced. A symbolic link is
  * replaced even when its destination holds the right bytes, because a link is a
- * pointer somebody else controls, not a backup.
+ * pointer somebody else controls, not a backup. A valid existing backup is kept
+ * without rewriting, but its modification time is updated: revert picks the
+ * newest backup at a version by that time, and a later reuse of the same bytes
+ * has to rank newer than a sibling written in between.
+ *
+ * **That time is a rank, not a clock reading.** `filemtime()` answers in whole
+ * seconds, so two backups of one target published or reused inside the same second
+ * would tie and leave revert to break the tie on a digest, which says nothing about
+ * order. Every backup this class publishes or keeps is therefore stamped one second
+ * past the newest of its target's other backups when the clock does not already put
+ * it there, so the backups of one target carry a strict order however fast they are
+ * written. A new backup is stamped before the rename, so the ordering is part of the
+ * atomic publication rather than a second step that could fail after it.
  *
  * A new backup is copied through ExclusiveCopy to an exclusive temporary beside
  * its destination, so it is written in the backup filesystem and the rename is
@@ -157,6 +169,19 @@ final class BackupStore
                     return BackupOutcome::failed($destination, $reason);
                 }
 
+                if (!@\touch($destination, $this->nextRecency($targetPath, $destination))) {
+                    return BackupOutcome::failed(
+                        $destination,
+                        \sprintf(
+                            'the existing backup at %s could not have its recency recorded, so it '
+                            . 'was not accepted as the newest at this version',
+                            $destination
+                        )
+                    );
+                }
+
+                \clearstatcache(true, $destination);
+
                 return BackupOutcome::kept($destination);
             }
 
@@ -193,6 +218,14 @@ final class BackupStore
 
         if ($reason === null && !@\chmod($temporary, 0o644)) {
             $reason = \sprintf('the mode of %s could not be set', $temporary);
+        }
+
+        if ($reason === null && !@\touch($temporary, $this->nextRecency($targetPath, $destination))) {
+            $reason = \sprintf(
+                'the recency of %s could not be recorded, so it could not be published as the '
+                . 'newest backup at this version',
+                $temporary
+            );
         }
 
         if ($reason === null && !@\rename($temporary, $destination)) {
@@ -234,6 +267,47 @@ final class BackupStore
         $bound->close();
 
         return null;
+    }
+
+    /**
+     * A modification time no other backup of this target can hold.
+     *
+     * The clock reading when it is already past every sibling, and one second past
+     * the newest sibling when it is not. Revert reads recency to choose among the
+     * backups at one version, and a whole-second clock cannot separate two of them
+     * written in the same second. Siblings at other versions are counted too: they
+     * are the same target's history, and keeping one order over the whole of it is
+     * what makes the ranking readable to a maintainer looking at a listing.
+     *
+     * Only names parseBackupName() accepts count, so a freeze marker, a publication
+     * temporary, or a file an operator dropped beside them moves nothing.
+     */
+    private function nextRecency(string $targetPath, string $destination): int
+    {
+        $directory = \dirname($destination);
+        $own       = \basename($destination);
+        $newest    = 0;
+
+        foreach (@\scandir($directory) ?: [] as $entry) {
+            if ($entry === $own || PackagePaths::parseBackupName($entry, $targetPath) === null) {
+                continue;
+            }
+
+            $path = $directory . '/' . $entry;
+            \clearstatcache(true, $path);
+
+            if (\is_link($path) || !\is_file($path)) {
+                continue;
+            }
+
+            $modified = @\filemtime($path);
+
+            if ($modified !== false && $modified > $newest) {
+                $newest = $modified;
+            }
+        }
+
+        return \max(\time(), $newest + 1);
     }
 
     /**

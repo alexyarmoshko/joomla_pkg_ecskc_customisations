@@ -96,6 +96,20 @@ final class TargetWriter
     /** The mode a created file gets, decision 28. */
     public const CREATE_MODE = 0o644;
 
+    /**
+     * The event kinds a caller may record a payload write or a removal as.
+     *
+     * Apply records a `write` or a `remove`. Ticket 33's revert and redo move the
+     * same bytes through the same staged, verified move, and the log has to say
+     * which of the three moved them: decision 39 lists reverts and redos as
+     * durable history in their own right, and an operator reading `write` where a
+     * revert happened would be told the package carried the target forward when it
+     * stepped it back. The kind is the caller's because only the caller knows.
+     */
+    public const WRITE_KINDS = [EventRecord::WRITE, EventRecord::REVERT, EventRecord::REDO];
+
+    public const REMOVE_KINDS = [EventRecord::REMOVE, EventRecord::REVERT, EventRecord::REDO];
+
     /** Event states are sha256 digests whatever the rule declared, decision 32. */
     private const STATE_HASH = 'sha256';
 
@@ -136,9 +150,11 @@ final class TargetWriter
      *                                     replace, or null for a create.
      * @param int|null    $backupVersion   The version to back the displaced bytes up
      *                                     under, or null when they are reproducible.
+     * @param string      $kind            The event kind this write is recorded as,
+     *                                     one of WRITE_KINDS.
      *
-     * @throws InvalidArgumentException On a target path or backup request no validated
-     *                                  rule can produce.
+     * @throws InvalidArgumentException On a target path, backup request or event kind
+     *                                  no validated rule and no caller here can produce.
      */
     public function write(
         string $targetPath,
@@ -147,8 +163,10 @@ final class TargetWriter
         string $payloadDigest,
         ?string $displacedDigest,
         ?int $backupVersion,
+        string $kind = EventRecord::WRITE,
     ): WriteOutcome {
         self::requireTarget($targetPath);
+        self::requireKind($kind, self::WRITE_KINDS);
 
         if ($displacedDigest === null && $backupVersion !== null) {
             throw new InvalidArgumentException('A create displaces nothing, so it has no backup');
@@ -176,7 +194,8 @@ final class TargetWriter
             $hashType,
             $payloadDigest,
             $displacedDigest,
-            $backupVersion
+            $backupVersion,
+            $kind
         );
 
         // Only reached when the call returned. A successful move has consumed the
@@ -194,16 +213,21 @@ final class TargetWriter
      * @param string   $digest        The digest of the bytes the caller planned to remove.
      * @param int|null $backupVersion The version to back those bytes up under, or null
      *                                for a removal told to keep no copy.
+     * @param string   $kind          The event kind this removal is recorded as, one
+     *                                of REMOVE_KINDS.
      *
-     * @throws InvalidArgumentException On a target path no validated rule can produce.
+     * @throws InvalidArgumentException On a target path or event kind no validated rule
+     *                                  and no caller here can produce.
      */
     public function remove(
         string $targetPath,
         string $hashType,
         string $digest,
         ?int $backupVersion,
+        string $kind = EventRecord::REMOVE,
     ): WriteOutcome {
         self::requireTarget($targetPath);
+        self::requireKind($kind, self::REMOVE_KINDS);
 
         if (!HashAlgorithm::isSupported($hashType)) {
             return WriteOutcome::refused(HashAlgorithm::unsupportedReason($hashType));
@@ -249,7 +273,7 @@ final class TargetWriter
         $this->reach(self::PREPARED, null);
 
         $record = EventRecord::mutation(
-            EventRecord::REMOVE,
+            $kind,
             EventRecord::REMOVAL,
             $targetPath,
             $pre,
@@ -277,6 +301,7 @@ final class TargetWriter
         string $payloadDigest,
         ?string $displacedDigest,
         ?int $backupVersion,
+        string $kind,
     ): WriteOutcome {
         $staged = $this->hasher->hashFile($hashType, $temporary);
 
@@ -368,7 +393,7 @@ final class TargetWriter
         }
 
         $record = EventRecord::mutation(
-            EventRecord::WRITE,
+            $kind,
             EventRecord::COPY,
             $targetPath,
             $pre,
@@ -617,6 +642,19 @@ final class TargetWriter
     {
         if ($this->checkpoint !== null) {
             ($this->checkpoint)($point, $staged);
+        }
+    }
+
+    /**
+     * @param list<string> $kinds
+     */
+    private static function requireKind(string $kind, array $kinds): void
+    {
+        if (!\in_array($kind, $kinds, true)) {
+            throw new InvalidArgumentException(\sprintf(
+                '%s is not an event kind this operation may be recorded as',
+                $kind
+            ));
         }
     }
 

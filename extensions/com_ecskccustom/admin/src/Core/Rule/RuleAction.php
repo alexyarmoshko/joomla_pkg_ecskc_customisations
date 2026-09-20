@@ -58,4 +58,9 @@ final class RuleAction
     {
         return $this->operation === self::COPY;
     }
+
+    public function isRemove(): bool
+    {
+        return $this->operation === self::REMOVE;
+    }
 }

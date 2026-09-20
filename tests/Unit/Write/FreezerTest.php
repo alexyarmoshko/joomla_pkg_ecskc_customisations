@@ -26,6 +26,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\FreezeGuard;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\Freezer;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\MutationTransaction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteOutcome;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteRun as LockedWriteRun;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
 
@@ -40,6 +41,7 @@ use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
 #[CoversClass(Freezer::class)]
 #[CoversClass(EventRecord::class)]
 #[CoversClass(MutationTransaction::class)]
+#[CoversClass(LockedWriteRun::class)]
 #[CoversClass(BoundBackupDirectory::class)]
 #[CoversClass(ProcDescriptor::class)]
 final class FreezerTest extends TestCase

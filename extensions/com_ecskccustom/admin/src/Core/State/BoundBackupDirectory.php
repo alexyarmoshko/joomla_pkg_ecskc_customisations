@@ -62,8 +62,18 @@ final class BoundBackupDirectory
     /**
      * Open the target's parent from `backup/` down.
      *
+     * `$missing` separates the one failure that is an answer rather than a fault:
+     * a target nothing has ever displaced has no mirrored directory, and a reader
+     * asked what is under it is entitled to say "nothing". Every other failure -
+     * `backup/` itself gone, a symbolic link at a segment, a file where a directory
+     * should be, a directory that cannot be listed or bound - means the caller could
+     * not see what is there, which is not the same as seeing that there is nothing.
+     * A caller that only writes has no use for the distinction and passes nothing.
+     *
      * @param Closure(): void|null $beforeCreate Called immediately before a missing
      *                                           segment is created. A test seam.
+     * @param bool|null            $missing      Set to true when the failure is only
+     *                                           that the directory is not there.
      *
      * @return self|string The bound directory, or why it could not be bound.
      */
@@ -72,7 +82,9 @@ final class BoundBackupDirectory
         string $targetPath,
         bool $create,
         ?Closure $beforeCreate = null,
+        ?bool &$missing = null,
     ): self|string {
+        $missing = false;
         $logical = $paths->backup();
         $opened  = self::openReal($logical);
 
@@ -102,6 +114,11 @@ final class BoundBackupDirectory
 
             if (!\is_dir($childPath)) {
                 if (!$create) {
+                    // Asked through the bound parent, so a name that is not there is
+                    // not there: an ancestor that could have been swapped was refused
+                    // above, and this last component was seen not to be a link.
+                    $missing = !\file_exists($childPath);
+
                     $opened->close();
 
                     return \sprintf('the backup directory %s could not be opened', $logical);

@@ -322,6 +322,44 @@ final class PackagePaths
     }
 
     /**
+     * Version and digest a backup basename carries, or null if backupFile() could
+     * not have written that name.
+     *
+     * The inverse of backupFile() for a directory listing, and only that. A name
+     * this returns a version for is one backupFile() could have written, because
+     * revert and redo read a listing as package state and a name they accept is
+     * acted on.
+     *
+     * Version 0 is not an object version, so a manually placed `.v0.<digest>` file
+     * is not a package backup even when the rest of the name looks like one. Nor is
+     * a version spelled any way but the canonical decimal: `.v03.` and a run of
+     * digits past PHP_INT_MAX both cast to an integer that backupFile() would spell
+     * differently, so the name is not the one it writes and is refused here.
+     *
+     * @return array{version: int, digest: string}|null
+     */
+    public static function parseBackupName(string $fileName, string $targetPath): ?array
+    {
+        if (!self::isCanonicalTargetPath($targetPath)) {
+            return null;
+        }
+
+        $pattern = '/\A' . \preg_quote(\basename($targetPath), '/') . '\.v(\d+)\.([0-9a-f]+)\z/';
+
+        if (\preg_match($pattern, $fileName, $match) !== 1) {
+            return null;
+        }
+
+        $version = (int) $match[1];
+
+        if ($version < 1 || (string) $version !== $match[1]) {
+            return null;
+        }
+
+        return ['version' => $version, 'digest' => $match[2]];
+    }
+
+    /**
      * Is this the shape RuleObject carries a target path in?
      *
      * Relative, forward slashes, and no segment that could climb out of the tree it

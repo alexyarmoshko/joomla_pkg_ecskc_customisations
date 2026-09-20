@@ -20,8 +20,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BoundBackupD
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventLog;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventRecord;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunMarker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
 
@@ -30,11 +28,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentS
  *
  * ## A write run of its own
  *
- * Decision 30. Each call takes `run.lock` itself, publishes the run marker, and only
- * then looks at the freeze marker. A freeze that has returned has therefore excluded
- * every apply, revert or redo that had not already finished, and `FreezeGuard` stops
- * every one that starts later. The runner does not take the lock around these calls:
- * a second acquire in the same process is a second handle, and it would fail.
+ * Decision 30. Each call takes `run.lock` itself and publishes the run marker
+ * through WriteRun, then looks at the freeze marker. A freeze that has returned has
+ * therefore excluded every apply, revert or redo that had not already finished, and
+ * `FreezeGuard` stops every one that starts later. The runner does not take the
+ * lock around these calls: a second acquire in the same process is a second handle,
+ * and it would fail.
  *
  * A process that cannot take the lock returns without touching the run marker, the
  * write intent or the freeze marker. The run marker is removed when the call
@@ -43,9 +42,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentS
  * ## An interrupted run is not settled here
  *
  * A leftover write intent, or a run marker found while holding the lock, belongs to a
- * run that died. Settling it is ticket 34's recovery. Publishing a new intent over the
- * old one would destroy the only evidence of that mutation, so both refuse the call
- * before the run marker is replaced.
+ * run that died. Settling it is ticket 34's recovery, taught to Freezer and Reverter
+ * in one place through WriteRun. Publishing a new intent over the old one would
+ * destroy the only evidence of that mutation, so both refuse the call before the run
+ * marker is replaced.
  *
  * ## The marker mutation
  *
@@ -121,9 +121,7 @@ final class Freezer
     public const MUTATED             = 'mutated';
     public const EVENT_COMMITTED     = 'event-committed';
 
-    private readonly RunLock $lock;
-
-    private readonly RunMarker $marker;
+    private readonly WriteRun $writeRun;
 
     private readonly WriteIntentStore $intents;
 
@@ -138,10 +136,9 @@ final class Freezer
         private readonly PackagePaths $paths,
         private readonly ?Closure $checkpoint = null,
     ) {
-        $this->lock    = new RunLock($paths);
-        $this->marker  = new RunMarker($paths);
-        $this->intents = new WriteIntentStore($paths);
-        $this->markers = new FreezeMarkers($paths);
+        $this->writeRun  = new WriteRun($paths, 'the freeze marker was not touched');
+        $this->intents   = new WriteIntentStore($paths);
+        $this->markers   = new FreezeMarkers($paths);
         $this->mutations = new MutationTransaction(
             $this->intents,
             new EventLog($paths),
@@ -182,81 +179,14 @@ final class Freezer
      */
     private function run(string $targetPath, Closure $operation): WriteOutcome
     {
-        if (!PackagePaths::isCanonicalTargetPath($targetPath)) {
-            throw new InvalidArgumentException(
-                \sprintf('%s is not a canonical root-relative target path', $targetPath)
-            );
-        }
+        return $this->writeRun->execute(
+            $targetPath,
+            function () use ($operation): WriteOutcome {
+                $this->reach(self::LOCKED);
 
-        if (!$this->lock->acquire()) {
-            return WriteOutcome::refused(\sprintf(
-                'the run lock was not acquired (%s), so the freeze marker was not touched',
-                (string) $this->lock->refusal()
-            ));
-        }
-
-        try {
-            $reason = $this->interruption();
-
-            if ($reason !== null) {
-                return WriteOutcome::refused($reason);
+                return $operation();
             }
-
-            if (!$this->marker->publish()) {
-                return WriteOutcome::refused(\sprintf(
-                    'the run marker at %s could not be published, so the freeze marker was not touched',
-                    $this->marker->path()
-                ));
-            }
-
-            $this->reach(self::LOCKED);
-
-            $outcome = $operation();
-
-            // An intent left for recovery means this run did not complete. The run
-            // marker stays beside it, as decision 35 keeps it for a stuck append.
-            if ($outcome->intentLeft || $this->marker->remove()) {
-                return $outcome;
-            }
-
-            $reason = \sprintf(
-                '%s. The run marker at %s could not be removed',
-                $outcome->reason,
-                $this->marker->path()
-            );
-
-            return $outcome->correlationId === null
-                ? WriteOutcome::refused($reason)
-                : WriteOutcome::faulted($outcome->correlationId, $outcome->changed, false, $reason, null);
-        } finally {
-            $this->lock->release();
-        }
-    }
-
-    /**
-     * Why an earlier run's leftovers stop this one, or null when there are none.
-     *
-     * Asked with the lock held, so a present intent or run marker is not a live run's.
-     */
-    private function interruption(): ?string
-    {
-        if ($this->intents->isPresent()) {
-            return \sprintf(
-                'the write intent at %s was left by an interrupted run, and recovery has to settle it '
-                . 'first, so the freeze marker was not touched',
-                $this->intents->path()
-            );
-        }
-
-        if ($this->marker->isPresent()) {
-            return \sprintf(
-                'the run marker at %s was left by an interrupted run, and recovery has to settle it '
-                . 'first, so the freeze marker was not touched',
-                $this->marker->path()
-            );
-        }
-
-        return null;
+        );
     }
 
     private function create(string $targetPath): WriteOutcome

@@ -71,6 +71,7 @@ final class RuleXml
         ?bool $replace = null,
         ?bool $enable = null,
         ?string $conditions = null,
+        ?bool $backup = null,
     ): string {
         $attributes = 'version="' . $version . '"';
 
@@ -81,7 +82,7 @@ final class RuleXml
         }
 
         $operation = $source === null
-            ? '<remove/>'
+            ? '<remove' . ($backup === null ? '' : ' backup="' . ($backup ? 'true' : 'false') . '"') . '/>'
             : '<copy><srcPathFileName>' . $source . '</srcPathFileName>'
                 . '<sourceHash>' . ($sourceHash ?? self::hash($source)) . '</sourceHash></copy>';
 

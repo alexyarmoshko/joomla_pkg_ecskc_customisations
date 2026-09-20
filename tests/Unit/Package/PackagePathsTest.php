@@ -215,6 +215,47 @@ final class PackagePathsTest extends TestCase
         );
     }
 
+    public function testABackupNameParsesBackToTheVersionAndDigestBackupFileWrote(): void
+    {
+        $paths  = new PackagePaths(self::ROOT);
+        $digest = \hash('sha256', 'displaced');
+        $target = 'templates/et_tennis/css/override.css';
+        $path   = $paths->backupFile($target, 3, $digest);
+
+        self::assertSame(
+            ['version' => 3, 'digest' => $digest],
+            PackagePaths::parseBackupName(\basename($path), $target)
+        );
+    }
+
+    /**
+     * Versions a listing may carry that backupFile() would never have written.
+     *
+     * Casting the digits to an integer accepts all of these; spelling the integer
+     * back and comparing is what refuses them. A name the parser accepts is one
+     * revert and redo act on, so a name the package did not write is not one.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function versionsBackupFileNeverWrites(): array
+    {
+        return [
+            'version zero'       => ['0'],
+            'padded version'     => ['03'],
+            'padded version one' => ['001'],
+            'past PHP_INT_MAX'   => [\str_repeat('9', 25)],
+        ];
+    }
+
+    #[DataProvider('versionsBackupFileNeverWrites')]
+    public function testABackupNameBackupFileCouldNotHaveWrittenIsNotAPackageBackup(string $version): void
+    {
+        self::assertNull(PackagePaths::parseBackupName(
+            'override.css.v' . $version . '.' . \hash('sha256', 'displaced'),
+            'templates/et_tennis/css/override.css'
+        ));
+    }
+
     #[DataProvider('pathsThatLeaveTheBackupTree')]
     public function testABackupIsRefusedForAPathThatIsNotCanonical(string $targetPath): void
     {

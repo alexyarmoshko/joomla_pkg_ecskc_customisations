@@ -265,6 +265,72 @@ final class MergedSetValidatorTest extends TestCase
         self::assertSame([], $violations);
     }
 
+    public function testAFirstObjectVendorNoCopyRemovalIsRejected(): void
+    {
+        // backup="false" keeps no predecessor, and a first vendor object never
+        // shipped the original it expects, so revert would be permanently one-way.
+        $violations = $this->validate([
+            '10-vendor-remove.xml' => RuleXml::patch(RuleXml::object(
+                version: 1,
+                dest: 'components/com_comprofiler/one.php',
+                expectedHash: RuleXml::hash('vendor build 1'),
+                backup: false
+            )),
+        ], []);
+
+        self::assertSame(
+            ['10-vendor-remove.xml: object components/com_comprofiler/one.php version 1: removes '
+                . 'with backup="false" and expects a hash no earlier object at this target ships, '
+                . 'so revert can never restore the predecessor'],
+            $violations
+        );
+    }
+
+    public function testANoCopyRemovalThatNamesNoExpectedOriginalIsRejected(): void
+    {
+        // No expectedHash means the removal matches whatever file is there. It keeps
+        // no copy of it and names no state, so revert has nothing to put back and
+        // the bytes it took away may be ones the package never saw.
+        $violations = $this->validate([
+            '10-unconditional-remove.xml' => RuleXml::patch(RuleXml::object(
+                version: 1,
+                dest: 'components/com_comprofiler/one.php',
+                backup: false
+            )),
+        ], []);
+
+        self::assertSame(
+            ['10-unconditional-remove.xml: object components/com_comprofiler/one.php version 1: '
+                . 'removes with backup="false" and names no expected original, so it may take away '
+                . 'any file it finds and leaves revert nothing to restore'],
+            $violations
+        );
+    }
+
+    public function testANoCopyRemovalWhosePredecessorIsShippedIsAccepted(): void
+    {
+        $violations = $this->validate([
+            '10-no-copy.xml' => RuleXml::patch(
+                RuleXml::object(
+                    version: 1,
+                    dest: 'a/one.css',
+                    source: 'one.v1',
+                    sourceHash: RuleXml::hash('v1'),
+                    create: true
+                )
+                . RuleXml::object(
+                    version: 2,
+                    dest: 'a/one.css',
+                    expectedHash: RuleXml::hash('v1'),
+                    create: true,
+                    backup: false
+                )
+            ),
+        ], ['one.v1']);
+
+        self::assertSame([], $violations);
+    }
+
     public function testATargetNamedInBothAbsoluteAndRelativeFormIsRejected(): void
     {
         $violations = $this->validate([

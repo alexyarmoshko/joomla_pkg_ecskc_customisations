@@ -163,6 +163,50 @@ final class BackupStoreTest extends TestCase
         self::assertSame([\basename($first->path)], $this->backupEntries());
     }
 
+    public function testAKeptBackupRecordsTheReuseAsNewerThanItsOriginalWrite(): void
+    {
+        $first = $this->preserve();
+        \touch($first->path, 1_700_000_000);
+        \clearstatcache(true, $first->path);
+
+        $second = $this->preserve();
+
+        self::assertSame(BackupOutcome::KEPT, $second->status, $second->reason);
+        \clearstatcache(true, $second->path);
+        self::assertGreaterThan(
+            1_700_000_000,
+            (int) \filemtime($second->path),
+            'A kept backup has to become the newest at its version, or revert restores the sibling.'
+        );
+    }
+
+    public function testBackupsOfOneTargetRankInTheOrderTheyHappenedInsideOneSecond(): void
+    {
+        // filemtime() answers in whole seconds, so three backups this close together
+        // would carry one reading between them. Revert then falls back to digest
+        // order, which says nothing about which displacement came last.
+        $later = "/* a second original */\n";
+
+        $first         = $this->preserve();
+        $firstModified = (int) \filemtime($first->path);
+
+        \file_put_contents($this->source, $later);
+        $second = $this->preserve(\hash('sha256', $later));
+
+        \file_put_contents($this->source, self::ORIGINAL);
+        $third = $this->preserve();
+
+        self::assertSame(BackupOutcome::CREATED, $second->status, $second->reason);
+        self::assertSame(BackupOutcome::KEPT, $third->status, $third->reason);
+        self::assertSame($first->path, $third->path);
+
+        \clearstatcache(true, $second->path);
+        \clearstatcache(true, $third->path);
+
+        self::assertGreaterThan($firstModified, (int) \filemtime($second->path));
+        self::assertGreaterThan((int) \filemtime($second->path), (int) \filemtime($third->path));
+    }
+
     public function testAMatchingBackupIsNotKeptWhenTheSourceNoLongerMatchesTheDigest(): void
     {
         // The kept path used to return on the backup hash alone. A stale caller
