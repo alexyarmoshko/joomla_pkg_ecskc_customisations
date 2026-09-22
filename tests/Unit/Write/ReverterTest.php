@@ -156,6 +156,11 @@ final class ReverterTest extends TestCase
 
         self::assertSame(TargetStatus::OK, $outcome->status, $outcome->reason);
         self::assertSame(self::SECOND, $this->bytes());
+        self::assertStringStartsWith(
+            'the revert restored the earlier content of the target',
+            $outcome->reason,
+            'A backup is not a payload, so the outcome does not call it one.'
+        );
     }
 
     public function testRevertRefusesABackupWhoseBytesNoLongerMatchItsName(): void
@@ -606,6 +611,7 @@ final class ReverterTest extends TestCase
         self::assertSame(self::FIRST, $this->bytes());
         self::assertSame(EventRecord::REVERT, $this->records()[0]->kind);
         self::assertSame(EventRecord::ABSENT, $this->records()[0]->pre);
+        self::assertStringStartsWith('the revert created the target again', $outcome->reason);
     }
 
     public function testRedoStepsForwardThroughARemovalWithoutABackup(): void

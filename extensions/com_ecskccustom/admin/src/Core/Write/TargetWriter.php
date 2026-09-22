@@ -407,7 +407,7 @@ final class TargetWriter
             $backup,
             static fn (): bool => @\rename($temporary, $resolved),
             \sprintf('the staged payload could not be moved onto %s', $resolved),
-            $pre === EventRecord::ABSENT ? 'the payload was created' : 'the payload replaced the target'
+            self::copied($kind, $pre === EventRecord::ABSENT)
         );
     }
 
@@ -628,6 +628,22 @@ final class TargetWriter
             . 'was changed',
             \strtolower($digest)
         );
+    }
+
+    /**
+     * What a successful copy did, in the words of the operation that asked for it.
+     *
+     * A revert may copy a backup rather than a payload, so it does not say payload.
+     */
+    private static function copied(string $kind, bool $created): string
+    {
+        if ($kind === EventRecord::REVERT) {
+            return $created
+                ? 'the revert created the target again'
+                : 'the revert restored the earlier content of the target';
+        }
+
+        return $created ? 'the payload was created' : 'the payload replaced the target';
     }
 
     private function modeOf(string $resolved): ?int

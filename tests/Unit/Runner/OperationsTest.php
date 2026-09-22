@@ -190,6 +190,43 @@ final class OperationsTest extends RunnerHarness
         self::assertSame(self::ORIGINAL, \file_get_contents($this->tree->path(self::CHAIN)));
     }
 
+    /**
+     * The backup field says what this run preserved. Revert, unfreeze and redo write
+     * no backup, so none may borrow the destination the next apply would write. Each
+     * leaves its target actionable, which is when that destination exists to be
+     * borrowed. Freeze is left out: a frozen target is planned nothing.
+     */
+    public function testASingleTargetOperationReportsNoBackupItDidNotWrite(): void
+    {
+        $this->writeFixture();
+        $this->runner()->apply(self::VENDOR);
+
+        $reports = ['revert' => $this->runner()->revert(self::VENDOR)];
+
+        $this->runner()->freeze(self::VENDOR);
+        $reports['unfreeze'] = $this->runner()->unfreeze(self::VENDOR);
+
+        $this->runner()->apply(self::CHAIN);
+        $this->runner()->revert(self::CHAIN);
+        $this->runner()->revert(self::CHAIN);
+        $reports['redo'] = $this->runner()->redo(self::CHAIN);
+
+        foreach ($reports as $name => $report) {
+            $targetPath = $name === 'redo' ? self::CHAIN : self::VENDOR;
+            $target     = $this->target($report, $targetPath);
+
+            self::assertNotSame(
+                [],
+                $target->plan(),
+                \sprintf('%s left nothing for the next apply, so this proves nothing', $name)
+            );
+            self::assertFalse(
+                $target->backup->isKnown(),
+                \sprintf('%s reported the backup %s', $name, $target->backup->describe())
+            );
+        }
+    }
+
     public function testRedoStepsForwardOneObjectAndWritesNoBackupOfShippedBytes(): void
     {
         $this->writeFixture();

@@ -360,10 +360,14 @@ final class Runner
 
         // The operator asked for this one thing. If it did not happen, that is the
         // run's answer and not a footnote on a line about the target's state.
+        // None of these operations writes a backup. The empty list says so, and keeps
+        // the line from borrowing the destination the next apply would write.
         return $this->reportAfterWriting(
             $targetPath,
             [$targetPath => $outcome],
-            $outcome->isFaulted() ? [$outcome->reason] : []
+            $outcome->isFaulted() ? [$outcome->reason] : [],
+            [],
+            [$targetPath => []]
         );
     }
 
@@ -388,7 +392,10 @@ final class Runner
      * @param array<string, list<string>>             $preservedBackups The backups this
      *                                                                  run left preserved,
      *                                                                  per target it
-     *                                                                  performed.
+     *                                                                  executed. A target
+     *                                                                  absent from it
+     *                                                                  reports the plan's
+     *                                                                  destinations.
      */
     private function reportAfterWriting(
         ?string $targetPath,
@@ -445,7 +452,7 @@ final class Runner
                 $state,
                 $plan,
                 self::outcomeValue($outcome),
-                isset($performed[$state->targetPath]) ? $preservedBackups[$state->targetPath] ?? [] : null
+                $preservedBackups[$state->targetPath] ?? null
             );
         }
 
