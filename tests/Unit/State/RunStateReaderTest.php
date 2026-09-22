@@ -223,6 +223,14 @@ final class RunStateReaderTest extends TestCase
         // the reader's open for reading has, so the two are one event.
         self::assertTrue(\posix_mkfifo($this->paths->marker(), 0644));
 
+        // A read observes the lock rather than taking it, and it never creates the
+        // lock file: a tree with no `run.lock` has never had a run in it and has
+        // nothing outstanding to misread. This one has, so the file is made the way
+        // a first write run makes it, and the read then holds a shared lock on it.
+        $made = new RunLock($this->paths);
+        self::assertTrue($made->acquire());
+        $made->release();
+
         $reading = WriteRun::reading($this->paths->root());
         $writer  = null;
 
@@ -252,6 +260,66 @@ final class RunStateReaderTest extends TestCase
         $after = new RunLock($this->paths);
         self::assertTrue($after->acquire());
         $after->release();
+    }
+
+    /**
+     * The window a first write run starts in, closed rather than narrowed.
+     *
+     * A tree with no `run.lock` has nothing to hold, so the records are read while
+     * nothing excludes a write run. Decision 34 calls lock-held-with-no-marker a live
+     * run, and that is precisely the state a first run is in for the moment between
+     * taking the lock it has just created and publishing its marker. A reader that
+     * answered from the records alone would report that tree clean, and a dry run
+     * would go on to describe a tree being written to.
+     *
+     * The checkpoint puts a run in that window on purpose. Two handles in one process
+     * are two open file descriptions, so the exclusive lock below excludes the shared
+     * lock the reader then asks for, exactly as a second process would.
+     */
+    public function testARunThatBeganWhileTheRecordsWereReadIsNotReportedAsClean(): void
+    {
+        $run = new RunLock($this->paths);
+
+        $reader = new RunStateReader($this->paths, function () use ($run): void {
+            if (!$run->isHeld()) {
+                // What a first write run does, in the order it does it: create the
+                // lock file, take it, and only then publish a marker.
+                self::assertTrue($run->acquire());
+            }
+        });
+
+        try {
+            $state = $reader->read();
+
+            self::assertFalse(
+                $state->isClean(),
+                'The records were read before the run began; the tree was not clean by the time '
+                . 'the answer was given.'
+            );
+            self::assertTrue($state->isLive());
+            self::assertFalse($state->isFaulted(), 'A lock held by a run is not a fault.');
+        } finally {
+            $run->release();
+        }
+
+        // Once that run is over, the same read answers from the records again.
+        self::assertTrue($this->state()->isClean());
+    }
+
+    /**
+     * And the closing check costs nothing where no run has begun: a lock file that is
+     * still absent after the records means nothing could have been published.
+     */
+    public function testATreeThatStaysWithoutALockFileIsStillClean(): void
+    {
+        $reads  = 0;
+        $reader = new RunStateReader($this->paths, static function () use (&$reads): void {
+            $reads++;
+        });
+
+        self::assertTrue($reader->read()->isClean());
+        self::assertSame(1, $reads, 'One read, not a retry loop.');
+        self::assertFileDoesNotExist($this->paths->lock(), 'And the reader still creates nothing.');
     }
 
     public function testAProcessWithoutTheLockLeavesTheRecordPathsUntouched(): void

@@ -90,6 +90,8 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
+    use YakShaver\ECSKCCustomisation\Tests\Support\RunLockProbe;
     use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
     /**
@@ -132,6 +134,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
             \class_exists(PackagePaths::class);
             \class_exists(StateArchive::class);
             \class_exists(StateArchiveFailure::class);
+            \class_exists(RunLock::class);
 
             $this->forgetSiteWrites();
         }
@@ -182,9 +185,16 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
         /**
          * A component that never wrote history must not leave a guarded empty
          * folder in the site's temporary path.
+         *
+         * The tree is the one an install leaves: the three created folders with
+         * their guards and nothing else. The archive takes `run.lock` inside
+         * `state/` before it walks, decision 36, so a fresh install is a tree with
+         * those folders, not a tree with none.
          */
         public function testUninstallWithNoHistoryCreatesNoArchiveFolder(): void
         {
+            $this->freshInstall();
+
             $tmp = self::$site->path('tmp');
             \mkdir($tmp, 0755, true);
 
@@ -195,6 +205,94 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
             self::assertTrue($result);
             self::assertSame([], $app->messages);
             self::assertDirectoryDoesNotExist($tmp . '/com_ecskccustom-state');
+            self::assertTrue(
+                $this->lockIsFree(),
+                'The archive releases the flock before it returns.'
+            );
+        }
+
+        /**
+         * Decision 37: the destination is requested only once history is found, so a
+         * `tmp_path` lookup that cannot run at all is never reached on this path.
+         *
+         * An implementation that resolved the destination first would raise here,
+         * and the operator of a component that never wrote anything would be told
+         * its history could not be saved.
+         */
+        public function testUninstallWithNoHistoryNeverReachesAnUnavailableTmpPath(): void
+        {
+            $this->freshInstall();
+
+            Factory::$application = null;
+
+            $script = new Com_EcskccustomInstallerScript();
+
+            self::assertTrue($script->uninstall(new InstallerAdapter()));
+            self::assertSame([], Log::$messages, 'No failure is reported, so none is logged.');
+            self::assertDirectoryDoesNotExist(self::$site->root() . '/tmp');
+        }
+
+        /**
+         * Decision 34: the lock comes before the walk.
+         *
+         * A hook that called `contents()` first would see only folder guards while a
+         * write run held the lock without having published its marker yet, return
+         * without trying the lock, and let Joomla delete the tree under that writer.
+         * So this tree is guard-only on purpose: an unlocked walk would report
+         * nothing to do, and the run-locked message is what proves the lock was
+         * tried first.
+         */
+        public function testUninstallReportsAContendedRunLockRatherThanWalkingUnlocked(): void
+        {
+            $paths = $this->freshInstall();
+            $held  = new RunLock($paths);
+            self::assertTrue($held->acquire());
+
+            $tmp = self::$site->path('tmp');
+            \mkdir($tmp, 0755, true);
+
+            $app    = $this->application($tmp);
+            $script = new Com_EcskccustomInstallerScript();
+
+            try {
+                $result = $script->uninstall(new InstallerAdapter());
+            } finally {
+                $held->release();
+            }
+
+            self::assertTrue($result, 'The uninstall is never obstructed, decision 26.');
+            self::assertSame(
+                [['message' => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_RUN_LOCKED', 'type' => 'error']],
+                $app->messages
+            );
+            self::assertDirectoryDoesNotExist($tmp . '/com_ecskccustom-state');
+        }
+
+        /**
+         * The tree an install leaves behind, and the paths that address it.
+         */
+        private function freshInstall(): PackagePaths
+        {
+            $component = JPATH_ADMINISTRATOR . '/components/com_ecskccustom';
+
+            foreach (PackagePaths::CREATED_FOLDERS as $folder) {
+                $directory = $component . '/' . $folder;
+                \mkdir($directory, 0755, true);
+                \file_put_contents($directory . '/' . PackagePaths::HTACCESS, 'Deny from all');
+                \file_put_contents($directory . '/' . PackagePaths::FOLDER_INDEX, '<html />');
+            }
+
+            return new PackagePaths($component);
+        }
+
+        /**
+         * Can a fresh handle take the lock exclusively? Proof the archive released it.
+         */
+        private function lockIsFree(): bool
+        {
+            return RunLockProbe::isFree(
+                new PackagePaths(JPATH_ADMINISTRATOR . '/components/com_ecskccustom')
+            );
         }
 
         /**

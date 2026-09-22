@@ -1,0 +1,476 @@
+<?php
+
+/**
+ * @package     YakShaver\Component\ECSKCCustomisation
+ * @subpackage  Administrator
+ * @author      Yak Shaver <me@kayakshaver.com>
+ * @copyright   (C) 2026 Yak Shaver https://www.kayakshaver.com
+ * @license     GNU General Public License version 2 or later; see LICENSE
+ */
+
+declare(strict_types=1);
+
+namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write;
+
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventLog;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventRecord;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunMarker;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
+
+/**
+ * What a write run does about the leftovers of one that died, work item 7.
+ *
+ * Brief decision 16 says the package resumes through the ordinary check-and-apply
+ * process rather than through a repair tool, so this is not an operator command. It
+ * is the first thing every write run does once it holds the lock, and on a healthy
+ * tree it finds nothing and says so.
+ *
+ * **Only for the holder of the run lock.** Every question here - is an intent
+ * outstanding, is this staging file abandoned, is this temporary somebody's live
+ * publish - has a different answer while another process is writing, and acting on
+ * the wrong one turns a healthy run into a broken one.
+ *
+ * ## Settling the intent, decision 32
+ *
+ * The intent holds one correlation id and the complete event payload the dead run
+ * would have appended. Recovery matches on that id and on nothing else: target,
+ * operation and the two states cannot tell a leftover intent from an older identical
+ * transition at the same target, which is exactly the case a rule set with a
+ * repeated payload produces.
+ *
+ * - An event with that id is already in the log. The run got there; only the removal
+ *   of the intent was lost. Remove it and append nothing.
+ * - No such event, and the target is in the post-state. The mutation happened and
+ *   its event did not. Append the intent's own payload, re-attributed as observed,
+ *   then remove the intent. It is never attributed to the package: nobody saw the
+ *   package do it, and an outside writer that created the same post-state produces
+ *   the same evidence.
+ * - No such event, and the target is in the pre-state. Nothing happened, or somebody
+ *   put it back. Append an observed `intent-abandoned`, then remove the intent.
+ * - Neither state. The package cannot say what happened, so it says that: an
+ *   `unresolved-intent` fault carrying the intent's payload and the state actually
+ *   found, decision 35. The intent goes and **the run marker stays**, so a death
+ *   before the current run completes is still read as an interruption. The run that
+ *   settled it publishes its own marker over the stale one by atomic rename, and
+ *   removes that marker if it completes, like any other run.
+ *
+ * A freeze marker is `absent` or `present` and never a digest, so the neither-state
+ * branch cannot arise for one.
+ *
+ * ## What a fault does here
+ *
+ * A required event that cannot be committed leaves the intent and the marker exactly
+ * where they are and reports why. The alternative - clearing the intent and carrying
+ * on - destroys the only record of a mutation the log never received. A later run,
+ * once the log can accept the record, commits it and continues under the retained
+ * marker.
+ *
+ * Event-log I/O failures are reported and never logged, decision 39. A fault about a
+ * log that will not take a record cannot be written into that log.
+ *
+ * ## The sweeps
+ *
+ * `staging/` holds files part-way through an atomic move. Under the lock, none of
+ * them belongs to a live run, so each is an abandoned copy from a run that died. The
+ * `state/` publication temporaries are the same case for the run marker, the write
+ * intent and the log. Neither sweep refuses the run: a temporary that will not go is
+ * a fault on the report and the operation still goes ahead. It does make the recovery
+ * `incomplete`, because ticket 34 counts an empty `staging/` as part of a completed
+ * recovery, so the run keeps its marker and stays reported as an interruption until
+ * a later one can clear the file.
+ *
+ * No Joomla dependency: the core is testable on a bare PHP CLI.
+ */
+final class RunRecovery
+{
+    /** Event states are sha256 digests whatever the rule declared, decision 32. */
+    private const STATE_HASH = 'sha256';
+
+    private const NOTHING = 'no earlier run left a marker or a write intent';
+
+    private readonly RunMarker $marker;
+
+    private readonly WriteIntentStore $intents;
+
+    private readonly EventLog $log;
+
+    private readonly FreezeMarkers $freezes;
+
+    private readonly Hasher $hasher;
+
+    private ?RecoveryOutcome $last = null;
+
+    public function __construct(
+        private readonly PackagePaths $paths,
+        private readonly PathPolicy $policy,
+    ) {
+        $this->marker  = new RunMarker($paths);
+        $this->intents = new WriteIntentStore($paths);
+        $this->log     = new EventLog($paths);
+        $this->freezes = new FreezeMarkers($paths);
+        $this->hasher  = new Hasher();
+    }
+
+    /**
+     * Drop what a previous settle() found, before this write-run attempt.
+     *
+     * lastOutcome() is process state. A second call on the same runner that never
+     * reaches settle(), because it could not acquire the lock, must not report the
+     * first call's recovery as its own interruption.
+     */
+    public function forget(): void
+    {
+        $this->last = null;
+    }
+
+    /**
+     * Settle what an interrupted run left behind, with the run lock held.
+     *
+     * The sweeps run whether or not anything was interrupted: plan work item 6 makes
+     * a free lock with no marker and leftover temporaries a clean tree, and the next
+     * write run is what deletes those temporaries.
+     */
+    public function settle(): RecoveryOutcome
+    {
+        $interrupted = $this->intents->isPresent() || $this->marker->isPresent();
+        $outcome     = $interrupted
+            ? $this->settleIntent()
+            : RecoveryOutcome::clean(self::NOTHING);
+
+        // A present marker that does not parse is a fault on this report. It is
+        // not a reason to keep the marker: withNonBlockingFaults() leaves that to
+        // a sweep that could not finish, and a completed run may replace the bad
+        // record.
+        return $this->last = $outcome
+            ->withNonBlockingFaults($this->markerFault())
+            ->withFaults([...$this->sweepStaging(), ...$this->sweepStateTemporaries()]);
+    }
+
+    /**
+     * What the last settle() in this process found, for the report.
+     *
+     * Cleared at the start of each write-run attempt. The run that calls settle()
+     * is inside `WriteRun`, and the runner that has to put the interruption on its
+     * report is two calls above it. Passing the outcome back up through
+     * `WriteOutcome`, `Freezer` and `Reverter` would put a field about recovery on
+     * three classes that have nothing else to do with it. A call that never reached
+     * settle() leaves this empty, and the report reads the live run state instead.
+     */
+    public function lastOutcome(): ?RecoveryOutcome
+    {
+        return $this->last;
+    }
+
+    /**
+     * A present run marker whose timestamp could not be read.
+     *
+     * Absence is not a fault. A marker that is there and does not parse is,
+     * because the package is about to replace the only copy of that claim.
+     *
+     * @return list<string>
+     */
+    private function markerFault(): array
+    {
+        if (!$this->marker->isPresent()) {
+            return [];
+        }
+
+        $read = $this->marker->read();
+
+        return $read->isKnown() ? [] : [$read->describe()];
+    }
+
+    /**
+     * Decision 32's four cases, in the order that distinguishes them.
+     */
+    private function settleIntent(): RecoveryOutcome
+    {
+        $read = $this->intents->read();
+
+        if (!$read->isDetermined()) {
+            return RecoveryOutcome::unsettled(
+                'an interrupted run left a write intent that could not be read',
+                [(string) $read->reason]
+            );
+        }
+
+        if (!$read->isPresent()) {
+            // A marker with no intent is a run that died between two mutations, or
+            // before its first. Nothing is outstanding; the marker alone is the
+            // report, and the run that found it removes it when it completes.
+            return RecoveryOutcome::settled(\sprintf(
+                'an earlier run left the run marker at %s and no write intent, so no '
+                . 'mutation is outstanding',
+                $this->marker->path()
+            ));
+        }
+
+        $intent = $read->intent;
+        $record = EventRecord::fromPayload($intent->event);
+
+        if ($record === null || $record->target === null || $record->operation === null
+            || $record->pre === null || $record->post === null) {
+            return RecoveryOutcome::unsettled(
+                'an interrupted run left a write intent whose event payload is not a record',
+                [\sprintf(
+                    'the write intent at %s carries no readable event, so the mutation it '
+                    . 'describes cannot be settled',
+                    $this->intents->path()
+                )]
+            );
+        }
+
+        $history = $this->log->read();
+
+        if (!$history->isDetermined()) {
+            return RecoveryOutcome::unsettled(
+                'an interrupted run left a write intent and the event log could not be read',
+                [(string) $history->reason]
+            );
+        }
+
+        foreach ($history->records() as $committed) {
+            if ($committed->correlationId === $intent->id) {
+                return $this->clearSettled(\sprintf(
+                    'the mutation at %s was already recorded as %s, so only its write intent '
+                    . 'was outstanding',
+                    $record->target,
+                    $committed->kind
+                ));
+            }
+        }
+
+        return $this->reconcile($intent, $record);
+    }
+
+    /**
+     * No event carries the intent's id, so the target's own state decides.
+     */
+    private function reconcile(WriteIntent $intent, EventRecord $record): RecoveryOutcome
+    {
+        $observed = $this->observe((string) $record->target, (string) $record->operation);
+
+        if ($observed === null) {
+            return RecoveryOutcome::unsettled(
+                'an interrupted run left a write intent whose target could not be read',
+                [\sprintf(
+                    '%s could not be read, so the mutation the write intent at %s describes '
+                    . 'cannot be settled',
+                    (string) $record->target,
+                    $this->intents->path()
+                )]
+            );
+        }
+
+        if ($observed === $record->post) {
+            return $this->commit(
+                $record->asObserved(),
+                \sprintf(
+                    '%s is in the state the interrupted mutation was to leave, so that event '
+                    . 'was recorded as observed',
+                    (string) $record->target
+                )
+            );
+        }
+
+        if ($observed === $record->pre) {
+            return $this->commit(
+                EventRecord::mutation(
+                    EventRecord::INTENT_ABANDONED,
+                    (string) $record->operation,
+                    (string) $record->target,
+                    (string) $record->pre,
+                    (string) $record->post,
+                    $intent->id,
+                    EventRecord::OBSERVED,
+                    reason: 'the interrupted run published its intent and the target is still '
+                        . 'in the state that mutation was to replace'
+                ),
+                \sprintf(
+                    '%s is still in the state the interrupted mutation was to replace, so the '
+                    . 'intent was recorded as abandoned',
+                    (string) $record->target
+                )
+            );
+        }
+
+        // Neither state. The package will not guess, and it will not let the next
+        // run treat this tree as settled history either, decision 35.
+        return $this->commit(
+            EventRecord::mutation(
+                EventRecord::UNRESOLVED_INTENT,
+                (string) $record->operation,
+                (string) $record->target,
+                (string) $record->pre,
+                (string) $record->post,
+                $intent->id,
+                EventRecord::OBSERVED,
+                observed: $observed,
+                reason: 'the target matches neither the state the interrupted mutation was to '
+                    . 'replace nor the state it was to leave'
+            ),
+            \sprintf(
+                '%s matches neither state of the interrupted mutation, so an unresolved-intent '
+                . 'fault was recorded and the run marker stays until this run completes',
+                (string) $record->target
+            )
+        );
+    }
+
+    /**
+     * Append the settling event, then clear the intent.
+     *
+     * In that order, and never the other way round: an intent removed before its
+     * event is committed leaves a mutation with no record and nothing to rebuild it
+     * from.
+     */
+    private function commit(EventRecord $record, string $reason): RecoveryOutcome
+    {
+        if (!$this->log->append($record)) {
+            return RecoveryOutcome::unsettled(
+                'an interrupted run left a write intent whose event could not be committed',
+                [\sprintf(
+                    'the recovery event for %s could not be appended (%s), so the write intent '
+                    . 'at %s and the run marker stay',
+                    (string) $record->target,
+                    (string) $this->log->failure(),
+                    $this->intents->path()
+                )]
+            );
+        }
+
+        if (!$this->intents->remove()) {
+            return RecoveryOutcome::unsettled(
+                'an interrupted run left a write intent that could not be removed',
+                [\sprintf(
+                    'the recovery event for %s is committed, but the write intent at %s could '
+                    . 'not be removed',
+                    (string) $record->target,
+                    $this->intents->path()
+                )]
+            );
+        }
+
+        return RecoveryOutcome::settled($reason);
+    }
+
+    /**
+     * The already-recorded case: nothing to append, only the intent to clear.
+     */
+    private function clearSettled(string $reason): RecoveryOutcome
+    {
+        if (!$this->intents->remove()) {
+            return RecoveryOutcome::unsettled(
+                'an interrupted run left a settled write intent that could not be removed',
+                [\sprintf('the write intent at %s could not be removed', $this->intents->path())]
+            );
+        }
+
+        return RecoveryOutcome::settled($reason);
+    }
+
+    /**
+     * The current state of what the intent describes, in the intent's own vocabulary.
+     *
+     * Null when it cannot be read at all, which is not the same as absent: absence
+     * is a state a mutation can have left, and unreadable is the package unable to
+     * say.
+     */
+    private function observe(string $targetPath, string $operation): ?string
+    {
+        if ($operation === EventRecord::FREEZING || $operation === EventRecord::RELEASE) {
+            return $this->freezes->isFrozen($targetPath)
+                ? EventRecord::PRESENT
+                : EventRecord::ABSENT;
+        }
+
+        $decision = $this->policy->decide($targetPath);
+
+        if (!$decision->allowed) {
+            return null;
+        }
+
+        $path = (string) $decision->path;
+        \clearstatcache(true, $path);
+
+        if (!\file_exists($path) && !\is_link($path)) {
+            return EventRecord::ABSENT;
+        }
+
+        if (!\is_file($path) || \is_link($path)) {
+            return null;
+        }
+
+        $hash = $this->hasher->hashFile(self::STATE_HASH, $path);
+
+        return $hash->digest;
+    }
+
+    /**
+     * Unlink every abandoned staged copy. Under the lock, none of them is live.
+     *
+     * @return list<string>
+     */
+    private function sweepStaging(): array
+    {
+        $directory = $this->paths->staging();
+        \clearstatcache(true, $directory);
+
+        if (\is_link($directory) || !\is_dir($directory)) {
+            return [];
+        }
+
+        $entries = @\scandir($directory);
+
+        if ($entries === false) {
+            return [\sprintf('%s could not be read, so abandoned staged copies were left', $directory)];
+        }
+
+        $left = [];
+
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..' || PackagePaths::isFolderGuard($entry)) {
+                continue;
+            }
+
+            $path = $directory . '/' . $entry;
+
+            // Never recurse and never follow. A directory here is not something this
+            // package wrote, and a link's target is somewhere else entirely.
+            if (!\is_link($path) && \is_dir($path)) {
+                $left[] = \sprintf('%s is a directory in the staging folder and was left', $path);
+                continue;
+            }
+
+            @\unlink($path);
+            \clearstatcache(true, $path);
+
+            if (\file_exists($path) || \is_link($path)) {
+                $left[] = \sprintf('%s could not be removed from the staging folder', $path);
+            }
+        }
+
+        return $left;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function sweepStateTemporaries(): array
+    {
+        $left = [...$this->marker->sweepTemporaries(), ...$this->intents->sweepTemporaries()];
+
+        return \array_map(
+            static fn (string $path): string => \sprintf(
+                '%s is an abandoned publication temporary and could not be removed',
+                $path
+            ),
+            $left
+        );
+    }
+}

@@ -72,9 +72,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
  * keeps freeze and unfreeze from returning while it holds.
  *
  * A leftover write intent or a run marker found under the lock belongs to a run that
- * died, and settling it is ticket 34's recovery. Both refuse before this run
- * replaces the marker, because publishing a new intent over the old one would
- * destroy the only evidence of that mutation.
+ * died. `WriteRun` hands it to `RunRecovery`, and the step goes ahead once that has
+ * settled - a step of its own, never the dead run's remaining target writes. An
+ * intent recovery could not settle refuses the step, because publishing a new intent
+ * over the old one would destroy the only evidence of that mutation.
  *
  * FreezeGuard is consulted under the lock, so a freeze that has returned excludes a
  * step that had not yet started.
@@ -169,8 +170,9 @@ final class Reverter
         private readonly PathPolicy $policy,
         private readonly ObjectWalker $walker,
         private readonly ?Closure $checkpoint = null,
+        ?RunRecovery $recovery = null,
     ) {
-        $this->writeRun = new WriteRun($paths, 'the target was not touched');
+        $this->writeRun = new WriteRun($paths, 'the target was not touched', $recovery);
         $this->guard    = new FreezeGuard(new FreezeMarkers($paths));
         $this->hasher   = new Hasher();
         $this->writer   = new TargetWriter(

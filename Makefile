@@ -59,6 +59,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Report/OperationalChecks.php \
 	admin/src/Core/Report/ReportedValue.php \
 	admin/src/Core/Report/RunCounts.php \
+	admin/src/Core/Report/PlannedOperation.php \
 	admin/src/Core/Report/RunReport.php \
 	admin/src/Core/Report/TargetReport.php \
 	admin/src/Core/Rule/MergedSetValidator.php \
@@ -97,9 +98,12 @@ COMPONENT_FILES := \
 	admin/src/Core/Write/FreezeGuard.php \
 	admin/src/Core/Write/Freezer.php \
 	admin/src/Core/Write/MutationTransaction.php \
+	admin/src/Core/Write/RecoveryOutcome.php \
 	admin/src/Core/Write/Reverter.php \
+	admin/src/Core/Write/RunRecovery.php \
 	admin/src/Core/Write/TargetWriter.php \
 	admin/src/Core/Write/WriteOutcome.php \
+	admin/src/Core/Write/WritePlanner.php \
 	admin/src/Core/Write/WriteRun.php \
 	admin/src/Environment/JoomlaEnvironmentProvider.php \
 	admin/src/Extension/ECSKCCustomisationComponent.php

@@ -54,4 +54,15 @@ interface WriteHistoryInterface
      * @return list<string>
      */
     public function recordFaults(): array;
+
+    /**
+     * Forget what has been read, so the next question is answered from the tree now.
+     *
+     * A report-only run asks once and an implementation may cache the answer: reading
+     * the whole log for each of a dozen targets would read it a dozen times, and the
+     * run-state read observes the run lock every time it runs. A run that **writes**
+     * then asks again in the same process needs the new records, so it says so here
+     * rather than every implementation having to guess when a cache went stale.
+     */
+    public function refresh(): void;
 }

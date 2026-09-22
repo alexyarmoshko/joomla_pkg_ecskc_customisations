@@ -121,8 +121,8 @@ final class EventLogHistory implements WriteHistoryInterface
     public function interruption(): ReportedValue
     {
         // Read once, like the log, and for a second reason beside consistency: each
-        // read acquires and releases the run lock, and a caller asking twice would
-        // contend with write runs twice for one answer.
+        // read observes the run lock, and a caller asking twice would contend with
+        // write runs twice for one answer.
         $state = $this->runPhase ??= $this->runState->read();
 
         if ($state->wasInterrupted()
@@ -133,6 +133,15 @@ final class EventLogHistory implements WriteHistoryInterface
         }
 
         return $state->startedAt;
+    }
+
+    /**
+     * Drop the cached log read and run state, after this process has written.
+     */
+    public function refresh(): void
+    {
+        $this->read     = null;
+        $this->runPhase = null;
     }
 
     private function read(): EventLogRead

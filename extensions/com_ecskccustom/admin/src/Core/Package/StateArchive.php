@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package;
 
+use Closure;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
 use ZipArchive;
 
 /**
@@ -30,6 +32,28 @@ use ZipArchive;
  * The archive is one zip written outside the component tree. It is evidence, not
  * package state: nothing reads it back, and reinstalling does not restore it. An
  * operator who wants the history keeps the file.
+ *
+ * ## One operation, under the run lock
+ *
+ * Decisions 34, 36 and 39. `archive()` is the whole of it: take `run.lock`, then
+ * decide whether there is history, then ask for the destination, then write. A
+ * caller that walked first and locked afterwards would decide against a tree a
+ * live apply was still moving files through, and would copy a torn snapshot.
+ *
+ * The acquisition is non-blocking and a refusal fails the archive with
+ * `RUN_LOCKED`. Waiting would stall an uninstall behind a run that may never end.
+ * The uninstall itself still proceeds, decision 26: it is deliberate, and Joomla
+ * discards a false return from the hook.
+ *
+ * The destination provider is called only once history has been found, so a fresh
+ * install that never wrote anything creates no folder to hold an archive it will
+ * not write.
+ *
+ * The flock is released before the operation returns, whatever happened. It is not
+ * held into uninstall `postflight`: `run.lock` lives in the tree Joomla is about to
+ * unlink, and ticket 28 forbids unlinking a held lock. So the lock guarantees a
+ * consistent zip, not the survival of a live run - uninstall may delete the tree
+ * under one, decision 38.
  *
  * No Joomla dependency, so the tests build one of these over a temporary tree.
  */
@@ -70,6 +94,12 @@ final class StateArchive
      * root are the installer's, not content, and the folder they would protect does
      * not exist inside a zip.
      *
+     * So are `state/run.lock`, an `events.log` with nothing in it, and the
+     * publication temporaries of the state files. None of them is history, decision
+     * 35: taking the lock creates the lock file, and a log that has been opened and
+     * never appended to holds no record. A tree that has only those is a tree that
+     * never wrote, and an archive of it would tell the operator the opposite.
+     *
      * @return array<string, string>
      */
     public function contents(): array
@@ -89,10 +119,54 @@ final class StateArchive
     }
 
     /**
-     * Write the archive into $directory, or return null when there is nothing to save.
+     * Take the run lock, then save the history, or return null when there is none.
      *
-     * A fresh install that never wrote anything has no history to lose, and an archive
-     * holding nothing but its own name would tell an operator the opposite.
+     * The one archive operation. The lock comes first so that what the walk sees is
+     * a tree no run is moving files through; the destination is asked for only once
+     * that walk has found something to save; and the lock is released before this
+     * returns, on every path out.
+     *
+     * @param Closure(): string $destination Where to write, resolved under the lock.
+     *                                       Creating the folder belongs in here, so
+     *                                       nothing is created for an archive that
+     *                                       is never written.
+     * @param int|null          $time        Timestamp for the name; now when null.
+     *
+     * @return string|null The archive's absolute path, or null when there was no
+     *                     history to save.
+     *
+     * @throws StateArchiveFailure When the run lock is held, or the archive cannot
+     *                             be written.
+     */
+    public function archive(Closure $destination, ?int $time = null): ?string
+    {
+        $lock = new RunLock($this->paths);
+
+        if (!$lock->acquire()) {
+            throw new StateArchiveFailure(
+                StateArchiveFailure::RUN_LOCKED,
+                $lock->path(),
+                \sprintf('%s: %s', $lock->path(), (string) $lock->refusal())
+            );
+        }
+
+        try {
+            $entries = $this->contents();
+
+            // Nothing to save, so nothing is asked of the destination provider and
+            // no folder appears in the site's temporary directory.
+            if ($entries === []) {
+                return null;
+            }
+
+            return $this->write($destination(), $entries, $time);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Write the archive into $directory.
      *
      * The zip is built inside a private staging directory, given its mode, and
      * renamed into place, so no reader sees a half-written archive and no other user
@@ -106,18 +180,15 @@ final class StateArchive
      *                            somewhere nobody configured.
      * @param int|null $time      Timestamp for the name; the current time when null.
      *
-     * @return string|null The archive's absolute path, or null when nothing was saved.
+     * @param array<string, string> $entries What archive() already walked, so the
+     *                                        tree is read once, under the lock.
+     *
+     * @return string The archive's absolute path.
      *
      * @throws StateArchiveFailure When the archive cannot be written.
      */
-    public function write(string $directory, ?int $time = null): ?string
+    private function write(string $directory, array $entries, ?int $time = null): string
     {
-        $entries = $this->contents();
-
-        if ($entries === []) {
-            return null;
-        }
-
         if (\is_link($directory) || !\is_dir($directory) || !\is_writable($directory)) {
             throw new StateArchiveFailure(
                 StateArchiveFailure::UNWRITABLE,
@@ -300,6 +371,43 @@ final class StateArchive
     }
 
     /**
+     * Is this entry at the root of `state/` machinery rather than history?
+     *
+     * `run.lock` is created by taking the lock, which this very operation does, so
+     * archiving it would make every tree look as though it had written something.
+     * An `events.log` of zero bytes is a log that was created and never appended
+     * to. The publication temporaries are a record part-way onto its final name,
+     * and the complete record is either already there or was never committed.
+     *
+     * Asked only at the folder's own root, so a file of one of these names nested
+     * under a mirrored target path is content and is archived as content.
+     */
+    private function isTransient(string $directory, string $name, string $path): bool
+    {
+        if ($directory !== $this->paths->state()) {
+            return false;
+        }
+
+        if ($name === PackagePaths::LOCK) {
+            return true;
+        }
+
+        if ($name === PackagePaths::EVENT_LOG) {
+            \clearstatcache(true, $path);
+
+            return @\filesize($path) === 0;
+        }
+
+        foreach ([PackagePaths::EVENT_LOG, PackagePaths::MARKER, PackagePaths::WRITE_INTENT] as $basename) {
+            if (\preg_match(PackagePaths::publicationTemporaryPattern($basename), $name) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param bool                  $isFolderRoot Whether $directory is one of the
      *                                            archived folders itself, which is the
      *                                            only place a guard file is a guard.
@@ -339,7 +447,11 @@ final class StateArchive
                 continue;
             }
 
-            if (!\is_file($path) || ($isFolderRoot && PackagePaths::isFolderGuard($name))) {
+            if (!\is_file($path)) {
+                continue;
+            }
+
+            if ($isFolderRoot && (PackagePaths::isFolderGuard($name) || $this->isTransient($directory, $name, $path))) {
                 continue;
             }
 

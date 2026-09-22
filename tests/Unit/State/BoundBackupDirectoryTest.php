@@ -122,4 +122,93 @@ final class BoundBackupDirectoryTest extends TestCase
             $bound->close();
         }
     }
+
+    /**
+     * The dry-run gate and the create path classify one tree the same way.
+     *
+     * Each case is a decision both have to share: a file blocking the mirrored
+     * path, a symbolic link, a directory that cannot be searched, one that cannot
+     * be opened, and one that cannot be written.
+     */
+    public function testPublishRefusalMatchesTheBoundWalkForEachSharedDecision(): void
+    {
+        if (\function_exists('posix_geteuid') && \posix_geteuid() === 0) {
+            self::markTestSkipped('Permission bits do not stop the superuser.');
+        }
+
+        $destination = $this->paths->backupFile(self::TARGET, 1, \hash('sha256', 'x'));
+        $backup      = $this->paths->backup();
+        $templates   = $backup . '/templates';
+
+        $this->removeTemplates();
+        \file_put_contents($templates, 'not a directory');
+        $this->assertSameRefusal($destination, 'is not a directory');
+        \unlink($templates);
+
+        \symlink($this->tree->path('outside'), $templates);
+        $this->assertSameRefusal($destination, 'symbolic link');
+        \unlink($templates);
+
+        \chmod($backup, 0666);
+
+        try {
+            $this->assertSameRefusal($destination, 'is not a searchable directory');
+        } finally {
+            \chmod($backup, 0755);
+        }
+
+        \chmod($backup, 0333);
+
+        try {
+            $this->assertSameRefusal($destination, 'could not be opened');
+        } finally {
+            \chmod($backup, 0755);
+        }
+
+        \mkdir($templates . '/et_tennis/css', 0755, true);
+        $leaf = \dirname($destination);
+        \chmod($leaf, 0555);
+
+        try {
+            $this->assertSameRefusal($destination, 'is not a writable directory');
+        } finally {
+            \chmod($leaf, 0755);
+        }
+    }
+
+    private function assertSameRefusal(string $destination, string $reason): void
+    {
+        $classified = BoundBackupDirectory::publishRefusal($this->paths, $destination);
+        $opened     = BoundBackupDirectory::open(
+            $this->paths,
+            self::TARGET,
+            true,
+            destination: $destination
+        );
+
+        self::assertIsString($classified);
+        self::assertStringContainsString($reason, $classified);
+        self::assertSame($classified, $opened);
+    }
+
+    private function removeTemplates(): void
+    {
+        $css = $this->paths->backup() . '/templates/et_tennis/css';
+
+        if (\is_dir($css)) {
+            \rmdir($css);
+        }
+
+        $tennis = \dirname($css);
+
+        if (\is_dir($tennis)) {
+            \rmdir($tennis);
+        }
+
+        $templates = \dirname($tennis);
+
+        if (\is_dir($templates)) {
+            \rmdir($templates);
+        }
+    }
 }

@@ -272,6 +272,10 @@ final class RunnerTest extends TestCase
             {
                 return ['the event log has a damaged record on line 2'];
             }
+
+            public function refresh(): void
+            {
+            }
         })->check();
 
         self::assertTrue($report->isFaulted());
@@ -394,7 +398,8 @@ final class RunnerTest extends TestCase
 
     private function build(?WriteHistoryInterface $history = null): Runner
     {
-        $paths = new PackagePaths($this->tree->path(self::PACKAGE));
+        $paths  = new PackagePaths($this->tree->path(self::PACKAGE));
+        $policy = new PathPolicy($this->tree->root(), $this->tree->path(self::PACKAGE));
 
         return new Runner(
             $paths,
@@ -413,12 +418,13 @@ final class RunnerTest extends TestCase
             },
             new EnvironmentResolver(),
             new ObjectWalker(
-                new PathPolicy($this->tree->root(), $this->tree->path(self::PACKAGE)),
+                $policy,
                 new Hasher(),
                 new ConditionEvaluator(),
                 new FreezeMarkers($paths)
             ),
-            $history ?? new ReportOnlyHistory()
+            $history ?? new ReportOnlyHistory(),
+            $policy
         );
     }
 

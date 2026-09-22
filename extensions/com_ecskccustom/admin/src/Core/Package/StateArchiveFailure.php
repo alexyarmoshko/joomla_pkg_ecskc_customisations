@@ -27,12 +27,23 @@ use RuntimeException;
  * with the path they need in it. The message this exception carries is for a developer
  * reading a stack trace, and never for a screen.
  *
- * Four codes rather than one per throw site. They are the four things an operator can
- * act on: the package could not read its own state, could not write the archive, could
- * not secure it, or could not put it where it belongs.
+ * Five codes rather than one per throw site. They are the five things an operator can
+ * act on: a write run held the lock, or the package could not read its own state, could
+ * not write the archive, could not secure it, or could not put it where it belongs.
  */
 final class StateArchiveFailure extends RuntimeException
 {
+    /**
+     * A write run held `run.lock`, so the tree could not be snapshotted.
+     *
+     * The archive takes that lock before it walks, decision 34, so what it copies is
+     * never a tree caught mid-move. Nothing here waits for the holder: an uninstall
+     * must not stall on a live run. The operator is told the history went with the
+     * component, which is what happened, rather than being sent to check a folder
+     * that is perfectly writable.
+     */
+    public const RUN_LOCKED = 'run-locked';
+
     /** A folder or file under the package's own tree could not be read. */
     public const UNREADABLE = 'unreadable';
 

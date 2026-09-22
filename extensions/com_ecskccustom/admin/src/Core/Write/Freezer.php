@@ -39,13 +39,15 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentS
  * write intent or the freeze marker. The run marker is removed when the call
  * completes, and kept when a write intent is left for recovery.
  *
- * ## An interrupted run is not settled here
+ * ## An interrupted run is settled first
  *
  * A leftover write intent, or a run marker found while holding the lock, belongs to a
- * run that died. Settling it is ticket 34's recovery, taught to Freezer and Reverter
- * in one place through WriteRun. Publishing a new intent over the old one would
- * destroy the only evidence of that mutation, so both refuse the call before the run
- * marker is replaced.
+ * run that died. `WriteRun` hands it to `RunRecovery` - one place, so Freezer and
+ * Reverter cannot come to settle it differently - and the marker change goes ahead
+ * once that has settled. It does not take over the dead run's remaining target
+ * writes; only apply does that. An intent recovery could not settle refuses the call,
+ * because publishing a new intent over the old one would destroy the only evidence of
+ * that mutation.
  *
  * ## The marker mutation
  *
@@ -131,12 +133,17 @@ final class Freezer
 
     /**
      * @param Closure(string): void|null $checkpoint Called with a point name.
+     * @param RunRecovery|null           $recovery   Settles what an interrupted run
+     *                                               left, before this one's own
+     *                                               marker change. A freezer given
+     *                                               none refuses an interrupted tree.
      */
     public function __construct(
         private readonly PackagePaths $paths,
         private readonly ?Closure $checkpoint = null,
+        ?RunRecovery $recovery = null,
     ) {
-        $this->writeRun  = new WriteRun($paths, 'the freeze marker was not touched');
+        $this->writeRun  = new WriteRun($paths, 'the freeze marker was not touched', $recovery);
         $this->intents   = new WriteIntentStore($paths);
         $this->markers   = new FreezeMarkers($paths);
         $this->mutations = new MutationTransaction(
@@ -330,7 +337,8 @@ final class Freezer
             $create,
             $create ? function (): void {
                 $this->reach(self::CREATING_DIRECTORY);
-            } : null
+            } : null,
+            destination: $create ? $this->paths->freezeMarker($targetPath) : null,
         );
     }
 

@@ -478,7 +478,7 @@ final class BackupStoreTest extends TestCase
             $outcome = $this->preserve();
 
             self::assertSame(BackupOutcome::FAILED, $outcome->status);
-            self::assertStringContainsString('could not be created', $outcome->reason);
+            self::assertStringContainsString('is not a writable directory', $outcome->reason);
             self::assertFileDoesNotExist($this->destination());
             self::assertSame(['decoy.css'], $this->backupEntries());
             self::assertSame('leave me', \file_get_contents($decoy));
@@ -494,7 +494,7 @@ final class BackupStoreTest extends TestCase
         $outcome = $this->preserve();
 
         self::assertSame(BackupOutcome::FAILED, $outcome->status);
-        self::assertStringContainsString('could not be created', $outcome->reason);
+        self::assertStringContainsString('is not a directory', $outcome->reason);
         self::assertFileDoesNotExist($this->destination());
         self::assertSame(self::ORIGINAL, $this->tree->read('site/' . self::TARGET));
     }

@@ -27,6 +27,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\Freezer;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\MutationTransaction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteOutcome;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteRun as LockedWriteRun;
+use YakShaver\ECSKCCustomisation\Tests\Support\RunLockProbe;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
 
@@ -127,15 +128,7 @@ final class FreezerTest extends TestCase
 
     private function lockIsFree(): bool
     {
-        $lock = new RunLock($this->paths);
-
-        if (!$lock->acquire()) {
-            return false;
-        }
-
-        $lock->release();
-
-        return true;
+        return RunLockProbe::isFree($this->paths);
     }
 
     private function makeReadOnly(string $directory): void

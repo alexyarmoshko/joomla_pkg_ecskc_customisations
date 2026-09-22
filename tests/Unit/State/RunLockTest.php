@@ -116,6 +116,79 @@ final class RunLockTest extends TestCase
         self::assertSame('earlier bytes', \file_get_contents($this->paths->lock()));
     }
 
+    /**
+     * The read a check and a dry run take: it never creates the lock file.
+     *
+     * Ticket 34 says a dry run does not acquire the write lock, and `acquire()`
+     * opens with `c+`, so asking would leave a file behind in a tree the run was
+     * asked only to describe. An absent lock file is its own answer, because a write
+     * run makes it before it publishes anything.
+     */
+    public function testObservingCreatesNoLockFile(): void
+    {
+        $lock = new RunLock($this->paths);
+
+        self::assertTrue($lock->observe(), 'A lock nobody has ever made is not held.');
+        self::assertFileDoesNotExist($this->paths->lock());
+        self::assertFalse($lock->isHeld(), 'There was nothing there to hold.');
+
+        $lock->release();
+    }
+
+    /**
+     * And where the file does exist, the read holds it: a shared lock, which a live
+     * run's exclusive one excludes in both directions.
+     */
+    public function testObservingSharesAnExistingLockAndExcludesAWriteRun(): void
+    {
+        $made = new RunLock($this->paths);
+        self::assertTrue($made->acquire());
+        $made->release();
+
+        $reader = new RunLock($this->paths);
+        self::assertTrue($reader->observe());
+        self::assertTrue($reader->isHeld(), 'The read holds the file it found.');
+
+        $second = new RunLock($this->paths);
+        self::assertTrue($second->observe(), 'Two reads can look at once.');
+
+        $writer = new RunLock($this->paths);
+        self::assertFalse($writer->acquire(), 'No write run may begin in the middle of a read.');
+        self::assertSame(RunLock::IN_PROGRESS, $writer->refusal());
+
+        $reader->release();
+        $second->release();
+
+        self::assertTrue($writer->acquire(), 'And the read owns it only while it reads.');
+        $writer->release();
+    }
+
+    public function testObservingAHeldLockIsRefusedAsALiveRun(): void
+    {
+        $run = WriteRun::holding($this->paths->root(), 'no-marker');
+
+        try {
+            $lock = new RunLock($this->paths);
+
+            self::assertFalse($lock->observe());
+            self::assertSame(RunLock::IN_PROGRESS, $lock->refusal());
+        } finally {
+            $run->kill();
+        }
+    }
+
+    public function testObservingATreeWithNoStateFolderIsAFaultRatherThanAFreeLock(): void
+    {
+        $lock = new RunLock(new PackagePaths($this->tree->path('missing')));
+
+        self::assertFalse(
+            $lock->observe(),
+            'A missing state folder is a tree the package cannot read, not an unlocked one.'
+        );
+        self::assertNotSame(RunLock::IN_PROGRESS, $lock->refusal());
+        self::assertStringContainsString('could not be opened', (string) $lock->refusal());
+    }
+
     public function testTheOperatingSystemReleasesTheLockWhenTheHolderDies(): void
     {
         $run = WriteRun::holding($this->paths->root(), 'no-marker');

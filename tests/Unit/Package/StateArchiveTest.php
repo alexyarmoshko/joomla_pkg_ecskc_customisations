@@ -9,6 +9,8 @@ use PHPUnit\Framework\TestCase;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
+use YakShaver\ECSKCCustomisation\Tests\Support\RunLockProbe;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use ZipArchive;
 
@@ -27,9 +29,26 @@ final class StateArchiveTest extends TestCase
         $this->tree->remove();
     }
 
+    /**
+     * The package tree with the folders the installer creates already in place.
+     *
+     * `archive()` takes `run.lock` inside `state/`, so a tree without that folder
+     * would fail every case with a lock it could not open. An installed component
+     * always has the three folders, decision 25 of `PackagePaths::CREATED_FOLDERS`.
+     */
     private function paths(): PackagePaths
     {
-        return new PackagePaths($this->tree->path('com_ecskccustom'));
+        $paths = new PackagePaths($this->tree->path('com_ecskccustom'));
+
+        foreach (PackagePaths::CREATED_FOLDERS as $folder) {
+            $directory = $this->tree->path('com_ecskccustom/' . $folder);
+
+            if (!\is_dir($directory)) {
+                \mkdir($directory, 0755, true);
+            }
+        }
+
+        return $paths;
     }
 
     private function destination(): string
@@ -83,7 +102,7 @@ final class StateArchiveTest extends TestCase
         $this->tree->write('com_ecskccustom/backup/templates/et_tennis/css/override.css.frozen', '');
         $this->tree->write('com_ecskccustom/state/events.log', "one\ntwo\n");
 
-        $archive = (new StateArchive($this->paths()))->write($this->destination());
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination());
 
         self::assertIsString($archive);
         self::assertSame(
@@ -104,7 +123,7 @@ final class StateArchiveTest extends TestCase
         $this->tree->write('com_ecskccustom/state/events.log', 'kept');
         $this->tree->write('com_ecskccustom/staging/override.css.part', 'transient');
 
-        $archive = (new StateArchive($this->paths()))->write($this->destination());
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination());
 
         self::assertIsString($archive);
         self::assertSame(['state/events.log' => 'kept'], $this->entriesOf($archive));
@@ -120,7 +139,7 @@ final class StateArchiveTest extends TestCase
         $this->tree->write('com_ecskccustom/backup/administrator/.htaccess.v1.abc123', 'site rules');
         $this->tree->write('com_ecskccustom/backup/index.html', '<html />');
 
-        $archive = (new StateArchive($this->paths()))->write($this->destination());
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination());
 
         self::assertIsString($archive);
         self::assertSame(
@@ -136,7 +155,7 @@ final class StateArchiveTest extends TestCase
 
         $destination = $this->destination();
 
-        self::assertNull((new StateArchive($this->paths()))->write($destination));
+        self::assertNull((new StateArchive($this->paths()))->archive(fn (): string => $destination));
         self::assertSame([], \glob($destination . '/*'));
     }
 
@@ -146,7 +165,7 @@ final class StateArchiveTest extends TestCase
         $this->tree->write('com_ecskccustom/state/events.log', 'kept');
         $this->tree->symlink('com_ecskccustom/backup/secret.txt', $this->tree->path('outside/secret.txt'));
 
-        $archive = (new StateArchive($this->paths()))->write($this->destination());
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination());
 
         self::assertIsString($archive);
         self::assertSame(['state/events.log' => 'kept'], $this->entriesOf($archive));
@@ -156,7 +175,7 @@ final class StateArchiveTest extends TestCase
     {
         $this->tree->write('com_ecskccustom/state/events.log', 'kept');
 
-        $archive = (new StateArchive($this->paths()))->write($this->destination(), 1_772_000_000);
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination(), 1_772_000_000);
 
         self::assertIsString($archive);
         self::assertMatchesRegularExpression(
@@ -181,7 +200,7 @@ final class StateArchiveTest extends TestCase
         $umask = \umask(0);
 
         try {
-            $archive = (new StateArchive($this->paths()))->write($this->destination());
+            $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination());
         } finally {
             \umask($umask);
         }
@@ -202,7 +221,7 @@ final class StateArchiveTest extends TestCase
         $this->tree->write('com_ecskccustom/state/events.log', 'kept');
 
         $destination = $this->destination();
-        $archive     = (new StateArchive($this->paths()))->write($destination);
+        $archive     = (new StateArchive($this->paths()))->archive(fn (): string => $destination);
 
         self::assertIsString($archive);
         self::assertSame([$archive], self::everythingIn($destination));
@@ -224,7 +243,7 @@ final class StateArchiveTest extends TestCase
         \chmod($destination, 0500);
 
         try {
-            (new StateArchive($this->paths()))->write($destination);
+            (new StateArchive($this->paths()))->archive(fn (): string => $destination);
             self::fail('A destination that cannot be written to must raise.');
         } catch (StateArchiveFailure $failure) {
             self::assertSame(StateArchiveFailure::UNWRITABLE, $failure->reason);
@@ -253,7 +272,7 @@ final class StateArchiveTest extends TestCase
         \symlink($this->tree->path('elsewhere'), $link);
 
         try {
-            (new StateArchive($this->paths()))->write($link);
+            (new StateArchive($this->paths()))->archive(fn (): string => $link);
             self::fail('A linked destination must raise.');
         } catch (StateArchiveFailure $failure) {
             self::assertSame(StateArchiveFailure::UNWRITABLE, $failure->reason);
@@ -283,7 +302,7 @@ final class StateArchiveTest extends TestCase
         \mkdir($inside, 0755, true);
 
         try {
-            (new StateArchive($this->paths()))->write($inside);
+            (new StateArchive($this->paths()))->archive(fn (): string => $inside);
             self::fail('A destination inside the component tree must raise.');
         } catch (StateArchiveFailure $failure) {
             self::assertSame(StateArchiveFailure::UNWRITABLE, $failure->reason);
@@ -310,7 +329,7 @@ final class StateArchiveTest extends TestCase
         $alias = $this->tree->path('tmp') . '/../com_ecskccustom/archive-here';
 
         try {
-            (new StateArchive($this->paths()))->write($alias);
+            (new StateArchive($this->paths()))->archive(fn (): string => $alias);
             self::fail('A destination that aliases into the component tree must raise.');
         } catch (StateArchiveFailure $failure) {
             self::assertSame(StateArchiveFailure::UNWRITABLE, $failure->reason);
@@ -329,7 +348,7 @@ final class StateArchiveTest extends TestCase
         $this->destination();
 
         $alias   = $this->tree->path('com_ecskccustom') . '/../tmp';
-        $archive = (new StateArchive($this->paths()))->write($alias);
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $alias);
 
         self::assertIsString($archive);
         self::assertFileExists($archive);
@@ -361,7 +380,7 @@ final class StateArchiveTest extends TestCase
         $destination = $this->destination();
 
         try {
-            (new StateArchive($this->paths()))->write($destination);
+            (new StateArchive($this->paths()))->archive(fn (): string => $destination);
             self::fail('An unreadable source must raise.');
         } catch (StateArchiveFailure $failure) {
             self::assertSame(StateArchiveFailure::UNREADABLE, $failure->reason);
@@ -380,7 +399,7 @@ final class StateArchiveTest extends TestCase
         $destination = $this->tree->path('tmp');
 
         try {
-            (new StateArchive($this->paths()))->write($destination);
+            (new StateArchive($this->paths()))->archive(fn (): string => $destination);
             self::fail('An unwritable destination must raise.');
         } catch (StateArchiveFailure $failure) {
             self::assertSame(StateArchiveFailure::UNWRITABLE, $failure->reason);
@@ -388,5 +407,143 @@ final class StateArchiveTest extends TestCase
         }
 
         self::assertFalse(\is_dir($destination));
+    }
+
+    /**
+     * A destination provider that must not be called.
+     *
+     * Passed wherever the archive is expected to decide against writing. A closure
+     * that returned a path would let the test pass while the operation quietly
+     * created a folder in the site's temporary directory for an archive it never
+     * wrote; one that raises turns that into a failure.
+     */
+    private function refusingDestination(): \Closure
+    {
+        return static function (): string {
+            self::fail('The destination provider must not be invoked.');
+        };
+    }
+
+    /**
+     * Can a fresh handle take the lock exclusively? Proof the archive released it.
+     */
+    private function lockIsFree(): bool
+    {
+        return RunLockProbe::isFree($this->paths());
+    }
+
+    public function testAHeldRunLockFailsTheArchiveWithoutAskingForADestination(): void
+    {
+        $this->tree->write('com_ecskccustom/state/events.log', 'kept');
+
+        $paths = $this->paths();
+        $held  = new RunLock($paths);
+        self::assertTrue($held->acquire());
+
+        $destination = $this->tree->root() . '/tmp';
+
+        try {
+            (new StateArchive($paths))->archive($this->refusingDestination());
+            self::fail('A held run lock must fail the archive.');
+        } catch (StateArchiveFailure $failure) {
+            self::assertSame(StateArchiveFailure::RUN_LOCKED, $failure->reason);
+            self::assertSame($paths->lock(), $failure->path);
+        } finally {
+            $held->release();
+        }
+
+        self::assertFalse(\is_dir($destination), 'A refused archive creates no destination folder.');
+    }
+
+    /**
+     * The walk happens under the lock, so a tree that holds only the installer's
+     * guards is decided after the lock is taken - and taking the lock is what
+     * creates `run.lock`. A `contents()` that counted it would make every tree
+     * look as though it had history.
+     */
+    public function testAGuardOnlyTreeWritesNoArchiveAfterTheLockIsTaken(): void
+    {
+        $this->tree->write('com_ecskccustom/backup/.htaccess', 'Deny from all');
+        $this->tree->write('com_ecskccustom/backup/index.html', '<html />');
+        $this->tree->write('com_ecskccustom/state/.htaccess', 'Deny from all');
+        $this->tree->write('com_ecskccustom/state/index.html', '<html />');
+
+        $paths = $this->paths();
+
+        self::assertNull((new StateArchive($paths))->archive($this->refusingDestination()));
+        self::assertFileExists($paths->lock(), 'Taking the lock creates the lock file.');
+        self::assertFalse(
+            \is_dir($this->tree->root() . '/tmp'),
+            'Locking must not create a destination folder.'
+        );
+        self::assertTrue($this->lockIsFree(), 'The flock is released before the call returns.');
+    }
+
+    public function testASuccessfulArchiveOmitsTheLockTheEmptyLogAndPublicationTemporaries(): void
+    {
+        $this->tree->write('com_ecskccustom/backup/templates/et_tennis/css/override.css.v1.abc', 'old');
+        $this->tree->write('com_ecskccustom/state/events.log', '');
+        $this->tree->write('com_ecskccustom/state/run.marker.0123456789ab.tmp', 'half a marker');
+        $this->tree->write('com_ecskccustom/state/write.intent.0123456789ab.tmp', 'half an intent');
+        $this->tree->write('com_ecskccustom/state/events.log.0123456789ab.tmp', 'half a log');
+        $this->tree->write('com_ecskccustom/state/run.marker', 'a complete marker');
+
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination());
+
+        self::assertIsString($archive);
+        self::assertSame(
+            [
+                'backup/templates/et_tennis/css/override.css.v1.abc' => 'old',
+                'state/run.marker'                                   => 'a complete marker',
+            ],
+            $this->entriesOf($archive)
+        );
+        self::assertTrue($this->lockIsFree(), 'The flock is released before the call returns.');
+    }
+
+    /**
+     * A nested file that happens to carry a state name is a mirrored site path, not
+     * the package's own machinery, and is archived as content.
+     */
+    public function testItKeepsANestedFileNamedLikeStateMachinery(): void
+    {
+        $this->tree->write('com_ecskccustom/state/nested/run.lock', 'content');
+
+        $archive = (new StateArchive($this->paths()))->archive(fn (): string => $this->destination());
+
+        self::assertIsString($archive);
+        self::assertSame(['state/nested/run.lock' => 'content'], $this->entriesOf($archive));
+    }
+
+    public function testTheFlockIsReleasedAfterADestinationProviderThrows(): void
+    {
+        $this->tree->write('com_ecskccustom/state/events.log', 'kept');
+
+        try {
+            (new StateArchive($this->paths()))->archive(static function (): string {
+                throw new \RuntimeException('no destination');
+            });
+            self::fail('A destination provider that raises must not be swallowed.');
+        } catch (\RuntimeException $error) {
+            self::assertSame('no destination', $error->getMessage());
+        }
+
+        self::assertTrue($this->lockIsFree(), 'The flock is released after a provider failure.');
+    }
+
+    public function testTheFlockIsReleasedAfterAnArchiveFailure(): void
+    {
+        $this->tree->write('com_ecskccustom/state/events.log', 'kept');
+
+        $destination = $this->tree->path('tmp');
+
+        try {
+            (new StateArchive($this->paths()))->archive(fn (): string => $destination);
+            self::fail('An unwritable destination must raise.');
+        } catch (StateArchiveFailure $failure) {
+            self::assertSame(StateArchiveFailure::UNWRITABLE, $failure->reason);
+        }
+
+        self::assertTrue($this->lockIsFree(), 'The flock is released after an archive failure.');
     }
 }

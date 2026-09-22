@@ -57,4 +57,11 @@ final class ReportOnlyHistory implements WriteHistoryInterface
     {
         return [];
     }
+
+    /**
+     * There is nothing cached, because there is nothing to read.
+     */
+    public function refresh(): void
+    {
+    }
 }

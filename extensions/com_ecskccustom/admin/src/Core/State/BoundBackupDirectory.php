@@ -74,6 +74,10 @@ final class BoundBackupDirectory
      *                                           segment is created. A test seam.
      * @param bool|null            $missing      Set to true when the failure is only
      *                                           that the directory is not there.
+     * @param string|null          $destination  The backup file a create would
+     *                                           publish. The create path classifies
+     *                                           it first, with the same rules the
+     *                                           dry run uses.
      *
      * @return self|string The bound directory, or why it could not be bound.
      */
@@ -83,8 +87,21 @@ final class BoundBackupDirectory
         bool $create,
         ?Closure $beforeCreate = null,
         ?bool &$missing = null,
+        ?string $destination = null,
     ): self|string {
         $missing = false;
+
+        if ($create) {
+            $parent      = \dirname($targetPath);
+            $directory   = $paths->backup() . ($parent === '.' ? '' : '/' . $parent);
+            $destination ??= $directory . '/held';
+            $refusal     = self::publishRefusal($paths, $destination);
+
+            if ($refusal !== null) {
+                return $refusal;
+            }
+        }
+
         $logical = $paths->backup();
         $opened  = self::openReal($logical);
 
@@ -106,10 +123,7 @@ final class BoundBackupDirectory
             if (\is_link($childPath)) {
                 $opened->close();
 
-                return \sprintf(
-                    '%s is a symbolic link, and nothing under backup/ is written through one',
-                    $logical
-                );
+                return self::linkRefusal($logical);
             }
 
             if (!\is_dir($childPath)) {
@@ -122,6 +136,12 @@ final class BoundBackupDirectory
                     $opened->close();
 
                     return \sprintf('the backup directory %s could not be opened', $logical);
+                }
+
+                if (\file_exists($childPath)) {
+                    $opened->close();
+
+                    return self::fileRefusal($logical, $destination ?? $logical);
                 }
 
                 if ($beforeCreate !== null) {
@@ -162,10 +182,7 @@ final class BoundBackupDirectory
         \clearstatcache(true, $path);
 
         if (\is_link($path)) {
-            return \sprintf(
-                '%s is a symbolic link, and nothing under backup/ is written through one',
-                $path
-            );
+            return self::linkRefusal($path);
         }
 
         if (!\is_dir($path)) {
@@ -175,7 +192,7 @@ final class BoundBackupDirectory
         $named = @\lstat($path);
 
         if ($named === false) {
-            return \sprintf('%s could not be opened', $path);
+            return self::openRefusal($path);
         }
 
         // The descriptor this object holds is the one its own opendir() adds. An
@@ -186,7 +203,7 @@ final class BoundBackupDirectory
         $handle = @\opendir($path);
 
         if ($handle === false) {
-            return \sprintf('%s could not be opened', $path);
+            return self::openRefusal($path);
         }
 
         $proc = ProcDescriptor::pathOpenedSince($named, $before);
@@ -202,5 +219,123 @@ final class BoundBackupDirectory
         }
 
         return new self($handle, $proc);
+    }
+
+    /**
+     * Why a backup cannot be published at `$destination`, without creating anything.
+     *
+     * This is the classification `open()` applies before it binds a descriptor or
+     * creates a directory. The dry run asks it directly. A symbolic link, a file
+     * where a directory has to be, and a directory that cannot be opened, searched,
+     * or written are the same refusals on both paths.
+     */
+    public static function publishRefusal(PackagePaths $paths, string $destination): ?string
+    {
+        $backup    = $paths->backup();
+        $directory = \dirname($destination);
+        $existing  = null;
+
+        foreach (self::components($backup, $directory) as $cursor) {
+            \clearstatcache(true, $cursor);
+
+            if (\is_link($cursor)) {
+                return self::linkRefusal($cursor);
+            }
+
+            if (\is_dir($cursor)) {
+                if (!\is_readable($cursor)) {
+                    return self::openRefusal($cursor);
+                }
+
+                if (!\is_executable($cursor)) {
+                    return self::searchRefusal($cursor, $destination);
+                }
+
+                $existing = $cursor;
+
+                continue;
+            }
+
+            if (\file_exists($cursor)) {
+                return self::fileRefusal($cursor, $destination);
+            }
+
+            break;
+        }
+
+        if ($existing === null || !\is_writable($existing)) {
+            return self::writeRefusal($existing ?? $backup, $destination);
+        }
+
+        \clearstatcache(true, $destination);
+
+        if (\is_dir($destination) && !\is_link($destination)) {
+            return \sprintf('a directory is at the backup name %s', $destination);
+        }
+
+        return null;
+    }
+
+    /**
+     * From `$backup` through `$directory`, when `$directory` is under `$backup`.
+     *
+     * @return list<string>
+     */
+    private static function components(string $backup, string $directory): array
+    {
+        $components = [$backup];
+
+        if ($directory === $backup || !\str_starts_with($directory, $backup . '/')) {
+            return $components;
+        }
+
+        $cursor = $backup;
+
+        foreach (\explode('/', \substr($directory, \strlen($backup) + 1)) as $segment) {
+            $cursor .= '/' . $segment;
+            $components[] = $cursor;
+        }
+
+        return $components;
+    }
+
+    private static function linkRefusal(string $path): string
+    {
+        return \sprintf(
+            '%s is a symbolic link, and nothing under backup/ is written through one',
+            $path
+        );
+    }
+
+    private static function fileRefusal(string $path, string $destination): string
+    {
+        return \sprintf(
+            '%s is not a directory, so the backup folder for %s could not be made',
+            $path,
+            $destination
+        );
+    }
+
+    private static function openRefusal(string $path): string
+    {
+        return \sprintf('%s could not be opened', $path);
+    }
+
+    private static function searchRefusal(string $path, string $destination): string
+    {
+        return \sprintf(
+            '%s is not a searchable directory, so the backup at %s could not be published',
+            $path,
+            $destination
+        );
+    }
+
+    private static function writeRefusal(string $path, string $destination): string
+    {
+        return \sprintf(
+            '%s is not a writable directory, so the backup at %s could not be published',
+            $path,
+            $destination
+        );
     }
 }

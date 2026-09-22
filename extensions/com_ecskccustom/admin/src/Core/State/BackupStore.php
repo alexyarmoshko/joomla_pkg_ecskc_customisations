@@ -114,7 +114,7 @@ final class BackupStore
             ));
         }
 
-        $reason = $this->prepareDirectory($targetPath);
+        $reason = $this->prepareDirectory($targetPath, $destination);
 
         if ($reason !== null) {
             return BackupOutcome::failed($destination, $reason);
@@ -256,9 +256,14 @@ final class BackupStore
      *
      * @return string|null Why the directory is not usable, or null when it is.
      */
-    private function prepareDirectory(string $targetPath): ?string
+    private function prepareDirectory(string $targetPath, string $destination): ?string
     {
-        $bound = BoundBackupDirectory::open($this->paths, $targetPath, true);
+        $bound = BoundBackupDirectory::open(
+            $this->paths,
+            $targetPath,
+            true,
+            destination: $destination
+        );
 
         if (\is_string($bound)) {
             return $bound;

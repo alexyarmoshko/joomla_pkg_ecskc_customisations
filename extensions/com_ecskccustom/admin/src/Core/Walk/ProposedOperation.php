@@ -39,6 +39,11 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleObject;
  * belongs to the dry run in Phase 2, and a check that only reports has no business
  * hashing files it will not write.
  *
+ * `hashType` is the object's declared algorithm, carried because `payloadHash` is
+ * meaningless without it: a digest is a claim under one algorithm, and an executor
+ * that assumed sha256 would verify the wrong thing for a rule that declared
+ * something else.
+ *
  * `backup` reads as "preserve whatever this displaces". A copy always does, per
  * decision 4, and the schema gives it no attribute to say otherwise; only a removal
  * can be told to keep no copy. A copy that creates a file where none existed
@@ -53,6 +58,7 @@ final class ProposedOperation
         public readonly int $version,
         public readonly ?string $payloadSource,
         public readonly ?string $payloadHash,
+        public readonly string $hashType,
         public readonly bool $backup,
         public readonly string $reason,
     ) {
@@ -66,6 +72,7 @@ final class ProposedOperation
             $object->version,
             $action->source,
             $action->sourceHash,
+            $object->hashType,
             $action->isCopy() ? true : $action->backup,
             $reason
         );

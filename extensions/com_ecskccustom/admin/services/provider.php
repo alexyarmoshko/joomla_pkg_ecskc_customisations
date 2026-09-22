@@ -153,7 +153,8 @@ return new class () implements ServiceProviderInterface {
                 $container->get(EnvironmentProviderInterface::class),
                 $container->get(EnvironmentResolver::class),
                 $container->get(ObjectWalker::class),
-                $container->get(WriteHistoryInterface::class)
+                $container->get(WriteHistoryInterface::class),
+                $container->get(PathPolicy::class)
             )
         );
 

@@ -79,6 +79,39 @@ final class WriteOutcome
         return new self(TargetStatus::FAULTED, $changed, $intentLeft, $correlationId, $reason, $backup);
     }
 
+    /**
+     * What a whole-set run did, over the per-target outcomes it collected.
+     *
+     * An apply performs many operations and `WriteRun` needs one answer: did
+     * anything change, is an intent still outstanding, and did any of them leave a
+     * staged file behind. There is no correlation id, because a run that touched six
+     * targets published six intents and no single id names them; each target's own
+     * outcome carries its own.
+     *
+     * The leftover travels the same way the intent does, and for the same reason: a
+     * run whose own staging copy is still there has not completed, whichever target
+     * left it, and `WriteRun` keeps the marker until one does clear it. A summary
+     * that dropped the field would report the target's fault and still let the tree
+     * read as clean.
+     */
+    public static function summary(
+        bool $changed,
+        bool $intentLeft,
+        bool $faulted,
+        string $reason,
+        ?string $leftover = null,
+    ): self {
+        return new self(
+            $faulted ? TargetStatus::FAULTED : TargetStatus::OK,
+            $changed,
+            $intentLeft,
+            null,
+            $reason,
+            null,
+            $leftover
+        );
+    }
+
     public function isFaulted(): bool
     {
         return $this->status === TargetStatus::FAULTED;
@@ -97,6 +130,26 @@ final class WriteOutcome
             \sprintf('%s. The staged payload %s could not be removed', $this->reason, $path),
             $this->backup,
             $path,
+            $this->warning,
+        );
+    }
+
+    /**
+     * The same outcome for a target an earlier step of the same chain changed.
+     *
+     * A chain that wrote version 1 and then stopped at version 2 did change the
+     * target. The status and reason stay those of the step that stopped it.
+     */
+    public function withEarlierChange(): self
+    {
+        return new self(
+            $this->status,
+            true,
+            $this->intentLeft,
+            $this->correlationId,
+            $this->reason,
+            $this->backup,
+            $this->leftover,
             $this->warning,
         );
     }

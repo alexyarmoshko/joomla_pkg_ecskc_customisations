@@ -32,6 +32,11 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
  * right for it: the uninstall archive must not stall an uninstall on a live run,
  * and a second write run has nothing useful to do behind a first one.
  *
+ * `acquire()` is the write lock. `observe()` is the read a report takes instead: a
+ * shared lock on a file it will not create, so a check or a dry run can tell a live
+ * run from an interrupted one without acquiring anything a write run wants and
+ * without leaving a file behind in a tree it only read.
+ *
  * Its one other property is what makes brief 5.6's three states distinguishable:
  * the operating system releases an advisory lock when the holding process dies,
  * however it dies, while an ordinary file persists. That is why the lock and the
@@ -101,7 +106,65 @@ final class RunLock
     }
 
     /**
-     * Why the last acquire() failed, or null when it succeeded.
+     * Observe the lock for a report, without taking it and without creating the file.
+     *
+     * A check and a dry run have to tell a live write run from an interrupted one,
+     * and that needs the lock state and the records read at one point in time. They
+     * must not take the write lock to get it: ticket 34 says a dry run does not
+     * acquire it, and `acquire()` opens with `c+`, so asking would also create the
+     * lock file in a tree the run was asked only to describe.
+     *
+     * A shared lock answers the same question without either. It is refused exactly
+     * when a write run holds the exclusive lock, and while it is held no write run
+     * can begin, so the records read under it belong to one moment. A lock file that
+     * is not there at all is its own answer: a write run creates it before it
+     * publishes anything, so nothing can be outstanding behind one that was never
+     * made. That case takes no handle, and `isHeld()` says so - the caller has read a
+     * tree nothing was holding rather than a tree it locked.
+     *
+     * A lock file that exists and will not open is a tree the package cannot see
+     * into, and is never reported as a clean one.
+     */
+    public function observe(): bool
+    {
+        if ($this->handle !== null) {
+            return true;
+        }
+
+        // 'r' never creates.
+        $handle = @\fopen($this->path(), 'r');
+
+        if ($handle === false) {
+            \clearstatcache(true, $this->path());
+
+            // A missing state folder is a tree that cannot be read, not an unlocked
+            // one, so the absent lock file only answers where the folder is there.
+            if (!\file_exists($this->path()) && \is_dir(\dirname($this->path()))) {
+                $this->refusal = null;
+
+                return true;
+            }
+
+            $this->refusal = \sprintf(self::UNAVAILABLE, $this->path());
+
+            return false;
+        }
+
+        if (!\flock($handle, \LOCK_SH | \LOCK_NB)) {
+            \fclose($handle);
+            $this->refusal = self::IN_PROGRESS;
+
+            return false;
+        }
+
+        $this->handle  = $handle;
+        $this->refusal = null;
+
+        return true;
+    }
+
+    /**
+     * Why the last acquire() or observe() failed, or null when it succeeded.
      *
      * Two reasons, and they send an operator somewhere different: a lock held by
      * another run is the design working, and a lock file that cannot be opened is a
@@ -113,7 +176,7 @@ final class RunLock
     }
 
     /**
-     * Does this process hold the lock through this object?
+     * Does this process hold a lock through this object, exclusive or shared?
      */
     public function isHeld(): bool
     {

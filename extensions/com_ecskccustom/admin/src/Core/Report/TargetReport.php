@@ -39,9 +39,23 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetState;
  *
  * "The backup path when the operation preserves displaced content." A check performs
  * no operation and displaces nothing, so in a report-only run the field carries that
- * as its reason. Phase 2 executes operations and fills it. The backup's name is
- * Phase 2's to decide, per decision 4 and the backup chain in brief 5.6, and this
- * field takes whatever that phase writes rather than guessing at it now.
+ * as its reason. A dry run and an apply fill it from the plan: where a chain
+ * preserves content at more than one step, it names every destination, because an
+ * operator judging whether an apply is safe needs to see all of them and not the
+ * first.
+ *
+ * ## The plan and the outcome
+ *
+ * `plan()` is what a dry run or an apply worked out for this target, one line per
+ * operation, with the write preconditions already checked. It is empty for a check,
+ * which proposes nothing to perform, and for a frozen target, which proposes
+ * nothing at all.
+ *
+ * `outcome` is what the run did here. A check and a dry run say they performed
+ * nothing; an apply says what happened, including that it refused. It is separate
+ * from the state because the state is what the tree holds afterwards and the outcome
+ * is how it got there - a target that was already `ok` and a target this run carried
+ * to `ok` read identically on the state alone.
  */
 final class TargetReport
 {
@@ -60,11 +74,37 @@ final class TargetReport
         self::LAST_PACKAGE_WRITE,
     ];
 
+    /** What the outcome field says for a run that performs nothing. */
+    public const NOT_ATTEMPTED = 'this run performed no operation at this target';
+
+    /**
+     * @param list<PlannedOperation> $plan
+     */
     public function __construct(
         public readonly TargetState $state,
         public readonly ReportedValue $lastPackageWrite,
         public readonly ReportedValue $backup,
+        private readonly array $plan = [],
+        public readonly ?ReportedValue $outcome = null,
     ) {
+    }
+
+    /**
+     * What a dry run or an apply worked out for this target, operation by operation.
+     *
+     * @return list<PlannedOperation>
+     */
+    public function plan(): array
+    {
+        return $this->plan;
+    }
+
+    /**
+     * What this run did here, or that it did nothing.
+     */
+    public function outcome(): ReportedValue
+    {
+        return $this->outcome ?? ReportedValue::none(self::NOT_ATTEMPTED);
     }
 
     public function targetPath(): string

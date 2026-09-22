@@ -19,6 +19,7 @@ use Joomla\CMS\Log\Log;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
 
 /**
  * Creates and protects the package's own state folders.
@@ -153,25 +154,32 @@ class Com_EcskccustomInstallerScript
                 StateArchiveFailure::class,
                 'src/Core/Package/StateArchiveFailure.php'
             );
+            $this->loadCoreClass($root, RunLock::class, 'src/Core/State/RunLock.php');
             $this->loadCoreClass($root, StateArchive::class, 'src/Core/Package/StateArchive.php');
 
             $paths   = new PackagePaths($root);
             $history = new StateArchive($paths);
 
-            // The archive folder is created only when there is something to put
-            // in it. Creating it first left an empty guarded directory in tmp/
-            // after a fresh install that never wrote history.
-            if ($history->contents() === []) {
-                return true;
-            }
-
-            $archive = $history->write($this->archiveFolder($paths));
+            // One call, and the hook asks nothing of the tree before it. The archive
+            // takes the run lock, decides whether there is history under it, and only
+            // then calls back for the destination - so a walk never sees a tree a live
+            // run is moving files through, and a fresh install that never wrote
+            // history leaves no empty guarded directory in tmp/. Resolving tmp_path
+            // here rather than in the closure would run that lookup, and raise its
+            // failure, for an archive that is never written.
+            $archive = $history->archive(fn (): string => $this->archiveFolder($paths));
 
             if ($archive !== null) {
                 $this->enqueue('COM_ECSKCCUSTOM_UNINSTALL_ARCHIVED', 'warning', $archive);
             }
         } catch (StateArchiveFailure $failure) {
-            $this->enqueue($this->reasonKey($failure->reason), 'error', $failure->path);
+            // A contended run lock names no path the operator can act on. The lock
+            // file is the package's own and is about to be deleted with the tree, so
+            // its path would only point at something that no longer exists. The
+            // exception still carries it for a developer reading a stack trace.
+            $path = $failure->reason === StateArchiveFailure::RUN_LOCKED ? null : $failure->path;
+
+            $this->enqueue($this->reasonKey($failure->reason), 'error', $path);
         } catch (\Throwable $error) {
             // Nothing the core raises reaches here: everything it knows how to fail at
             // arrives above with a reason and a path. What is left is unforeseen, and
@@ -259,6 +267,7 @@ class Com_EcskccustomInstallerScript
     private function reasonKey(string $reason): string
     {
         return match ($reason) {
+            StateArchiveFailure::RUN_LOCKED  => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_RUN_LOCKED',
             StateArchiveFailure::UNREADABLE  => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNREADABLE',
             StateArchiveFailure::UNSECURED   => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNSECURED',
             StateArchiveFailure::UNPUBLISHED => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNPUBLISHED',
