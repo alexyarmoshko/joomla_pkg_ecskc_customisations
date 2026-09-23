@@ -31,12 +31,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidat
  * Schema, load order and the merged-set checks already live on their own classes.
  * This layer is what they cannot do: hash each payload against `sourceHash`, run
  * path policy without a live site, and warn without stopping the artefact.
- *
- * Load failures are returned alone. A file the schema rejected contributes no
- * objects, so a merged-set pass over what remains would report the author's
- * second mistake as if it were the first. The same gate applies after
- * merged-set validation: hashing a payload the set already said was missing
- * adds nothing an author can act on.
  */
 final class BuildValidator
 {

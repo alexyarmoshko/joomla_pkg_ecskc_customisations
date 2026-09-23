@@ -552,11 +552,6 @@ final class MergedSetValidatorTest extends TestCase
         }
     }
 
-    /**
-     * One object may carry several actions writing the same payload under different
-     * conditions. That is one owner, not two, and counting actions would fail the
-     * build on a shape brief 5.2 provides for.
-     */
     public function testOneObjectMayNameOnePayloadFromTwoActions(): void
     {
         $copy = '<action><operations><copy>'

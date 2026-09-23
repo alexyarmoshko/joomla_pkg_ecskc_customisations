@@ -19,11 +19,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition;
  * this host and either of those two versions - comes from nesting rather than from
  * a second element type, which is what keeps the condition language to one
  * construct with one setting.
- *
- * There is no negation operator and version 1 does not want one. Exclusion is an
- * anchored pattern, which works only because an undeterminable value faults before
- * any pattern is evaluated: negation over a value that might be missing is what
- * inverts an exclusion silently.
  */
 final class ConditionGroup
 {

@@ -15,22 +15,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report;
 /**
  * A field the report has to carry, holding either its value or the reason it has none.
  *
- * The runner contract makes this shape mandatory for the fields the walk cannot
- * always answer: "a hash might be unavailable because the file is absent or
- * unreadable, or because the package itself is at fault. In that case, the field
- * contains the reason instead of a hash. Do not omit the field." HashResult already
- * does that for digests. This does it for the rest, so the report carries no
- * nullable strings and a caller cannot skip a field by leaving it null.
- *
- * Three answers rather than two, the same split HashResult makes between an absent
- * file and one it could not read:
- *
- * - `known` is the value.
- * - `none` is a determined negative. Nothing was written at this target, and the
- *   package knows that because it read the record and found no entry.
- * - `unavailable` is a fault of the package. The event log could not be read, so
- *   whether anything was written is unknown.
- *
  * Collapsing the last two would report a site whose event log has gone missing
  * exactly like one nobody has ever written to, which sends an operator looking at
  * the wrong thing. It is the environment-value rule again: a value that cannot be

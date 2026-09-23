@@ -20,15 +20,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\RawEnv
 /**
  * Reads the raw inputs out of Joomla, and derives nothing from them.
  *
- * Deliberately the thinnest possible adapter. Anything resembling a rule -
- * stripping the administrator segment from a base URL, parsing a host out of it,
- * deciding what an empty live_site means - belongs to the core, where one
- * implementation serves both production and the tests. See decision 16.
- *
- * null means one thing only: the value could not be obtained. An empty string is
- * passed through as an empty string, because "live_site is empty, so fall back to
- * Uri::base()" is a derivation rule and those all live in the core.
- *
  * The two must stay distinguishable. The core faults on a value it cannot
  * determine and evaluates no pattern against it; substituting an empty string
  * there would quietly satisfy a negative lookahead and invert the exclusion its
@@ -54,10 +45,6 @@ final class JoomlaEnvironmentProvider implements EnvironmentProviderInterface
             return null;
         }
 
-        // Returned exactly as Joomla holds it, including an empty string. Deciding
-        // that an empty live_site means "not set, fall back to Uri::base()" is a
-        // derivation rule, and decision 16 puts every derivation rule in the core.
-        // null here means only one thing: the value could not be obtained at all.
         return \is_string($value) ? $value : null;
     }
 
@@ -78,7 +65,6 @@ final class JoomlaEnvironmentProvider implements EnvironmentProviderInterface
             return null;
         }
 
-        // Likewise raw: an empty base is the core's to interpret, not the adapter's.
         return \is_string($value) ? $value : null;
     }
 }

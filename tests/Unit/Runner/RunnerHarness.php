@@ -28,29 +28,6 @@ use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
  * The runner assembled as the service provider assembles it, over a real site tree.
- *
- * Decision 27: ticket 34's cases run through the runner rather than against the
- * pieces underneath it, because what the ticket is about is the pieces working
- * together. So only the environment provider is replaced, and it is replaced because
- * it is the one collaborator that reads Joomla instead of the filesystem. The rule
- * set is loaded from files an author could have written, the payloads are hashed from
- * bytes on disk, the lock and the log are real, and the moves are real renames.
- *
- * ## The fixture
- *
- * One target per shape the plan list names, all under `templates/et_tennis/css/`
- * except the removal, which is where the real rule set puts one:
- *
- * | Target        | Starts as   | The rule set says                          |
- * |---------------|-------------|--------------------------------------------|
- * | `vendor.css`  | the vendor's| replace it, preserving the original         |
- * | `created.css` | absent      | create it where the vendor ships nothing    |
- * | `chain.css`   | the vendor's| carry it through v1 and then v2             |
- * | `foreign.css` | edited      | replace the vendor's, which it no longer is |
- * | `comingsoon.php` | present  | remove it, preserving it first              |
- *
- * Decision 14: the fixtures carry CRLF and a missing final newline rather than being
- * tidied, because those bytes are part of a payload's identity.
  */
 abstract class RunnerHarness extends TestCase
 {
@@ -228,16 +205,6 @@ abstract class RunnerHarness extends TestCase
 
     /**
      * Every path under the tree, with its mode and its bytes. Nothing is excluded.
-     *
-     * A dry run has to change nothing at all, and "nothing" includes a mode, an
-     * empty directory and a file whose length did not change. Comparing two of these
-     * is the only assertion that covers all of it.
-     *
-     * `state/run.lock` is in it too. Reading the run state observes that file rather
-     * than acquiring it, and never creates it, so a dry run over a tree that has
-     * never been written to leaves no lock file behind - which is what ticket 34's
-     * "a dry run does not acquire the write lock" asks for, and what this comparison
-     * now proves. `lockIsFree()` still says nothing is holding one that does exist.
      *
      * @return array<string, string>
      */

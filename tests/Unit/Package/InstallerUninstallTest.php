@@ -185,11 +185,6 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
         /**
          * A component that never wrote history must not leave a guarded empty
          * folder in the site's temporary path.
-         *
-         * The tree is the one an install leaves: the three created folders with
-         * their guards and nothing else. The archive takes `run.lock` inside
-         * `state/` before it walks, decision 36, so a fresh install is a tree with
-         * those folders, not a tree with none.
          */
         public function testUninstallWithNoHistoryCreatesNoArchiveFolder(): void
         {
@@ -212,9 +207,6 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
         }
 
         /**
-         * Decision 37: the destination is requested only once history is found, so a
-         * `tmp_path` lookup that cannot run at all is never reached on this path.
-         *
          * An implementation that resolved the destination first would raise here,
          * and the operator of a component that never wrote anything would be told
          * its history could not be saved.
@@ -233,8 +225,6 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
         }
 
         /**
-         * Decision 34: the lock comes before the walk.
-         *
          * A hook that called `contents()` first would see only folder guards while a
          * write run held the lock without having published its marker yet, return
          * without trying the lock, and let Joomla delete the tree under that writer.

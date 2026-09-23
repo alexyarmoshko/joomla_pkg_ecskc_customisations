@@ -3,30 +3,6 @@
 
 declare(strict_types=1);
 
-/**
- * Authoring helper: report the sha256 and the byte shape of a file. An
- * object's <expectedHash> and a payload's <sourceHash> are taken from this
- * output (decision 24).
- *
- * Usage:  php tools/hash.php <source> [<source>...]
- *
- * A source is a filesystem path, or a chain of zip members separated by '#':
- *
- *     php tools/hash.php data/payload/templates/et_tennis/css/override.css
- *     php tools/hash.php plg_system_helixultimate_v2.2.9.zip#overrides/com_contact/contact/default_form.php
- *     php tools/hash.php pkg_communitybuilder.zip#packages/lib_CBLib.zip#CB/Legacy/CBInstallPlugin.php
- *
- * Decision 24: provenance is a <description> on the object, not a manifest. The
- * original may come from a vendor archive, from the site after an upgrade reset
- * it, or from anywhere else - this tool does not care which.
- *
- * Line endings and the final newline are part of a payload's identity
- * (decision 14), so they are reported beside the hash and belong in the
- * inventory entry with it.
- *
- * Exit 0 when every source was read, 1 on any failure.
- */
-
 if ($argc < 2) {
     fwrite(STDERR, "Usage: php tools/hash.php <source> [<source>...]\n");
     exit(1);
@@ -50,8 +26,6 @@ foreach (\array_slice($argv, 1) as $source) {
 }
 
 exit($failures > 0 ? 1 : 0);
-
-// ---------------------------------------------------------------------------
 
 /**
  * Read a source, walking '#'-separated zip members from left to right.
@@ -175,9 +149,7 @@ function lineEndings(string $bytes): string
 
 function endsWithNewline(string $bytes): bool
 {
-    // lineEndings() treats a lone CR as a legal line ending, so a file that
-    // terminates on CR has a final newline the same way one that terminates
-    // on LF or CRLF does. CRLF ends in \n and is covered by the first check.
+
     return $bytes !== ''
         && (\str_ends_with($bytes, "\n") || \str_ends_with($bytes, "\r"));
 }

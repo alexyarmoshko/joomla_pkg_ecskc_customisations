@@ -46,55 +46,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteRun;
 
 /**
  * The one entry point into the core, and the only thing a Joomla adapter talks to.
- *
- * Each responsibility stays behind it and none of them knows about the others:
- * loading, validation, environment values, path policy, hashing, the walk, and the
- * write operations. The runner puts them in order and turns what they produce into
- * one report.
- *
- * It reads the rule set from the installed package directory and from nowhere else,
- * per brief 5.4. The directory comes from PackagePaths, so the installer that
- * creates these folders and the run that reads them cannot drift apart.
- *
- * ## What it does not do
- *
- * No HTML, no redirect, no Joomla message, no request input, and no database query
- * of its own. A controller calls one of these methods and renders what comes back;
- * the operator sees the report and nothing the runner decided about presenting it.
- * The one route by which a database record may reach a run is the operational-check
- * provider that Phase 4 adds, and even then the runner is handed the raw value
- * rather than issuing the query.
- *
- * ## The seven things it can be asked to do
- *
- * `check()` reads and reports. `dryRun()` adds the write preconditions and the plan.
- * `apply()` executes that plan. `freeze()`, `unfreeze()`, `revert()` and `redo()`
- * are one-target operations that take the run lock themselves, decision 27, so the
- * runner calls them rather than wrapping them: a second acquire in the same process
- * is a second handle and would fail.
- *
- * ## The plan is a preview, never a licence
- *
- * A dry run and an apply build the plan through the same `WritePlanner`, so what the
- * operator approves is what runs. The apply then checks every precondition again
- * immediately before each operation, and `TargetWriter` decides the path a third
- * time at the move. Bytes and paths move between a preview and an execution, and
- * ticket 31 requires the path decision to be taken at the move; a plan carried
- * forward as permission is how a payload ends up written through a symbolic link
- * somebody swapped in afterwards.
- *
- * The bytes are re-read the same way, and against the state the walk recognised
- * rather than against nothing: an apply that took whatever it found as the permitted
- * pre-state would back up and overwrite an edit made after the walk. The apply's own
- * report carries the plan it executed, line by line, with what each operation
- * displaced and where its backup went.
- *
- * ## Recovery is an ordinary run
- *
- * Brief decision 16: the package resumes through the ordinary check-and-apply
- * process. So there is no repair command here. Every write run settles what an
- * interrupted one left before it does its own work, through `WriteRun`, and the
- * outcome of that settlement is on the report.
  */
 final class Runner
 {
@@ -174,12 +125,6 @@ final class Runner
 
     /**
      * Read the state of every managed path and report it. Writes nothing.
-     *
-     * The core owns the operational-checks section, not the adapter. Phase 1
-     * defines no check, so the section is present and empty. Phase 4 injects the
-     * raw-value provider and adds the single core-owned raw-value-to-outcome
-     * mapping here, before the report is composed, and the report shape does not
-     * move.
      */
     public function check(): RunReport
     {
@@ -282,13 +227,8 @@ final class Runner
             }
         );
 
-        // A refusal that never reached a target is the lock, recovery or the marker,
-        // and it is the whole of what happened, so it is a fault about the run. A
-        // refusal at one target is that target's, and it stays on that line: a
-        // blocked file is the site's state, not a fault in the package. A run that
-        // changed targets and then could not remove its marker is the first kind
-        // again: the extra sentence is not on any target, and dropping it would
-        // leave the next run reporting an interruption this one never mentioned.
+        // Lock, recovery, and marker failures have no target line. Keep them in
+        // run faults so the report does not hide an outstanding interruption.
         return $this->reportAfterWriting(
             $targetPath,
             $outcomes,
@@ -339,8 +279,6 @@ final class Runner
     }
 
     /**
-     * One single-target operation that takes the run lock itself, decision 27.
-     *
      * The rule set is loaded first, because a set that does not load is a fault about
      * the package and not something to take a lock for. The report is composed from a
      * walk taken **after** the operation, so it shows the target as it now is.
@@ -467,16 +405,6 @@ final class Runner
     /**
      * Perform every target's plan, in the order the walk produced them.
      *
-     * ## The run stops at the first target that leaves an intent outstanding
-     *
-     * `state/write.intent` holds one record, published by atomic rename, and
-     * decision 32 lets it disappear only once its own mutation event, its
-     * confirmed-failure event, or a recovery event for its correlation id is
-     * committed. A later target that published its intent over an outstanding one
-     * would destroy the only record from which recovery could reconstruct the
-     * earlier mutation - which may already have happened on disk with no event to
-     * name it. So the run goes no further, and the targets it did not reach say so.
-     *
      * @param list<TargetState>                     $states
      * @param array<string, list<PlannedOperation>> $performed Filled with the plan
      *                                                         each target executed.
@@ -522,9 +450,6 @@ final class Runner
     {
         $refusal = $this->guard->refusal($state->targetPath);
 
-        // Asked under the lock, and asked again here rather than trusted from the
-        // walk: a freeze that returned between the two has to exclude this write,
-        // decision 30, and the walk ran before the lock was taken.
         if ($refusal !== null) {
             return $this->refuseTarget($state, $plan, WriteOutcome::refused($refusal));
         }
@@ -572,26 +497,6 @@ final class Runner
 
     /**
      * Each operation in turn, each one re-checked against the tree as it is now.
-     *
-     * The chain stops at the first operation that does not complete. Carrying on
-     * would apply version 3 over bytes version 2 never reached, which is the one
-     * thing a cumulative chain must not do.
-     *
-     * ## The pre-state is checked, not only the preconditions
-     *
-     * `$expected` is the state each operation is entitled to replace: for the first,
-     * the bytes the walk read and recognised; after that, whatever its predecessor
-     * left. The digest read here is compared with it before anything is written.
-     * Without that comparison an apply would take whatever it found as permission,
-     * and an edit somebody made between the walk and the lock would be backed up and
-     * overwritten - which is the one thing ticket 34 refuses, and the walk cannot
-     * refuse it on its own because it ran before the lock was taken.
-     *
-     * ## A step already in place does not undo a step this run wrote
-     *
-     * When the target advances under the chain after one of its steps wrote, the
-     * outcome stays that write. Replaced by "nothing was written", it would deny a
-     * backup this run made and count the target as unchanged in the run summary.
      *
      * @param list<PlannedOperation> $plan    Filled with what this chain executed.
      * @param list<string>           $backups Filled with the backups its operations
@@ -729,11 +634,6 @@ final class Runner
      * A plan that simply ended at the failure would read as a two-step chain with one
      * step, and an operator would have no way to see that version 2 is still owed.
      *
-     * An earlier step that wrote keeps the target changed. The refusal or fault
-     * that stopped the chain is still what the outcome reports, but a run summary
-     * that counted the target as unchanged would contradict the backup and the
-     * event the earlier step left.
-     *
      * @param list<PlannedOperation> $plan
      * @param PlannedOperation|null  $stopped The line that refused, when the refusal
      *                                        is the line's own rather than a fault
@@ -833,16 +733,6 @@ final class Runner
 
     /**
      * What is at the target right now: its digest, its absence, or why neither.
-     *
-     * Read immediately before each operation, never carried from the walk. The
-     * previous operation in this chain has just changed it, and an outside writer may
-     * have changed it too.
-     *
-     * The three answers stay apart, the way `HashResult` keeps them apart everywhere
-     * else. Collapsed into a nullable digest, "a file nobody can read" and "nothing
-     * is there" land on the same plan line, and that line then says the operation
-     * displaces nothing and needs no backup while the write layer refuses it for the
-     * opposite reason.
      */
     private function currentState(ProposedOperation $operation): HashResult
     {
@@ -1040,11 +930,6 @@ final class Runner
 
     /**
      * What one operation did, as the report's outcome field.
-     *
-     * A revert that succeeded carries decision 19's warning, and it belongs on the
-     * line with the operation rather than among the run's faults: the operation was
-     * not a fault, and a report that counted it as one would tell an operator their
-     * revert had failed.
      */
     private static function outcomeValue(?WriteOutcome $outcome): ?ReportedValue
     {

@@ -26,17 +26,11 @@ use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
- * Run against a real temporary site tree, as decision 6 requires.
- *
  * Every status here is produced from bytes actually on disk. A stubbed hasher would
  * make the walk agree with whatever the test asserted, which is the one thing these
  * tests must not be able to do: the whole status model is a comparison between the
  * file's own bytes and two declared hashes, so a test that supplies the comparison
  * result tests nothing.
- *
- * Rules go in through RuleLoader rather than being constructed as objects. It costs
- * a few lines and buys the guarantee that the shapes asserted here are shapes an
- * author can actually write.
  */
 #[CoversClass(ObjectWalker::class)]
 #[CoversClass(WalkContext::class)]
@@ -63,9 +57,6 @@ final class ObjectWalkerTest extends TestCase
         $this->tree->remove();
     }
 
-    // The site's own bytes. CRLF and the missing final newline are deliberate:
-    // decision 14 makes them part of a payload's identity, and a helper that tidied
-    // them would hash something the site does not hold.
     private const ORIGINAL = "body { color: red; }\r\n.a { top: 0 }";
     private const FIRST    = "body { color: blue; }\r\n.a { top: 0 }";
     private const SECOND   = "body { color: green; }\r\n.a { top: 1 }";
@@ -327,11 +318,6 @@ final class ObjectWalkerTest extends TestCase
         self::assertFalse($state->objectOutcomes()[0]->gatesLaterObjects);
     }
 
-    /**
-     * Brief section 6: the Community Builder customisation is excluded from
-     * production by an anchored host condition. On production it has to read as
-     * "does not apply here", every run, and never as a fault of the rule set.
-     */
     public function testAnObjectExcludedFromThisHostIsNotApplicable(): void
     {
         $this->tree->write('templates/et_tennis/css/staging-only.css', self::ORIGINAL);
@@ -529,13 +515,6 @@ final class ObjectWalkerTest extends TestCase
         self::assertStringContainsString('switched off', $state->reason);
     }
 
-    /**
-     * Brief 5.2: disabling the head of a chain "is exactly the intended use", and the
-     * build warns only where a disabled object is not the last at its path, "since
-     * that is the only shape in which this bites". The switched-off revision appears
-     * in the account with its reason; it does not make the rule set incomplete.
-     * Review s1.v26, spec finding 2.
-     */
     public function testADisabledHeadIsHowACustomisationIsSwitchedOff(): void
     {
         $this->tree->write('templates/et_tennis/css/gap.css', self::FIRST);
@@ -566,10 +545,6 @@ final class ObjectWalkerTest extends TestCase
         self::assertFalse($state->objectOutcomes()[1]->gatesLaterObjects);
     }
 
-    /**
-     * The qualifier says which kind of skip, and a caller that switches on the status
-     * needs no case for either: both are `ok`, which decision 8 does not notify about.
-     */
     public function testASkippedHeadKeepsTheStatusInTheClosedVocabulary(): void
     {
         $this->tree->write('templates/et_tennis/css/gap.css', self::FIRST);
@@ -926,10 +901,6 @@ final class ObjectWalkerTest extends TestCase
         self::assertCount(1, $underlying->operations());
     }
 
-    /**
-     * Decision 40: the package tree holds no symbolic links, so a marker that is one
-     * holds nothing, dangling or not. This replaces review s1.v24's rule.
-     */
     public function testAMarkerThatIsADanglingSymbolicLinkDoesNotHoldThePath(): void
     {
         $this->tree->write('templates/et_tennis/css/held.css', self::ORIGINAL);
@@ -950,12 +921,6 @@ final class ObjectWalkerTest extends TestCase
         self::assertCount(1, $state->operations());
     }
 
-    /**
-     * Ticket 13's third acceptance clause, carried here because it cannot be proven
-     * where it was written. ConditionEvaluator has no filesystem and can only answer
-     * that the outcome faulted; that the file is then left alone is this walk's
-     * promise, and this is where a real tree can watch it being kept.
-     */
     public function testAnObjectWhoseConditionsFaultedProposesNothingAndChangesNoFile(): void
     {
         $this->tree->write('templates/et_tennis/css/undetermined.css', self::ORIGINAL);

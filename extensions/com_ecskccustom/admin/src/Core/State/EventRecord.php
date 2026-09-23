@@ -19,42 +19,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 /**
  * One line of the event log: what happened, where, and who is said to have done it.
  *
- * Brief 5.6 needs the log to answer two questions the site's own files cannot. The
- * first is when the package last wrote at a path, which wants a time, a target and
- * an outcome. The second is durable mutation and recovery history: writes, removals,
- * reverts, redos, freeze and unfreeze changes, failures after intent publication,
- * and recovery outcomes. Checks, dry runs, ordinary skips and pre-intent faults stay
- * only in the current report.
- *
- * A record says the package, or recovery, found a target in one state
- * and left it in another. Decision 32 makes the pre-state, the post-state and the
- * correlation id mandatory there: recovery matches a leftover intent on the id, and
- * compares the current bytes with those two states to decide whether the mutation
- * happened. A record missing any of the three cannot be settled by anything.
- * The factory validates. A caller that mislabels a record is a bug, and a bug that
- * reached the log would be durable: the log is never truncated or rewritten.
- *
- * ## Attribution
- *
  * `package` means this process performed the mutation and saw it complete. `observed`
  * means recovery found the world in a state consistent with the mutation, decision
  * 32. The run lock does not exclude an outside writer, so byte equality after a crash
  * is evidence about the file and not a claim about who wrote it. The distinction is
  * on the record rather than inferred at read time, because only the process that
  * wrote the record knew which it was.
- *
- * ## Reading is more permissive than writing
- *
- * `fromPayload()` accepts a kind this version does not define and ignores keys it
- * does not know. A log written by a later release is then still history a reader can
- * use, rather than a file of damaged records. `EventLog` will not append that unknown
- * kind. A kind this version does define must
- * still carry that kind's full contract: a committed object labelled `write` with
- * no operation, states or correlation id is not a write, it is a damaged record.
- * Structure is still required, so a line that is merely valid JSON does not become
- * a record.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class EventRecord
 {
@@ -64,12 +34,6 @@ final class EventRecord
      * `write` and `remove` are the two target mutations, `revert` and `redo` the two
      * steps along the backup and payload chain. `freeze` and `unfreeze` mutate the
      * marker beside a target's backups rather than the target.
-     *
-     * The last three are decision 32's unsettled mutations. `mutation-failed` is a
-     * mutation that reported failure with the target still in its pre-state.
-     * `intent-abandoned` is a leftover intent whose mutation recovery found had not
-     * happened. `unresolved-intent` is one whose target matches neither state, which
-     * is the only case that leaves the run marker behind.
      */
     public const WRITE             = 'write';
     public const REMOVE            = 'remove';
@@ -83,10 +47,6 @@ final class EventRecord
 
     /**
      * The kinds that carry a correlation id, a pre-state and a post-state.
-     *
-     * Exactly the list in ticket 29: every write, freeze, unfreeze, revert, redo,
-     * mutation-failed, intent-abandoned and unresolved-intent event. A removal is a
-     * write of absence and belongs with them.
      */
     public const MUTATIONS = [
         self::WRITE,
@@ -133,10 +93,6 @@ final class EventRecord
 
     /**
      * The two states a file target takes, beside a sha256 digest of its bytes.
-     *
-     * A freeze marker is `ABSENT` or `PRESENT`, where present is any shape
-     * `FreezeMarkers::isFrozen()` treats as frozen, decision 32. Freeze-marker state
-     * is never a digest, which is why neither-state recovery cannot arise for one.
      */
     public const ABSENT  = 'absent';
     public const PRESENT = 'present';
@@ -262,11 +218,6 @@ final class EventRecord
     /**
      * The record as the log and the write intent carry it.
      *
-     * Keys are written in a fixed order and absent keys are left out, so two records
-     * of the same event encode to the same bytes. The intent stores this payload
-     * whole, decision 32, which is what lets recovery append the event the crashed
-     * run did not: the same bytes, re-attributed as observed.
-     *
      * @return array<string, string>
      */
     public function toPayload(): array
@@ -317,11 +268,6 @@ final class EventRecord
 
     /**
      * The same record with recovery's attribution and nothing else changed.
-     *
-     * Decision 32: a recovered completion is attributed as observed, never as a
-     * package write. The timestamp stays the one the crashed run recorded, because
-     * that is when the mutation happened; recovery's own clock would date the event
-     * to the recovery instead.
      */
     public function asObserved(): self
     {
@@ -471,10 +417,6 @@ final class EventRecord
 
     /**
      * A known kind carries only the operation that kind records.
-     *
-     * Recovery kinds keep the original operation. `mutation-failed` and
-     * `intent-abandoned` therefore accept any of them. `unresolved-intent` is a
-     * file-target case, decision 32, so it does not keep a freeze-marker operation.
      */
     private static function operationFitsKind(string $kind, string $operation): bool
     {

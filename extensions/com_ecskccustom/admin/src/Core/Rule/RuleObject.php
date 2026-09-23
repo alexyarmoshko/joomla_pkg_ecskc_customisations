@@ -15,26 +15,11 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule;
 /**
  * One file at one revision, as the rule set declares it.
  *
- * Brief 5.2: objects are cumulative. Several objects may share a target path -
- * successive revisions of a package-owned customisation, or alternative baselines
- * for different vendor builds - and a run makes one forward pass over them in
- * document order.
- *
- * ## Two spellings of one target
- *
  * `destPathFileName` may be written relative to the enclosing root or absolute
  * from the web root, and both are legal syntax. `targetPath` is the canonical
  * form both spellings reduce to: root-relative, no leading slash. `absoluteForm`
  * records which spelling produced it, because naming one target both ways is an
  * authoring fault the merged set reports rather than silently resolves.
- *
- * Joining root and destination needs no normalisation: the schema already refuses
- * backslashes, empty segments, and "." or ".." segments, so the two parts can only
- * be concatenated.
- *
- * `hashType` travels with the object rather than the file. Every hash the object
- * carries is written in that algorithm, so whatever hashes them later needs no
- * second lookup to find out which one.
  */
 final class RuleObject
 {

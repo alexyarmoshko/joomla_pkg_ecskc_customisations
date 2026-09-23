@@ -86,7 +86,6 @@ final class EventLogTest extends TestCase
         self::assertTrue($log->append($this->write()));
         self::assertFileExists($log->path());
 
-        // A completed run reads its own log and leaves it where it is.
         $log->read();
 
         self::assertFileExists($log->path());
@@ -141,8 +140,6 @@ final class EventLogTest extends TestCase
     }
 
     /**
-     * Every mutation kind the brief names, including the ones nothing else records.
-     *
      * @return array<string, array{0: EventRecord}>
      */
     public static function everyRecordedMutation(): array
@@ -303,8 +300,6 @@ final class EventLogTest extends TestCase
 
         self::assertTrue($log->append($this->write()));
 
-        // What a process that died mid-record leaves: a tail with no LF and, here, not
-        // even a whole JSON object.
         \file_put_contents($this->paths->eventLog(), '{"event":"write","at":"2026-', \FILE_APPEND);
 
         $read = $log->read();
@@ -332,7 +327,6 @@ final class EventLogTest extends TestCase
         self::assertCount(1, $before->records());
         self::assertCount(1, $before->recordFaults());
 
-        // The next append seals the line with LF and writes its own record after it.
         self::assertTrue($log->append($this->write('c3d4e5f6c3d4e5f6c3d4e5f6c3d4e5f6')));
 
         $after = $log->read();
@@ -487,7 +481,7 @@ final class EventLogTest extends TestCase
 
     public function testALogThatCannotBeReadIsAFaultAndNotAnEmptyHistory(): void
     {
-        // A directory at the path: present, and no reader can parse it.
+
         \mkdir($this->paths->eventLog(), 0755);
 
         $read = $this->log()->read();

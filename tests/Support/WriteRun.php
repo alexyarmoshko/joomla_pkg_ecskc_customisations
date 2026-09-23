@@ -14,17 +14,6 @@ use RuntimeException;
  * while another process looks at the tree is the second. A run refused because a
  * run-state read holds the lock is the third, and it needs the read to be the one
  * in the other process.
- *
- * An exclusive lock per event-log append is the fourth: two appends inside one process
- * are serial whatever the lock does.
- *
- * The children are tests/Support/write_run.php, tests/Support/state_read.php,
- * tests/Support/hold_fifo.php and tests/Support/log_append.php. The first three report
- * one line once they are where the test needs them, so a test never inspects the tree
- * before the child has finished arranging it. The appender reports nothing and runs to
- * completion instead, because what a test needs there is two children working at the
- * same time rather than one holding still; wait() is how it collects them. Nothing here
- * waits without a deadline, and kill() ends the child however it is blocked.
  */
 final class WriteRun
 {
@@ -155,9 +144,7 @@ final class WriteRun
             $error .= (string) \fread($this->pipes[2], 1024);
 
             if (!$status['running']) {
-                // Drained after the exit, not before it: a message written in the
-                // child's last moments is the one a failing test most needs, and the
-                // read above can easily have run just before it.
+
                 $error .= (string) \stream_get_contents($this->pipes[2]);
 
                 foreach ($this->pipes as $pipe) {
@@ -231,8 +218,6 @@ final class WriteRun
 
         \proc_terminate($this->process, \SIGKILL);
 
-        // proc_close waits for the process, so the lock is released by the time
-        // this returns and a test does not have to poll for it.
         foreach ($this->pipes as $pipe) {
             \fclose($pipe);
         }

@@ -115,10 +115,6 @@ final class ConditionEvaluatorTest extends TestCase
         ])->isMatched());
     }
 
-    /**
-     * The exclusion from brief section 6, doing its job: everywhere except
-     * production.
-     */
     public function testAnAnchoredExclusionExcludesTheHostItNames(): void
     {
         $group = new ConditionGroup(ConditionGroup::ALL, [
@@ -285,8 +281,7 @@ final class ConditionEvaluatorTest extends TestCase
             'explicit equality'       => ['5.4.7', '==5.4.7', true],
             'inequality'              => ['5.4.7', '!=5.4.6', true],
             'spaced constraint'       => ['5.4.7', '>= 5.4.0', true],
-            // 5.10 sorts before 5.9 as text and after it as a version. This is the
-            // whole reason version is a type of its own.
+
             'ten sorts above nine'    => ['5.10.0', '>5.9.0', true],
             'nine sorts below ten'    => ['5.9.0', '>5.10.0', false],
         ];
@@ -333,9 +328,7 @@ final class ConditionEvaluatorTest extends TestCase
                 new RuleCondition(RuleCondition::VERSION, EnvironmentValues::JOOMLA_VERSION, 'latest'),
                 'does not name a version',
             ],
-            // These begin with a digit, so a first-character check passes them through
-            // to version_compare, which compares anything at all: each of them is
-            // satisfied by 5.4.7 under >=. Matching is the direction that writes a file.
+
             'digits and then a word' => [
                 new RuleCondition(RuleCondition::VERSION, EnvironmentValues::JOOMLA_VERSION, '>=5banana'),
                 'does not name a version',
@@ -446,10 +439,10 @@ final class ConditionEvaluatorTest extends TestCase
             'three parts'            => ['>=5.4.0'],
             'a prerelease suffix'    => ['>=5.4.7-rc1'],
             'a digit-led build'      => ['>=1.0.0+5'],
-            // What PHP_VERSION actually holds on a distribution build.
+
             'a distribution build'   => ['>=8.1.2-1ubuntu2.14'],
             'a debian revision'      => ['>=8.2.28-1~deb12u1'],
-            // PHP spells its own prereleases with no separator at all.
+
             'a php prerelease'       => ['>=8.4.0RC1'],
         ];
     }
@@ -489,8 +482,6 @@ final class ConditionEvaluatorTest extends TestCase
             self::assertStringContainsString($introducer, $reason);
         }
 
-        // And the grammar really does accept each of them, so the message is not
-        // merely self-consistent.
         $sound = new ConditionGroup(ConditionGroup::ALL, [
             self::condition(EnvironmentValues::PHP_VERSION, '>=1.0', RuleCondition::VERSION),
         ]);
@@ -509,7 +500,7 @@ final class ConditionEvaluatorTest extends TestCase
     public static function environmentValuesThatAreNotVersions(): array
     {
         return [
-            // What a fork or a dev build can report where a version was expected.
+
             'a word'                    => ['Unknown'],
             'a name and a number'       => ['Joomla 5'],
             'digits and then a word'    => ['5banana'],
@@ -531,8 +522,7 @@ final class ConditionEvaluatorTest extends TestCase
             'a control-panel build'        => ['7.4.33-nmm1'],
             'a patched build'              => ['8.2.0-suhosin'],
             'a shouted state after a dash' => ['5.4.7-PL1'],
-            // Semver build metadata means "the same release"; version_compare sorts
-            // it below. Neither Joomla nor PHP emits it.
+
             'semver build metadata'        => ['1.0.0+build.5'],
             'a dotted part that is a word' => ['5.4foo'],
         ];
@@ -677,21 +667,16 @@ final class ConditionEvaluatorTest extends TestCase
             '8.3.6',
             '8.1.2-1ubuntu2.14',
             '6.0.0-alpha1',
-            // Debian and deb.sury.org put "~" where Ubuntu puts "+", from the same
-            // packaging mechanism. Refusing it faulted every version-typed condition
-            // on such a host - the value grammar has to be at least as permissive as
-            // what a build can report. Review s1.v17, finding 1.
+
             '8.2.28-1~deb12u1',
             '8.3.6-1+0~20240113.40+debian11~1.gbpa1234',
-            // PHP_VERSION on a prerelease runtime, where the state follows the last
-            // numeric part with nothing between them. Refusing these faulted every
-            // version-typed condition on such a host. Review s1.v19, finding 3.
+
             '8.4.0RC1',
             '8.4.0beta1',
             '8.4.0alpha2',
             '8.5.0-dev',
             '8.4.0rc1',
-            // Post-release states, which sort above the plain version.
+
             '5.4.7pl1',
             '5.4.7p1',
         ];
@@ -744,7 +729,7 @@ final class ConditionEvaluatorTest extends TestCase
         self::assertStringContainsString('could not be evaluated', $outcome->reasons[0]);
         self::assertStringContainsString($expected, $outcome->reasons[0]);
         self::assertStringNotContainsString('Internal error', $outcome->reasons[0]);
-        // The report is read by an operator, not by someone debugging PHP.
+
         self::assertStringNotContainsString('preg_match():', $outcome->reasons[0]);
     }
 

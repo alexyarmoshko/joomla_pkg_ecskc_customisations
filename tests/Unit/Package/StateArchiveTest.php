@@ -31,10 +31,6 @@ final class StateArchiveTest extends TestCase
 
     /**
      * The package tree with the folders the installer creates already in place.
-     *
-     * `archive()` takes `run.lock` inside `state/`, so a tree without that folder
-     * would fail every case with a lock it could not open. An installed component
-     * always has the three folders, decision 25 of `PackagePaths::CREATED_FOLDERS`.
      */
     private function paths(): PackagePaths
     {

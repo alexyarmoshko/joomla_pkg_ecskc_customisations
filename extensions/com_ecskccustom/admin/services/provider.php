@@ -45,11 +45,6 @@ return new class () implements ServiceProviderInterface {
     /**
      * Registers the service provider with a DI container.
      *
-     * The core collaborators are registered here rather than constructed where they
-     * are used, so a test can replace any one of them - above all the environment
-     * provider, which is the only route by which Joomla's own values reach the
-     * derivation the core owns (decision 16).
-     *
      * The runner is the only one of these an adapter resolves. It is registered
      * against its own class rather than an interface because there is one of it;
      * what a test replaces is a collaborator underneath it, above all the

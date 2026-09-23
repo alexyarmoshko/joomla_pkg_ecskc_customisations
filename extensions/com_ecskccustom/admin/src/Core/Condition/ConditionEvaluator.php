@@ -17,39 +17,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\Enviro
 /**
  * Decides whether an action's conditions hold in this environment.
  *
- * ## A fault anywhere faults the whole outcome
- *
- * Every member of every group is evaluated - there is no short circuit - and if any
- * attribute could not be determined, the outcome is `faulted` however the rest came
- * out. Two reasons.
- *
- * The governing rule is to act only when the result is certain. An `any` group with
- * one matching member and one undeterminable one is not certain: the package cannot
- * say what the rule set asked it to say, and an operator who is never told that an
- * attribute was unreadable cannot fix it.
- *
  * And short-circuiting would make the outcome depend on the order the members are
  * written in - the same rule set faulting on one site and applying on another
  * because the author happened to put the host condition second. Evaluating
  * everything makes the answer a property of the environment alone.
- *
- * The cost is real and deliberate: a group that would have matched anyway now
- * reports `faulted` and writes nothing until the environment is fixed. That is the
- * side to fail on for a tool that rewrites files on a live site.
- *
- * ## No pattern is evaluated against an undeterminable value
- *
- * A faulted attribute never reaches `preg_match` or `version_compare`. The empty
- * string satisfies `^(?!ecskc\.eu$).*$`, so evaluating the pattern anyway - even to
- * discard the result - is one refactor away from applying the Community Builder
- * licence-bypass customisation on production. Brief section 6 records that case.
- *
- * ## A pattern that cannot be judged is a fault too
- *
- * An uncompilable expression, a comparison that exhausts PCRE's backtrack limit,
- * an unknown condition type, an unparseable version constraint: each is answered
- * with a fault rather than with false. False is a claim about the environment, and
- * none of these knows anything about the environment.
  */
 final class ConditionEvaluator
 {
@@ -72,28 +43,6 @@ final class ConditionEvaluator
      * once it has started. A suffix is introduced by `-`, `_`, `+` or `~`, or by
      * nothing at all where it opens with a version state, as PHP spells a prerelease
      * in `PHP_VERSION`: `8.4.0RC1`.
-     *
-     * **The grammar admits only what `version_compare` can order in a direction the
-     * author can reason about**, which is narrower than "looks like a version". Its
-     * first suffix part decides the direction against the plain release, and there
-     * are two parts it orders and one it does not:
-     *
-     * - A digit-led part sorts **above** the release, which is what a distribution
-     *   revision means: `8.1.2-1ubuntu2.14` and `8.2.28-1~deb12u1` are 8.1.2 and
-     *   8.2.28 with packaging on top.
-     * - One of `version_compare`'s own states - `dev`, `alpha`, `a`, `beta`, `b`,
-     *   `RC`, `rc`, `pl`, `p`, spelled in that case - sorts where the state says.
-     * - **Anything else sorts below the release**, and that is the direction that
-     *   writes. `8.2.0-ubuntu1`, `7.4.33-nmm1`, `8.2.0-zend1` and `5.4.7-PL1` are
-     *   each *at* their release, and each satisfies a ceiling of `<8.2.0`, `<7.4.33`
-     *   or `<5.4.7` - a ceiling written to keep a workaround off exactly those hosts.
-     *   `PL` is not `pl` to `version_compare`, which reads it as an arbitrary string.
-     *   So they fault, which an operator sees, rather than comparing backwards, which
-     *   nobody sees.
-     *
-     * `.` never introduces a suffix. Allowing it let `5.4banana` backtrack into the
-     * version `5` with the suffix `.4banana`, which `version_compare` is satisfied by
-     * under `>=5.4.7`.
      *
      * The `-` sits last inside each class. Written as `[._+-~]` it would be the range
      * `+` to `~`, which is most of ASCII.
@@ -132,9 +81,7 @@ final class ConditionEvaluator
     private function group(ConditionGroup $group, EnvironmentValues $values, array &$faults): bool
     {
         if ($group->members === []) {
-            // Unreachable through the schema, which requires at least one member. An
-            // empty group has no honest answer - vacuously true under "all", false
-            // under "any" - so it is not given one.
+
             $faults[] = 'a condition group has no members, so what it asks cannot be determined';
 
             return false;
@@ -240,16 +187,8 @@ final class ConditionEvaluator
         // so an exclusion written as ^(?!host$).*$ means what its author read.
         $expression = $delimiter . $condition->operand . $delimiter . 'D';
 
-        // The warning is captured rather than suppressed. On a *compilation* failure
-        // preg_last_error() stays at PREG_INTERNAL_ERROR, so preg_last_error_msg()
-        // says only "Internal error" - and compilation is where the likely authoring
-        // mistake is. The warning is the one place PCRE names the cause and the
-        // offset: "Compilation failed: missing closing parenthesis at offset 9". A
-        // fault an author cannot locate is a fault they cannot fix.
-        //
-        // Runtime failures are unaffected and still read from preg_last_error_msg():
-        // exhausting the backtrack limit raises no warning, and security review v2
-        // measured that path reporting "Backtrack limit exhausted".
+        // Compilation warnings include the pattern offset; preg_last_error_msg()
+        // reports only "Internal error" for that case.
         $warning = null;
 
         \set_error_handler(static function (int $severity, string $message) use (&$warning): bool {

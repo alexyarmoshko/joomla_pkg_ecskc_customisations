@@ -17,10 +17,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
 /**
  * What the run artefacts say about the tree at one moment.
  *
- * The phase is brief 5.6's table. The rest is what a report needs beside it: when
- * the interrupted run began, whether a mutation was left in flight, and any fault
- * found while reading either record.
- *
  * A leftover intent is only meaningful with a free lock. While the lock is held the
  * record may belong to the holder's mutation of a moment ago, and calling that
  * leftover would have a healthy run recovering from itself.
@@ -41,8 +37,6 @@ final class RunState
     private const NO_EARLIER_RUN = 'a write run is in progress, so no earlier run is outstanding';
 
     /**
-     * A run holds the lock. Nothing else was inspected, decision 34.
-     *
      * A fault is passed when the lock could not even be asked. The phase stays
      * `live` because that is the safe direction: it keeps a caller from treating a
      * tree it cannot read as clean, and from recovering from an interruption that
@@ -96,9 +90,6 @@ final class RunState
 
     /**
      * Was a mutation left in flight, with an event that may never have been recorded?
-     *
-     * Only ever true with a free lock. Ticket 34's recovery settles the record; this
-     * says one is there to settle.
      */
     public function hasLeftoverIntent(): bool
     {

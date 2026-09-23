@@ -22,14 +22,6 @@ use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
 
 /**
- * Plan work items 5, 6 and 7 through the runner: what a run makes of a dead one.
- *
- * Brief decision 16 says the package resumes through the ordinary check-and-apply
- * process, so every case here is an ordinary `apply()` over a tree that a run died
- * in the middle of. There is no repair command to call.
- *
- * ## How a death is staged
- *
  * A run marker and a `state/write.intent` with a known correlation id are exactly
  * what a process that died between two steps leaves behind, so most cases write
  * those two files and then run. The cases that need a lock released by a real death,
@@ -92,10 +84,6 @@ final class RecoveryTest extends RunnerHarness
         self::assertTrue($this->lockIsFree());
     }
 
-    /**
-     * Ticket 28's three states, read through the runner: a marker with a free lock is
-     * an interruption, and the lock has to be free for it to be one.
-     */
     public function testAnInterruptedMarkerIsReportedOnceTheLockIsReleased(): void
     {
         $this->writeFixture();
@@ -166,8 +154,6 @@ final class RecoveryTest extends RunnerHarness
     {
         $this->writeFixture();
 
-        // What a run that died between two targets leaves: a marker, no intent, and
-        // a staged copy nobody moved.
         $this->seedMarker();
         $abandoned = $this->paths()->staging() . '/'
             . PackagePaths::publicationTemporaryName('vendor.css', 'aaaaaaaaaaaa');
@@ -200,9 +186,6 @@ final class RecoveryTest extends RunnerHarness
         $this->assertRunCompleted();
     }
 
-    /**
-     * Decision 32 case 1: the intent was published and the mutation never happened.
-     */
     public function testADeathBeforeACreateLeavesTheTargetAloneAndRecordsAnAbandonedIntent(): void
     {
         $this->writeFixture();
@@ -228,14 +211,10 @@ final class RecoveryTest extends RunnerHarness
         self::assertSame(EventRecord::OBSERVED, $recovered[0]['by']);
         self::assertTrue($report->wasInterrupted());
 
-        // And the run then does the work itself, which is a write of its own.
         self::assertSame(self::FIRST, \file_get_contents($this->tree->path(self::CREATED)));
         $this->assertRunCompleted();
     }
 
-    /**
-     * Decision 32 case 3: the mutation happened and its event did not.
-     */
     public function testADeathAfterACreateAndBeforeTheEventCompletesTheLogAsObserved(): void
     {
         $this->writeFixture();
@@ -266,10 +245,6 @@ final class RecoveryTest extends RunnerHarness
         $this->assertRunCompleted();
     }
 
-    /**
-     * Decision 32 case 4, and the reason recovery matches on the correlation id: an
-     * older identical transition at the same target is not this intent's event.
-     */
     public function testADeathAfterTheEventRemovesTheIntentWithoutASecondRecord(): void
     {
         $this->writeFixture();
@@ -351,9 +326,6 @@ final class RecoveryTest extends RunnerHarness
         );
     }
 
-    /**
-     * Decision 32 case 1 for a no-copy removal: the target is still there.
-     */
     public function testADeathBeforeANoCopyRemovalRecordsAnAbandonedIntent(): void
     {
         $this->writeNoCopyRemoval('noremove0001');
@@ -366,7 +338,6 @@ final class RecoveryTest extends RunnerHarness
         self::assertSame(EventRecord::OBSERVED, $recovered[0]['by']);
         self::assertTrue($report->wasInterrupted());
 
-        // The run then removes the file itself, under its own intent and event.
         $own = \array_values(\array_filter(
             $this->events(),
             static fn (array $record): bool => ($record['id'] ?? null) !== 'noremove0001'
@@ -380,9 +351,6 @@ final class RecoveryTest extends RunnerHarness
         $this->assertRunCompleted();
     }
 
-    /**
-     * Decision 32 case 3 for a no-copy removal: the file is gone and the event is not.
-     */
     public function testADeathAfterANoCopyRemovalCompletesTheLogAsObserved(): void
     {
         $this->writeNoCopyRemoval('noremove0002');
@@ -402,9 +370,6 @@ final class RecoveryTest extends RunnerHarness
         $this->assertRunCompleted();
     }
 
-    /**
-     * Decision 32 case 4 for a no-copy removal, with an earlier identical transition.
-     */
     public function testADeathAfterANoCopyRemovalEventRemovesTheIntentWithoutASecondRecord(): void
     {
         $this->writeNoCopyRemoval('noremove0003');
@@ -451,7 +416,6 @@ final class RecoveryTest extends RunnerHarness
             self::digest(self::FIRST)
         );
 
-        // Somebody else writes exactly those bytes while nothing holds the lock.
         $this->tree->write(self::CREATED, self::FIRST);
 
         $this->runner()->apply();
@@ -480,7 +444,6 @@ final class RecoveryTest extends RunnerHarness
             self::digest(self::FIRST)
         );
 
-        // The package moved the payload in, and somebody put the original back.
         $this->tree->write(self::VENDOR, self::ORIGINAL);
 
         $this->runner()->apply();
@@ -493,8 +456,6 @@ final class RecoveryTest extends RunnerHarness
     }
 
     /**
-     * Decision 35: neither state, so the package says so and keeps the marker.
-     *
      * "Keeps" is for the length of this run. The stale marker is replaced by the
      * run's own, by atomic rename, so a death before the run finishes is still an
      * interruption - and the ticket's own test list requires that a run which does
@@ -513,7 +474,6 @@ final class RecoveryTest extends RunnerHarness
             self::digest(self::FIRST)
         );
 
-        // Neither what the mutation was to replace nor what it was to leave.
         $this->tree->write(self::VENDOR, self::FOREIGN);
 
         $report = $this->runner()->apply();
@@ -538,8 +498,6 @@ final class RecoveryTest extends RunnerHarness
     }
 
     /**
-     * And a death inside that window is an interruption of its own, decision 35.
-     *
      * The run settles the neither-state, publishes its own marker over the stale one
      * and then dies before it finishes. What it leaves is a marker and no intent,
      * which is what makes the next apply recover rather than read a clean history.
@@ -559,8 +517,7 @@ final class RecoveryTest extends RunnerHarness
         $this->tree->write(self::VENDOR, self::FOREIGN);
 
         try {
-            // Staging happens before any intent is published, so this is the window
-            // the ticket names: settled, under way, and nothing of its own outstanding.
+
             $this->runner(static function (string $point): void {
                 if ($point === TargetWriter::STAGED) {
                     throw new \RuntimeException('the process died');
@@ -611,7 +568,6 @@ final class RecoveryTest extends RunnerHarness
         self::assertFileDoesNotExist($this->paths()->writeIntent());
         self::assertTrue($this->lockIsFree(), 'The lock is still released.');
 
-        // Once the folder can be written again, the next run sweeps it and completes.
         \chmod($this->paths()->staging(), 0o755);
 
         $later = $this->runner()->apply();
@@ -623,11 +579,6 @@ final class RecoveryTest extends RunnerHarness
     /**
      * The same rule for a staged file this run's own operation left, not a dead
      * one's.
-     *
-     * Ticket 34 makes an empty `staging/` part of a completed run, and it does not
-     * care which run put the file there. A run that removed its marker over its own
-     * leftover would report the target's fault and still leave the tree reading as
-     * clean history, with nothing to tell the next run to look.
      */
     public function testAStagedFileThisRunCouldNotRemoveKeepsTheRunMarker(): void
     {
@@ -655,7 +606,6 @@ final class RecoveryTest extends RunnerHarness
         self::assertFileDoesNotExist($this->paths()->writeIntent());
         self::assertTrue($this->lockIsFree(), 'The lock is still released.');
 
-        // And the next run sweeps it, writes what it came to write, and completes.
         \chmod($this->paths()->staging(), 0o755);
 
         $later = $this->runner()->apply();
@@ -665,12 +615,6 @@ final class RecoveryTest extends RunnerHarness
         $this->assertRunCompleted();
     }
 
-    /**
-     * Ticket 34: a completed run removes its marker. When that unlink fails after
-     * the targets have already changed, the failure is about the run, not about
-     * one target, and it has to stay on the report. Dropping it leaves the next
-     * run reporting an interruption this one never mentioned.
-     */
     public function testAMarkerThatCannotBeRemovedIsReportedAfterTheTargetsHaveChanged(): void
     {
         $this->writeFixture();
@@ -780,8 +724,6 @@ final class RecoveryTest extends RunnerHarness
     }
 
     /**
-     * Ticket 34: freeze recovers either accepted marker shape through the runner.
-     *
      * The marker is already the post-state, so recovery records the interrupted
      * freeze as observed and the freeze itself finds the path already held.
      */
@@ -887,7 +829,6 @@ final class RecoveryTest extends RunnerHarness
             EventRecord::PRESENT
         );
 
-        // Whatever is at the target, the marker beside it is absent or present.
         $this->tree->write(self::VENDOR, self::FOREIGN);
 
         $this->runner()->apply();
@@ -936,7 +877,6 @@ final class RecoveryTest extends RunnerHarness
 
         \chmod($this->paths()->state(), 0o755);
 
-        // Once the log can take the record, the next apply commits it and carries on.
         $this->runner()->apply();
 
         self::assertCount(1, $this->eventsFor('uncommitted1'));
@@ -1010,10 +950,6 @@ final class RecoveryTest extends RunnerHarness
         }
     }
 
-    /**
-     * Decision 29 and 39 together: a damaged line stays damaged, the report says so,
-     * and the last complete write is still answered from the records around it.
-     */
     public function testADamagedTailStaysDamagedAndTheLastWriteIsStillAnswered(): void
     {
         $this->writeFixture();
@@ -1021,8 +957,6 @@ final class RecoveryTest extends RunnerHarness
 
         $log = $this->paths()->eventLog();
 
-        // A complete JSON object with no commit token: the run died between writing
-        // the record and sealing it.
         $uncommitted = \json_encode([
             'event' => EventRecord::WRITE,
             'at'    => '2026-01-01T00:00:00Z',
@@ -1090,8 +1024,6 @@ final class RecoveryTest extends RunnerHarness
 
         $id = null;
 
-        // The mutation happens and the process "dies" before the append, which is
-        // what leaves a create with no record of it.
         try {
             $this->runner(function (string $point) use (&$id): void {
                 if ($point === TargetWriter::MUTATED && $id === null) {

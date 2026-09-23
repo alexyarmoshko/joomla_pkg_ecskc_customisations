@@ -24,8 +24,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteOutcome
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
- * Component tests for ticket 31 on a real temporary tree.
- *
  * A simulated crash is a checkpoint that throws. TargetWriter catches nothing, so
  * the call stops at that point with everything after it undone, the way a process
  * death leaves the tree. The run lock is not taken here: the caller holds it.
@@ -39,7 +37,6 @@ final class TargetWriterTest extends TestCase
 
     private const ORIGINAL = "/* vendor original */\nbody { color: #333; }\n";
 
-    /** CRLF and no trailing newline, the two shapes decision 14 protects. */
     private const PAYLOAD = "/* ecskc */\r\nbody { color: #000; }";
 
     private TempTree $tree;

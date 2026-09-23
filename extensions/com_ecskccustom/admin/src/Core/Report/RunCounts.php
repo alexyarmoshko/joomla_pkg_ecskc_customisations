@@ -18,10 +18,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
  * The run-level counts: how many managed paths are in each state, and how many
  * operational checks ran beside them.
  *
- * Brief 5.3 wants a summary an operator can act on. "Twelve present, three applied"
- * tells them what the last vendor update disturbed, where "fifteen ok" tells them
- * nothing. That only works while the numbers mean one thing, so:
- *
  * - Every one of the seven statuses is a key, with zero where nothing is in it. A
  *   renderer can then show a fixed row of counts rather than discovering which
  *   states happen to appear in this run.

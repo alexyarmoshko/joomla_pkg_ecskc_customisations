@@ -17,23 +17,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 /**
  * One record under `state/`, published whole or not at all.
  *
- * The run marker and the write intent are both a single complete record at a fixed
- * path, and both are read by a later process that has to tell "this record was
- * written" from "this record was not". A direct write cannot carry that: it
- * truncates first, so an interruption leaves a fragment at the path a reader treats
- * as authoritative. Brief 5.6 therefore publishes both the way `protect()` publishes
- * the folder guard - a complete record written to a unique temporary name in the
- * same directory, then renamed onto the final path. The reader sees the previous
- * record or the new one, never half of either.
- *
  * Publication temporaries are named `<basename>.<12 hex>.tmp` and swept by the
  * process holding the run lock. Sweeping is not part of publishing: a temporary
  * abandoned by a process that died is indistinguishable from one being written right
  * now, and only the lock says which. Every live temporary in this process is kept
  * out of a sweep, no matter which StateFile began it, so a second object for the
  * same path cannot delete the lock holder's in-flight record.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class StateFile
 {
@@ -110,10 +99,6 @@ final class StateFile
 
     /**
      * Write a complete record and move it onto the path, or change nothing.
-     *
-     * A false return leaves the path holding whatever it held before, including
-     * nothing. The caller treats that as a fault: brief 5.6 has the run stop rather
-     * than proceed without the record that says it began.
      */
     public function publish(string $bytes): bool
     {
@@ -130,11 +115,6 @@ final class StateFile
      * stops here has published nothing: the final path still holds the previous
      * record or nothing at all, and the temporary is left for the next process
      * holding the run lock to sweep.
-     *
-     * The temporary is created exclusively. Its name carries a random token, so a
-     * collision is not the worry; writing through a name somebody else put there is.
-     * An exclusive create refuses an existing file and refuses a symbolic link, so
-     * the record cannot be written anywhere but where this decided to put it.
      *
      * @return string|null The temporary's path, or null when it could not be written.
      */
@@ -232,12 +212,6 @@ final class StateFile
      * a temporary left by a process that died from one another process is writing
      * at this moment, and removing the second one turns a healthy publish into a
      * failed one.
-     *
-     * A temporary any instance in this process is writing right now is left alone, so
-     * a sweep from a different object during a publish does not delete the record.
-     * A directory that happens to carry the pattern is left alone as well: unlink
-     * would not remove it, and this is a sweep of the package's own leftovers, not
-     * a recursive delete.
      *
      * @return list<string> Absolute paths of temporaries that could not be removed.
      */

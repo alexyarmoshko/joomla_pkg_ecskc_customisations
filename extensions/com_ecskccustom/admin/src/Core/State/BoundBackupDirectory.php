@@ -25,15 +25,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ProcDescri
  * `openat` or `O_NOFOLLOW`, so a pathname `mkdir` after an `is_dir` check can
  * follow a symbolic link swapped into an ancestor and land outside `backup/`.
  * A create through `/proc/self/fd/N` cannot: it names the inode already bound.
- *
- * A symbolic link at a name is seen with `lstat` of that last component, and a
- * follow between that check and the open cannot match the inode that was
- * verified.
- *
- * Freezer and BackupStore both walk this tree. One routine keeps the bind and
- * the create on the same descriptors.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class BoundBackupDirectory
 {
@@ -128,9 +119,7 @@ final class BoundBackupDirectory
 
             if (!\is_dir($childPath)) {
                 if (!$create) {
-                    // Asked through the bound parent, so a name that is not there is
-                    // not there: an ancestor that could have been swapped was refused
-                    // above, and this last component was seen not to be a link.
+
                     $missing = !\file_exists($childPath);
 
                     $opened->close();

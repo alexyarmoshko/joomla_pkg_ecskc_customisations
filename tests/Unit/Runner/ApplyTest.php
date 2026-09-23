@@ -14,9 +14,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\TargetWriter;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 
-/**
- * Plan work items 3, 8, 9, 10 and 12 through the runner: what an apply writes.
- */
 #[CoversClass(Runner::class)]
 final class ApplyTest extends RunnerHarness
 {
@@ -103,7 +100,6 @@ final class ApplyTest extends RunnerHarness
         );
         self::assertFalse($target->backup->isKnown(), $target->backup->describe());
 
-        // The target before it still ran: one target's refusal is that target's.
         self::assertSame(self::FIRST, \file_get_contents($this->tree->path(self::VENDOR)));
     }
 
@@ -144,8 +140,6 @@ final class ApplyTest extends RunnerHarness
             \file_get_contents($this->paths()->backupFile(self::CHAIN, 2, self::digest(self::FIRST)))
         );
 
-        // The report names no backup for the step that wrote nothing, on its own line
-        // or in the target's backup field.
         $unwritten = $this->paths()->backupFile(self::CHAIN, 1, self::digest(self::FIRST));
 
         self::assertFalse($target->plan()[0]->backup->isKnown());
@@ -281,9 +275,6 @@ final class ApplyTest extends RunnerHarness
     }
 
     /**
-     * Brief §5.3: an apply says what it did per object, what it replaced, and where
-     * it stored each backup.
-     *
      * The plan travels with the run for that reason. Rebuilt from the tree afterwards
      * it would be empty at every target the apply succeeded at, since a file at the
      * head of its chain proposes nothing - so the operator would get an account of
@@ -318,8 +309,6 @@ final class ApplyTest extends RunnerHarness
     }
 
     /**
-     * Brief §5.2 puts the permission gate on the directory the move renames into.
-     *
      * A vendor file shipped read-only inside a writable directory is a valid atomic
      * replacement: rename does not ask the file for permission, and `TargetWriter`
      * gives the replacement the mode it found. Refusing it would refuse a file the
@@ -346,10 +335,6 @@ final class ApplyTest extends RunnerHarness
         );
     }
 
-    /**
-     * Work item 16 at the apply end: bytes the rule set cannot name are somebody's
-     * edit, and writing over them would destroy the only copy.
-     */
     public function testApplyRefusesAnUnrecognisedVendorFile(): void
     {
         $this->writeFixture();
@@ -434,18 +419,12 @@ final class ApplyTest extends RunnerHarness
         }
     }
 
-    /**
-     * Work item 8: a backup is published atomically, so an interrupted one never
-     * appears under the name that claims its hash.
-     */
     public function testAnInterruptedBackupIsNeverPublishedAndIsNotTrustedLater(): void
     {
         $this->writeFixture();
 
         $backup = $this->paths()->backupFile(self::VENDOR, 1, self::digest(self::ORIGINAL));
 
-        // The backup directory is made unwritable while the payload is staged, which
-        // is before the backup is published and after the run has committed to it.
         $this->runner(function (string $point, ?string $staged): void {
             if ($point === TargetWriter::STAGED && \str_contains((string) $staged, 'vendor.css')) {
                 $this->lockDown($this->paths()->backup());
@@ -463,10 +442,6 @@ final class ApplyTest extends RunnerHarness
         self::assertSame(self::FIRST, \file_get_contents($this->tree->path(self::VENDOR)));
     }
 
-    /**
-     * Work item 9: the deterministic name is a claim about the content, not proof of
-     * it, so a backup that no longer hashes to its name is re-made.
-     */
     public function testABackupWhoseBytesNoLongerMatchItsNameIsRemade(): void
     {
         $this->writeFixture();
@@ -572,10 +547,6 @@ final class ApplyTest extends RunnerHarness
         self::assertSame(TargetStatus::OK, $this->target($report, self::REMOVED)->status());
     }
 
-    /**
-     * Ticket 31: the path decision is taken at the move, so a precondition that held
-     * during the preview and does not hold now stops the write.
-     */
     public function testAPreconditionThatChangesBetweenTheDryRunAndTheApplyIsCaught(): void
     {
         $this->writeFixture();
@@ -583,7 +554,6 @@ final class ApplyTest extends RunnerHarness
         $plan = $this->target($this->runner()->dryRun(self::VENDOR), self::VENDOR)->plan();
         self::assertTrue($plan[0]->isPerformable(), 'The preview said it could be done.');
 
-        // Between the two, somebody re-cuts the payload badly.
         $this->payload('vendor.css.v1', self::SECOND);
 
         $report = $this->runner()->apply(self::VENDOR);
@@ -676,8 +646,6 @@ final class ApplyTest extends RunnerHarness
     }
 
     /**
-     * Decision 32: an intent may go only once an event carries its correlation id.
-     *
      * `state/write.intent` holds one record at one path, published by atomic rename.
      * A run that carried on to the next target would publish a second intent over the
      * first, and the mutation the first one describes has already happened on disk
@@ -729,8 +697,6 @@ final class ApplyTest extends RunnerHarness
     }
 
     /**
-     * Brief §5.3: the plan an apply reports has to agree with what the apply did.
-     *
      * A target the package cannot read is not a target with nothing at it. Reported
      * as the second, the line says the operation displaces nothing and needs no
      * backup, while the write layer refuses the move for the opposite reason - and
@@ -785,10 +751,6 @@ final class ApplyTest extends RunnerHarness
         );
     }
 
-    /**
-     * Decision 39: only mutations and recovery outcomes are durable. A run of checks
-     * after a write must not displace the write it reports.
-     */
     public function testChecksAfterAWriteRecordNothingAndStillReportThatWrite(): void
     {
         $this->writeFixture();

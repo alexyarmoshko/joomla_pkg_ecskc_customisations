@@ -10,9 +10,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WritePlanner;
 
-/**
- * Plan work items 1 and 2: the dry run, and the preconditions it is the gate on.
- */
 #[CoversClass(Runner::class)]
 #[CoversClass(WritePlanner::class)]
 #[CoversClass(PlannedOperation::class)]
@@ -38,9 +35,6 @@ final class DryRunTest extends RunnerHarness
         self::assertNotSame([], $report->targets());
     }
 
-    /**
-     * Brief §5.3: the plan a dry run shows is the plan an apply executes.
-     */
     public function testADryRunProducesThePlanAnApplyExecutes(): void
     {
         $this->writeFixture();
@@ -151,9 +145,6 @@ final class DryRunTest extends RunnerHarness
     }
 
     /**
-     * Ticket 34 makes the dry run the gate on backup destinations, and "could this
-     * path be written" includes "could the folders above it be made".
-     *
      * A regular file part way down the mirrored path blocks every directory below
      * it, exactly as it blocks `mkdir -p`. A plan that climbed past it to the nearest
      * writable ancestor would call the operation performable and leave the apply to
@@ -177,7 +168,6 @@ final class DryRunTest extends RunnerHarness
             \implode('; ', $plan[0]->refusals)
         );
 
-        // And the apply agrees, which is the pair the dry run exists to keep honest.
         $report = $this->runner()->apply(self::VENDOR);
 
         $target = $this->target($report, self::VENDOR);
@@ -319,10 +309,6 @@ final class DryRunTest extends RunnerHarness
         self::assertStringContainsString('tmp', $target->reason());
     }
 
-    /**
-     * A frozen path proposes nothing, so its plan is empty and its line still shows
-     * the state the freeze is holding back, decision 19.
-     */
     public function testADryRunPlansNothingForAFrozenTarget(): void
     {
         $this->writeFixture();

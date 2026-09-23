@@ -11,23 +11,8 @@ use RuntimeException;
 /**
  * Validates one rule file against the rule schema.
  *
- * This is the first of two validation layers. It settles shape and vocabulary
- * within a single file. Everything judged across the merged rule set - version
- * order, chain links, payload ownership, path policy, the hash algorithm -
- * belongs to semantic validation, which runs over the merged set and never file
- * by file.
- *
  * Violations are returned rather than thrown, so the build can report every
  * problem in a rule file in one pass instead of one per run.
- *
- * **This class owns libxml's global error queue for the duration of a call.** It
- * clears the queue on entry and on exit, and restores the internal-error mode it
- * found. Any errors a caller had already queued are discarded, so do not call it
- * with unread libxml errors pending. The queue is process-global and there is no
- * way to validate without touching it; owning it explicitly is preferable to
- * leaking this validator's own errors into whatever runs next.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class SchemaValidator
 {

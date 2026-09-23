@@ -12,11 +12,6 @@ use RuntimeException;
 
 /**
  * Proves the toolchain this phase is built on, not package behaviour.
- *
- * Phase 1 has to pass on the host PHP 8.3 CLI and inside DDEV, and every later
- * ticket writes byte-exact payloads into a real temporary tree. If either of
- * those assumptions is wrong, the failure should surface here rather than as a
- * confusing hash mismatch in ticket 15 or 18.
  */
 #[CoversNothing]
 final class ToolchainTest extends TestCase
@@ -48,7 +43,6 @@ final class ToolchainTest extends TestCase
     {
         $this->tree = TempTree::create();
 
-        // The shape of the real override.css payload: CRLF, no trailing newline.
         $bytes = "body {\r\n\tcolor: red;\r\n}";
         $path  = $this->tree->write('templates/et_tennis/css/override.css', $bytes);
 
@@ -100,9 +94,7 @@ final class ToolchainTest extends TestCase
     #[DataProvider('pathsThatMustNotReachTheFilesystem')]
     public function testTemporaryTreeRefusesAPathThatWouldEscapeIt(string $relative): void
     {
-        // Ticket 14 will feed hostile paths to this helper on purpose. An escape here
-        // writes into the real filesystem and outlives remove(), which only walks the
-        // tree it owns.
+
         $this->tree = TempTree::create();
 
         $this->expectException(RuntimeException::class);
@@ -153,9 +145,7 @@ final class ToolchainTest extends TestCase
 
     public function testTheLinkHelperBuildsLinksTicketFourteenWillNeed(): void
     {
-        // Ticket 14 has to prove path policy resolves links and confines them, so it
-        // has to create links that leave the tree. Creating one is allowed; following
-        // it is not.
+
         $this->tree = TempTree::create();
 
         $outside = \sys_get_temp_dir() . '/ecskc-outside-link-' . \getmypid();
@@ -241,7 +231,6 @@ final class ToolchainTest extends TestCase
         $tree->write('a/b.txt', 'x');
         $tree->remove();
 
-        // Removing twice is a no-op, not a false success: the root is already gone.
         $tree->remove();
 
         self::assertDirectoryDoesNotExist($tree->root());

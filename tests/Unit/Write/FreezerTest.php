@@ -32,8 +32,6 @@ use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
 
 /**
- * Component tests for ticket 32 on a real temporary tree.
- *
  * A simulated crash is a checkpoint that throws. Freezer catches nothing, so the
  * call stops there with the run marker and any intent left the way a process death
  * leaves them. Only the lock is released, by the `finally` that stands in for the
@@ -436,10 +434,6 @@ final class FreezerTest extends TestCase
         ];
     }
 
-    /**
-     * Decision 40: the package tree holds no symbolic links, so a symbolic link at the
-     * marker name is not a freeze.
-     */
     #[DataProvider('markerLinks')]
     public function testASymbolicLinkAtTheMarkerNameIsNotAFreezeAndIsLeftAlone(bool $dangling): void
     {
@@ -779,12 +773,6 @@ final class FreezerTest extends TestCase
         $this->assertNoRunLeftovers();
     }
 
-    /**
-     * The removal went into the renamed tree. The logical path now reads unfrozen
-     * through the symbolic link, which is the intent's post-state for a reason other
-     * than this run's own removal, so decision 32 case 2 cannot settle it here and
-     * the intent stays for recovery.
-     */
     public function testASwapOfAnAncestorAfterIntentDoesNotRemoveAnUnfreezeOutsideBackup(): void
     {
         $this->freezer()->freeze(self::TARGET);

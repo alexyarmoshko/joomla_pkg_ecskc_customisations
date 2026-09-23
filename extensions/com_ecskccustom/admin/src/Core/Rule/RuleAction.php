@@ -16,19 +16,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\Conditio
 
 /**
  * One action of an object: exactly one operation, either a copy or a removal.
- *
- * Decision 11 fixes one operation per action, and the schema enforces it with a
- * choice of exactly one element, so nothing here has to represent an action that
- * carries none or several.
- *
- * Conditions guard the operation and are the reason an object carries several
- * actions: one path at one revision doing one thing on one host and something else
- * elsewhere. They are held here unevaluated. Whether they hold is a property of the
- * environment a run finds, not of the rule set, so ConditionEvaluator answers that
- * and merged-set validation never asks.
- *
- * A null group is an action with no conditions, which the schema permits and which
- * always applies.
  */
 final class RuleAction
 {

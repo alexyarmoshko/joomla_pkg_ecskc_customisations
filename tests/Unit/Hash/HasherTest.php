@@ -17,10 +17,7 @@ use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 #[CoversClass(HashAlgorithm::class)]
 final class HasherTest extends TestCase
 {
-    /**
-     * The shipped payload, and the hash ticket 08 recorded for it after the offline
-     * background rule was appended.
-     */
+
     private const OVERRIDE_CSS         = 'data/payload/templates/et_tennis/css/override.css';
     private const OVERRIDE_CSS_SHA256  = '8d786a53203ee7a3d6e76bec1edc1c5754dc0869c0db829a35e63c674cbe7876';
 
@@ -43,24 +40,19 @@ final class HasherTest extends TestCase
         return \dirname(__DIR__, 3) . '/' . $relative;
     }
 
-    // -----------------------------------------------------------------------
-    // The algorithm comes from the rule, and an unsupported one is refused
-    // -----------------------------------------------------------------------
-
     /**
      * @return array<string, array{string}>
      */
     public static function algorithmsVersionOneDoesNotSupport(): array
     {
         return [
-            // Available in PHP, and still refused: the constraint is what the package
-            // supports, not what the interpreter can compute.
+
             'sha512'          => ['sha512'],
             'md5'             => ['md5'],
             'crc32b'          => ['crc32b'],
             'unknown to PHP'  => ['not-an-algorithm'],
             'the empty string' => [''],
-            // hash() is case-sensitive about its algorithms and so is the declaration.
+
             'the wrong case'  => ['SHA256'],
         ];
     }
@@ -110,7 +102,7 @@ final class HasherTest extends TestCase
 
     public function testTheDeclaredAlgorithmIsTheOneComputed(): void
     {
-        // Nothing here names an algorithm; the caller passes what the rule declared.
+
         $declared = HashAlgorithm::supported()[0];
 
         self::assertSame(
@@ -127,14 +119,7 @@ final class HasherTest extends TestCase
         self::assertFalse(HashAlgorithm::isSupported('sha512'));
     }
 
-    // -----------------------------------------------------------------------
-    // No normalisation: line endings and the final newline are identity
-    // -----------------------------------------------------------------------
-
     /**
-     * Decision 14: NTS KBee ships CRLF, Kunena and Helix ship LF, and the same text
-     * in the other form is a different file.
-     *
      * @return array<string, array{string, string}>
      */
     public static function payloadsAndTheirRecordedDigests(): array
@@ -201,14 +186,6 @@ final class HasherTest extends TestCase
         );
     }
 
-    /**
-     * The one payload the package ships today, hashed through this class and
-     * compared with the value ticket 08 recorded on the DDEV site.
-     *
-     * This is ticket 15's acceptance clause. It also pins the payload's shape: the
-     * recorded digest means nothing unless the bytes it was taken from are still
-     * CRLF and still end without a newline.
-     */
     public function testTheShippedOverrideCssHashesToTheValueTicketZeroEightRecorded(): void
     {
         $path = $this->repositoryPath(self::OVERRIDE_CSS);
@@ -285,12 +262,9 @@ final class HasherTest extends TestCase
     public static function filesHiddenByAnUnsearchableDirectory(): array
     {
         return [
-            // The parent itself is closed.
+
             'the immediate parent' => ['closed', 'closed/kept.css'],
-            // The parent is open, but nothing can reach it to find that out:
-            // is_dir() on it answers false exactly as it does for a parent that is
-            // not there, which is how the first fix let this case fall through to
-            // "absent". Review s1.v21, finding 1.
+
             'an ancestor above it' => ['closed', 'closed/inner/kept.css'],
             'two levels above'     => ['closed', 'closed/inner/deeper/kept.css'],
         ];
@@ -343,7 +317,6 @@ final class HasherTest extends TestCase
         self::assertFalse($result->isAvailable());
         self::assertSame('the file is absent', $result->reason);
 
-        // And where no part of the path was ever created.
         $missing = $this->hasher->hashFile('sha256', $this->tree->path('gone/inner/nothing.css'));
 
         self::assertFalse($missing->isAvailable());
@@ -422,10 +395,6 @@ final class HasherTest extends TestCase
 
         self::assertSame(\hash('sha256', 'late'), $this->hasher->hashFile('sha256', $path)->digest);
     }
-
-    // -----------------------------------------------------------------------
-    // Comparing a computed digest with a declared one
-    // -----------------------------------------------------------------------
 
     public function testADigestMatchesItsDeclaredValueInEitherCase(): void
     {

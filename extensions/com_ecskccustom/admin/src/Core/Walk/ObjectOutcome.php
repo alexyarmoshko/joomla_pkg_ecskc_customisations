@@ -16,18 +16,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleObject;
 
 /**
  * What the walk decided about one object, and why.
- *
- * Brief 5.3: the state report gives one status per path, and the outcome report may
- * narrate per object. "Applied v1, skipped v2 (disabled), v3 not matched" is an
- * account of what happened, where a single line would hide the reason the walk
- * stopped. These are those lines.
- *
- * `gatesLaterObjects` is the one field that is not narration. A skip only strands a
- * site when the walk could have advanced through the object and something follows
- * it at the same path, and that is what separates `incomplete` from the ordinary
- * cases: a disabled last object turns a customisation off, and a vendor alternative
- * for a build this site does not run was never going to match. The walk records the
- * judgement here rather than making a reader infer it from the object list.
  */
 final class ObjectOutcome
 {

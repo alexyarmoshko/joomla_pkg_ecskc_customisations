@@ -370,8 +370,6 @@ final class EventLogHistoryTest extends TestCase
         $run = WriteRun::holding($this->paths->root(), 'marker+intent');
         $run->kill();
 
-        // The marker is what a run publishes first, so removing it leaves the shape
-        // that should not arise: a mutation may have happened with no record of a run.
         \unlink($this->paths->marker());
 
         $interruption = $this->history()->interruption();

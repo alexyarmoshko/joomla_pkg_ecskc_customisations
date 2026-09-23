@@ -209,9 +209,7 @@ final class BackupStoreTest extends TestCase
 
     public function testAMatchingBackupIsNotKeptWhenTheSourceNoLongerMatchesTheDigest(): void
     {
-        // The kept path used to return on the backup hash alone. A stale caller
-        // digest then certified the wrong live bytes, and a later write could
-        // overwrite an outside edit the kept backup does not contain.
+
         $destination = $this->destination();
 
         \mkdir(\dirname($destination), 0755, true);
@@ -367,7 +365,7 @@ final class BackupStoreTest extends TestCase
 
     public function testACopyThatFailsVerificationPublishesNothingAndLeavesTheTargetUnchanged(): void
     {
-        // The caller hashed the target, then something rewrote it before the backup.
+
         $outcome = $this->preserve(\hash('sha256', "the bytes the caller saw\n"));
 
         self::assertSame(BackupOutcome::FAILED, $outcome->status);

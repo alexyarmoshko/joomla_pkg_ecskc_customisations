@@ -18,57 +18,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ProcDescri
 
 /**
  * The append-only log at `state/events.log`: one record per line, never rewritten.
- *
- * Brief 5.6 requires it because the backups cannot cover every mutation. A file created
- * where none existed displaces nothing, a removal can be told to keep no copy, and
- * an unfreeze deletes its own evidence. It records only mutation and recovery outcomes.
- * Checks, dry runs, ordinary skips and pre-intent faults stay in the current report.
- * Without the log, a path frozen and released three times reads exactly like one
- * nobody touched. The runtime reads it to fill report fields. It is not authoritative
- * target state, which is the file's own bytes, and it is not the recovery record,
- * which is the lock, the marker, the intent and those bytes.
- *
- * ## The record boundary
- *
- * A committed record is **one UTF-8 JSON object, then TAB, then `committed`, then
- * LF**, decision 29. The TAB and the token are the commit mark; LF is only the line
- * boundary. A process that dies after the object and before the token leaves bytes
- * that are perfectly good JSON, and without a separate mark the next writer's LF
- * would promote that fragment to a committed record. So:
- *
- * - A line that does not end with TAB `committed` is damaged, a syntactically
- *   complete JSON object included.
- * - A tail that has TAB `committed` and lacks only LF **is committed**, decision 33.
- *   The writer had already written the commit mark. A read before the next append and
- *   a read after it therefore return the same records and the same faults.
- * - A writer that finds a non-empty file not ending in LF writes LF first, so its own
- *   record starts on its own line. That LF is not a commit token and does not make
- *   the line before it a record.
- *
- * ## Locking
- *
- * Only write runs append, and each already holds `run.lock`. The log still takes an
- * exclusive lock for each append and a shared lock for each read, so this module does
- * not depend on a caller keeping that wider run invariant. The append lock waits
- * rather than dropping durable mutation history. The holds are short, one seek and
- * one write.
- *
- * A first append creates the log exclusively. PHP's `fopen()` follows a symbolic
- * link and will open a FIFO until a writer appears, so a path that is already
- * something else is refused before the open. After the lock, the opened inode is
- * compared with `lstat()` of the path: another process can replace the name
- * between the type check and the open, and writing or reading then would follow
- * whatever now sits there. Mode 0644 is set through the handle, not the path,
- * for the same reason.
- *
- * ## A log that cannot be read or appended to
- *
- * That fault belongs on the current run report and is not itself appended, decision
- * 33: a log that cannot take a record cannot take the record of its own failure, and
- * version 1 has no second durable fault channel. `append()` returning false and
- * `failure()` are how a caller carries it there.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class EventLog
 {
@@ -256,9 +205,7 @@ final class EventLog
     private function parse(string $bytes): EventLogRead
     {
         if ($bytes === '') {
-            // A log the uninstall archive created to flock, or one whose first append
-            // died before any byte landed. Empty is not damaged: there is no record
-            // there to be wrong.
+
             return EventLogRead::absent(self::EMPTY_LOG);
         }
 
@@ -268,7 +215,7 @@ final class EventLog
         $last    = \array_key_last($lines);
 
         foreach ($lines as $number => $line) {
-            // The bytes after the final LF, when there are none, are not a line.
+
             if ($number === $last && $line === '') {
                 continue;
             }
@@ -440,9 +387,6 @@ final class EventLog
      * reports a history from elsewhere and appending through one puts this history
      * there. The package writes its log directly rather than through a link, so a link at
      * this path was not put there by the package.
-     *
-     * This is the pre-open filter. `isStillTheOpenedFile()` is the same question
-     * after the lock, against the inode actually opened.
      */
     private function isOwnFile(): bool
     {

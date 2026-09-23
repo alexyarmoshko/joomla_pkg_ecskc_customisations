@@ -118,11 +118,6 @@ final class RunLockTest extends TestCase
 
     /**
      * The read a check and a dry run take: it never creates the lock file.
-     *
-     * Ticket 34 says a dry run does not acquire the write lock, and `acquire()`
-     * opens with `c+`, so asking would leave a file behind in a tree the run was
-     * asked only to describe. An absent lock file is its own answer, because a write
-     * run makes it before it publishes anything.
      */
     public function testObservingCreatesNoLockFile(): void
     {

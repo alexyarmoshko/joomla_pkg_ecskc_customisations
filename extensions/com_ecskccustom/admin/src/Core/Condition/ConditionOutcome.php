@@ -21,10 +21,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition;
  * could not tell, which is a refusal: the object writes nothing and reports why.
  * Collapsing the two into false is precisely the mistake the fault rule exists to
  * prevent - it turns "I could not determine the host" into "this is not that host".
- *
- * A faulted outcome carries every reason, not the first. All members of a group are
- * evaluated, so an operator sees each undeterminable attribute in one report rather
- * than one per run.
  */
 final class ConditionOutcome
 {

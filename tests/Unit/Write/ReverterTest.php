@@ -31,8 +31,6 @@ use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
- * Component tests for ticket 33 on a real temporary tree.
- *
  * Every step moves bytes that are on disk. The chain is three revisions deep, so
  * "one object at a time" is a claim the file content settles after each call,
  * rather than one a single step would satisfy by accident.
@@ -50,8 +48,6 @@ final class ReverterTest extends TestCase
 
     private const TARGET = 'templates/et_tennis/css/vendor.css';
 
-    // CRLF and the missing final newline are deliberate: decision 14 makes them
-    // part of a payload's identity.
     private const ORIGINAL = "body { color: red; }\r\n.a { top: 0 }";
     private const FIRST    = "body { color: blue; }\r\n.a { top: 0 }";
     private const SECOND   = "body { color: green; }\r\n.a { top: 1 }";
@@ -79,8 +75,6 @@ final class ReverterTest extends TestCase
     {
         $this->tree->remove();
     }
-
-    // ---------------------------------------------------------------- the chain
 
     public function testRevertWalksTheChainOneObjectAtATime(): void
     {
@@ -140,15 +134,11 @@ final class ReverterTest extends TestCase
         self::assertSame(self::TARGET, $records[0]->target);
     }
 
-    // ------------------------------------------------------------ backup choice
-
     public function testRevertRestoresTheNewestBackupAtThatVersion(): void
     {
         $ruleSet = $this->chain();
         $this->tree->write(self::TARGET, self::THIRD);
 
-        // Two originals were displaced by version 3 over the site's life, and the
-        // newer one is what the file held last.
         $this->backup(3, self::FOREIGN, 1_700_000_000);
         $this->backup(3, self::SECOND, 1_800_000_000);
 
@@ -337,9 +327,6 @@ final class ReverterTest extends TestCase
         $ruleSet = $this->chain();
         $store   = new BackupStore($this->paths);
 
-        // Both displacements at version 3 land in the same whole second, which is
-        // all filemtime() can carry. FOREIGN's digest sorts above SECOND's, so a
-        // tie restores the older of the two and the site goes back two steps.
         foreach ([self::FOREIGN, self::SECOND] as $displaced) {
             $this->tree->write(self::TARGET, $displaced);
 
@@ -367,9 +354,6 @@ final class ReverterTest extends TestCase
         $ruleSet = $this->chain();
         $this->tree->write(self::TARGET, self::THIRD);
 
-        // Decision 40: nothing under backup/ is read through a symbolic link. The
-        // package cannot see what is there, which is not the same as seeing that
-        // there is nothing, and a step back is not taken on the difference.
         \mkdir($this->tree->path('elsewhere/et_tennis/css'), 0755, true);
         \symlink($this->tree->path('elsewhere'), $this->paths->backup() . '/templates');
 
@@ -401,8 +385,6 @@ final class ReverterTest extends TestCase
         self::assertSame(self::ORIGINAL, $this->bytes());
         $this->assertRunClosed();
     }
-
-    // ------------------------------------------------------------ the two ends
 
     public function testRevertAtTheStartOfTheChainRefusesCleanly(): void
     {
@@ -454,13 +436,9 @@ final class ReverterTest extends TestCase
         $this->assertRunClosed();
     }
 
-    // ------------------------------------------------------- the create end
-
     public function testRevertTakesAwayAFileThePackageCreated(): void
     {
-        // The shape of all five package-owned customisations in data/rules/: one
-        // object, create="true", a folder the vendor ships nothing in. It displaced
-        // absence, so absence is what a revert of it puts back.
+
         $ruleSet = $this->creationChain();
         $this->tree->write(self::TARGET, self::FIRST);
 
@@ -513,8 +491,6 @@ final class ReverterTest extends TestCase
         $this->assertRunClosed();
     }
 
-    // ------------------------------------------------- content nothing recorded
-
     public function testRevertRefusesAnUnrecordedLocalEditAndChangesNothing(): void
     {
         $ruleSet = $this->chain();
@@ -534,9 +510,7 @@ final class ReverterTest extends TestCase
 
     public function testRedoRefusesToDisplaceContentNoPayloadAndNoBackupHolds(): void
     {
-        // The head object may replace whatever it finds, so the walk proposes a
-        // write. Redo keeps no copy, so bytes nothing else holds are not its to
-        // displace.
+
         $this->tree->write(self::PACKAGE . '/payload/vendor.css.v1', self::FIRST);
 
         $ruleSet = $this->load(RuleXml::patch(RuleXml::object(
@@ -573,8 +547,6 @@ final class ReverterTest extends TestCase
         self::assertSame(self::FIRST, $this->bytes());
     }
 
-    // --------------------------------------------------------------- no backups
-
     public function testNeitherStepWritesABackupOfReproducibleBytes(): void
     {
         $ruleSet = $this->chain();
@@ -590,8 +562,6 @@ final class ReverterTest extends TestCase
         $this->reverter()->redo(self::TARGET, $ruleSet, self::environment());
         self::assertSame($before, $this->backupNames(), 'the redo wrote a backup');
     }
-
-    // --------------------------------------------------------------- removals
 
     public function testRevertStepsBackOverARemovalFromAnAbsentTarget(): void
     {
@@ -632,8 +602,7 @@ final class ReverterTest extends TestCase
 
     public function testRevertStepsBackOverANoCopyRemovalWithoutABackup(): void
     {
-        // backup="false" left absence and no file under backup/. The authored
-        // predecessor is still v1's payload, and that file is what restore uses.
+
         $ruleSet = $this->noCopyRemovalChain();
         \mkdir(\dirname($this->tree->path(self::TARGET)), 0755, true);
 
@@ -684,10 +653,7 @@ final class ReverterTest extends TestCase
 
     public function testRevertLeavesAPristineTargetAloneWhenAChainCreatesThenRemovesIt(): void
     {
-        // v1 creates the file, v2 takes it away and keeps no copy. A site the
-        // package has never written to holds exactly the same nothing as one where
-        // v2 ran, so reading absence as v2's work would put a file where the vendor
-        // ships none. Decision 42: the chain starts here.
+
         $ruleSet = $this->createThenNoCopyRemovalChain();
         \mkdir(\dirname($this->tree->path(self::TARGET)), 0755, true);
 
@@ -739,8 +705,6 @@ final class ReverterTest extends TestCase
         $this->assertRunClosed();
     }
 
-    // ------------------------------------------------- the file moves underneath
-
     public function testRedoRefusesBytesThatChangedAfterTheWalkJudgedThem(): void
     {
         $ruleSet = $this->chain();
@@ -755,8 +719,7 @@ final class ReverterTest extends TestCase
             new ObjectWalker($policy, new Hasher(), new ConditionEvaluator(), new FreezeMarkers($this->paths)),
             function (string $point): void {
                 if ($point === TargetWriter::STAGED) {
-                    // Somebody edits the file between the walk that judged it and
-                    // the move. The payload is already staged and verified by now.
+
                     $this->tree->write(self::TARGET, self::FOREIGN);
                 }
             }
@@ -769,8 +732,6 @@ final class ReverterTest extends TestCase
         self::assertSame([], $this->records());
         $this->assertRunClosed();
     }
-
-    // ------------------------------------------------------------- frozen paths
 
     public function testAFrozenPathAcceptsNeitherRevertNorRedo(): void
     {
@@ -796,8 +757,6 @@ final class ReverterTest extends TestCase
         self::assertSame([], $this->records());
         $this->assertRunClosed();
     }
-
-    // ------------------------------------------------------------- the warning
 
     public function testARevertThatMovedTheFileCarriesTheReapplyWarning(): void
     {
@@ -832,8 +791,6 @@ final class ReverterTest extends TestCase
         self::assertNull($outcome->warning);
     }
 
-    // ------------------------------------------------------------ the write run
-
     public function testAStepRefusesWhileAnotherRunHoldsTheLock(): void
     {
         $ruleSet = $this->chain();
@@ -844,8 +801,7 @@ final class ReverterTest extends TestCase
         self::assertTrue($held->acquire());
 
         try {
-            // A second handle in this process is a second run as far as flock is
-            // concerned, which is the whole point of decision 30's non-blocking lock.
+
             $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
         } finally {
             $held->release();
@@ -932,8 +888,6 @@ final class ReverterTest extends TestCase
 
         $this->reverter()->revert('../etc/passwd', $ruleSet);
     }
-
-    // ------------------------------------------------------------------ helpers
 
     private static function digest(string $bytes): string
     {

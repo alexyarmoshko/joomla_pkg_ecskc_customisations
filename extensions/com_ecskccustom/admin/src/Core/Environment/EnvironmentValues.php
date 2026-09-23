@@ -16,30 +16,8 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment;
  * The closed condition vocabulary, resolved: four attributes, each either a value
  * or a fault carrying the reason it could not be determined.
  *
- * ## An attribute is a value or a fault, and never an empty string
- *
- * This class is where that guarantee is enforced rather than merely intended. Any
- * attribute handed in as null, as an empty string, or as whitespace only becomes a
- * fault here, whatever built it. Brief section 6 records why: an empty string
- * satisfies a negative lookahead, so `^(?!ecskc\.eu$).*$` - an exclusion written to
- * keep the Community Builder licence-bypass customisation off production - matches
- * the empty string and would have applied that customisation on production.
- *
  * Enforcing it at this boundary rather than in the resolver means a later second
  * source of values cannot reintroduce the hazard by forgetting the rule.
- *
- * Values are trimmed on the way in. Leading or trailing whitespace on a URL, a host
- * or a version number is never meaningful, and it silently breaks every anchored
- * pattern written against the value.
- *
- * ## Why the set is closed
- *
- * Brief 5.1: "The attributes are a closed, named set ... Anything not on that list
- * is unaskable." The schema enumerates the same four names, so an unknown attribute
- * cannot reach here from an authored rule. It is answered as a fault all the same,
- * because the alternative - answering an unknown attribute with null and letting
- * the caller read that as "not determined" - makes a typo indistinguishable from an
- * environment the package genuinely could not read.
  */
 final class EnvironmentValues
 {

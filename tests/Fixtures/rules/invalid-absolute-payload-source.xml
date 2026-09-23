@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- srcPathFileName resolves relative to payload/ and is never web-root-absolute. -->
 <patch hashType="sha256">
     <root path="a">
         <object version="1">

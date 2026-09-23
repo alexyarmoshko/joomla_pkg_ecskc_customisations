@@ -12,9 +12,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
 
 /**
  * The two report values that carry no state of their own, tested directly.
- *
- * The runner exercises them through a real run; these cover the answers a
- * report-only phase never produces and Phase 2 and Phase 4 will.
  */
 #[CoversClass(ReportedValue::class)]
 #[CoversClass(OperationalCheck::class)]

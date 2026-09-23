@@ -10,11 +10,6 @@ use ZipArchive;
 
 /**
  * The packaged component carries the authored payload bytes unchanged.
- *
- * Decision 14 makes line endings and the final newline part of a payload's
- * identity. A packager that normalised them would still pass every structural
- * check and then match nothing on the site. This test opens the zip `make
- * dist_dev` produced and compares each payload to `data/payload/` by sha256.
  */
 #[CoversNothing]
 final class PackageBytesTest extends TestCase

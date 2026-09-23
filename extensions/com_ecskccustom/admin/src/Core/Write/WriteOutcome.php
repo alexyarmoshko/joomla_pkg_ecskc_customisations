@@ -17,24 +17,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 
 /**
  * What one write or removal did at its target, or a freeze or unfreeze at its marker.
- *
- * The status is the report's own vocabulary: `ok` when the target is where the
- * caller asked for it, `faulted` otherwise. Three facts beside it matter to the
- * runner and cannot be read from the status. `changed` says this call is known to
- * have mutated the target. `intentLeft` says `state/write.intent` is still there,
- * so the mutation is not settled and ticket 34's recovery owns it. `leftover` is
- * a staging temporary this call created and could not remove, so the run cannot
- * claim ticket 31's completed-run guarantee.
- *
- * A fault before the intent is published changed nothing and left no intent. A
- * fault after it carries the correlation id, because the intent or the event log
- * holds the same id and that is how an operator matches them.
- *
- * `warning` is the one field addressed to the operator rather than to the runner.
- * A revert that succeeded leaves the target behind the rule set's head, and the
- * next apply carries it forward again, so decision 19 has the report say so. It is
- * carried on the outcome because only the operation knows it happened; the write
- * itself does nothing about it, and nothing here freezes a path on its own.
  */
 final class WriteOutcome
 {
@@ -87,12 +69,6 @@ final class WriteOutcome
      * staged file behind. There is no correlation id, because a run that touched six
      * targets published six intents and no single id names them; each target's own
      * outcome carries its own.
-     *
-     * The leftover travels the same way the intent does, and for the same reason: a
-     * run whose own staging copy is still there has not completed, whichever target
-     * left it, and `WriteRun` keeps the marker until one does clear it. A summary
-     * that dropped the field would report the target's fault and still let the tree
-     * read as clean.
      */
     public static function summary(
         bool $changed,

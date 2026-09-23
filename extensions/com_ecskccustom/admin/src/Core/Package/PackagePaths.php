@@ -20,26 +20,6 @@ use InvalidArgumentException;
  * One source for the layout, so the installer that creates these folders and the
  * runner that reads them cannot drift apart. The runner reads the event log, lock,
  * marker and write intent by the fixed names below rather than discovering them.
- *
- * Five folders. The plan's package-owned state table names four; rules/ became an
- * installed folder of its own after it was written, and is treated as one here:
- *
- * | Folder     | Holds                                            | In the manifest |
- * |------------|--------------------------------------------------|-----------------|
- * | payload/   | files shipped by the package                      | yes             |
- * | rules/     | the rule set shipped by the package                | yes             |
- * | backup/    | displaced files and the freeze markers beside them| no              |
- * | staging/   | files prepared before an atomic move               | no              |
- * | state/     | events.log, run.lock, run.marker, write.intent     | no              |
- *
- * The three undeclared folders survive a package update because Joomla removes
- * files by comparing manifests and ignores what appears in neither. Uninstall
- * still deletes all three directories. The uninstall hook copies the contents
- * of backup/ and state/ to a guarded archive outside the component first.
- * staging/ is not archived: it holds nothing that outlives a completed run.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI, and tests build
- * one of these over a temporary tree.
  */
 final class PackagePaths
 {
@@ -50,16 +30,6 @@ final class PackagePaths
      * Named here because two places have to agree about them. The installer writes
      * the guard; the runner scans payload/ for payloads and must not mistake either
      * file for one. They are not payloads, not rules, and never a target.
-     *
-     * Matched exactly, and only at a folder's own root, because that is where the
-     * installer writes and where the manifest ships. A prefix match would be simpler
-     * and would quietly swallow a real file: `.htaccess.css` and `.htaccessible.css`
-     * are ordinary names an author may use, and a payload hidden from the
-     * unreferenced-payload check is a check that stopped running.
-     *
-     * The transient pattern takes any hex length rather than the twelve characters
-     * `script.php` currently writes, so changing the token's size cannot silently
-     * turn a leftover into a reported payload.
      */
     public const FOLDER_INDEX = 'index.html';
     public const HTACCESS     = '.htaccess';
@@ -69,19 +39,6 @@ final class PackagePaths
 
     /**
      * The suffix that marks a target frozen, written beside that target's backups.
-     *
-     * Decision 19 of the brief puts the marker under `backup/`, beside the path's
-     * backup chain, rather than beside the payload: `payload/` is declared in the
-     * manifest and a later manifest that stopped declaring it would take the markers
-     * with it. `backup/` is declared nowhere, so Joomla's update never walks it.
-     *
-     * The name mirrors the site tree the same way a backup does, so
-     * `templates/et_tennis/css/override.css` freezes at
-     * `backup/templates/et_tennis/css/override.css.frozen`. One directory listing
-     * then shows a target's whole history and whether it is held.
-     *
-     * `.frozen` is outside the path policy's allowed extensions, so no rule can name
-     * a marker as its target even if the deny list on the package tree were lifted.
      */
     public const FREEZE_MARKER = '.frozen';
 
@@ -92,20 +49,6 @@ final class PackagePaths
 
     /**
      * The name a state file is written under before it is renamed into place.
-     *
-     * `run.marker` and `write.intent` are published the way protect() publishes the
-     * folder guard: a complete record is written to a unique temporary name in the
-     * same directory and renamed onto the final path, so a crash during the write
-     * never leaves truncated content where a reader expects a complete record.
-     *
-     * The token is twelve hex characters, the shape brief 5.6 names, and the pattern
-     * matches that length and no other. The sweep unlinks what it matches, so the
-     * pattern is the whole of what protects a file that merely looks like a
-     * temporary: widening it to any hex length would put `run.marker.a.tmp`, a name
-     * this package never writes, inside a delete.
-     *
-     * Both halves live here so the name a publish writes and the pattern a sweep
-     * matches cannot drift apart.
      */
     public const PUBLICATION_TEMPORARY_BYTES = 6;
 
@@ -177,12 +120,6 @@ final class PackagePaths
 
     /**
      * Canonicalise as much of the path as exists, then apply the rest, including "..".
-     *
-     * realpath() on the whole path returns false when the destination does not
-     * exist yet, which is the archive folder's usual state at the moment the
-     * installer is about to create it. The deepest existing ancestor is what can
-     * be canonicalised; the missing suffix is then applied with "." skipped and
-     * ".." popping, so an alias is judged by where it lands.
      *
      * A dangling symbolic link is not guessed at. realpath() fails the same way
      * for a missing name and for a link whose target does not exist, and writing
@@ -287,10 +224,6 @@ final class PackagePaths
     /**
      * Where the backup of one target's displaced content lives.
      *
-     * `backup/<target path>.v<version>.<digest>`, brief decision 4, mirroring the site
-     * tree the way a freeze marker does. The name ends in a hex digest, so it can
-     * never end in FREEZE_MARKER and never be read as one.
-     *
      * @param string $targetPath The canonical root-relative target path.
      * @param int    $version    The version of the object whose write displaces the
      *                           content.
@@ -329,12 +262,6 @@ final class PackagePaths
      * this returns a version for is one backupFile() could have written, because
      * revert and redo read a listing as package state and a name they accept is
      * acted on.
-     *
-     * Version 0 is not an object version, so a manually placed `.v0.<digest>` file
-     * is not a package backup even when the rest of the name looks like one. Nor is
-     * a version spelled any way but the canonical decimal: `.v03.` and a run of
-     * digits past PHP_INT_MAX both cast to an integer that backupFile() would spell
-     * differently, so the name is not the one it writes and is refused here.
      *
      * @return array{version: int, digest: string}|null
      */

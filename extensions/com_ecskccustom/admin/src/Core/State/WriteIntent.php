@@ -18,22 +18,11 @@ use JsonException;
 /**
  * The record of one mutation that is about to happen, or may just have happened.
  *
- * Atomic target replacement and an independently locked event log are not one
- * transaction, decision 31. Logging before the mutation can record a write that
- * never happened; logging after it can lose the only evidence of a create, a no-copy
- * removal, or a freeze or unfreeze if the process dies in between. The run marker
- * does not help - it records only that a run began.
- *
  * So the record holds two things and no more: **one immutable correlation id**, and
  * **the complete event payload recovery would append**. Recovery matches on the id,
  * because target, operation, pre-state and post-state cannot tell a leftover intent
  * from an older identical transition, and are not enough to rebuild the record
  * either. The event the run commits carries the same id.
- *
- * What goes in the payload is ticket 29's contract, not this class's: this is the
- * store's record shape, and it carries whatever the event log would have received.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class WriteIntent
 {
@@ -49,10 +38,6 @@ final class WriteIntent
 
     /**
      * Public because the event record accepts exactly the ids this class mints.
-     *
-     * The committed event carries the intent's correlation id, decision 32, so the
-     * two have to agree about what an id may look like. A second copy of the pattern
-     * is how they would come to disagree.
      */
     public const ID = '/\A[A-Za-z0-9._-]{1,64}\z/';
 

@@ -4,17 +4,6 @@ declare(strict_types=1);
 
 /**
  * A process that appends a run of event records as fast as it can, then exits.
- *
- * An exclusive lock per append is only worth testing against a second process: two
- * appends inside one process are serial whatever the lock does. So the tests start two
- * of these on one log and then read it. Each record carries the tag as its reason, so
- * the parent can count both runs separately and see that neither lost a record to the
- * other.
- *
- * Not a test itself, and not collected as one: the suites scan tests/Unit and
- * tests/Integration.
- *
- * Usage: php log_append.php <package root> <tag> <count>
  */
 
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;

@@ -21,13 +21,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\State;
  * A log that is there and cannot be read is a fault. Whether the package wrote at a
  * path is then unknown, and reporting "nothing recorded" would read as a clean
  * history over a file nobody can open.
- *
- * **A damaged line is neither of those.** It is a fault on that record, and the
- * records on either side of it stay readable, which is why the faults travel beside
- * the records rather than instead of them. One read therefore answers both questions
- * the report asks: the last write at a target, and which lines could not be parsed.
- *
- * Nothing here truncates or repairs. The log is append-only.
  */
 final class EventLogRead
 {

@@ -10,16 +10,6 @@ declare(strict_types=1);
  * is only observable from another process, and only while the read is still going.
  * So the tree this is pointed at has `run.marker` as a FIFO, and the read stops
  * there, holding the lock, until the parent kills this process.
- *
- * One read, not a loop. The parent pairs with the FIFO through hold_fifo.php, which
- * can only open the write end once this process has opened the read end, and by then
- * a reader that holds the lock across its records is holding it. A second read would
- * only blur which one the parent was contending with.
- *
- * Not a test itself, and not collected as one: the suites scan tests/Unit and
- * tests/Integration.
- *
- * Usage: php state_read.php <package root>
  */
 
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
@@ -29,7 +19,6 @@ require \dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 $reader = new RunStateReader(new PackagePaths($argv[1] ?? ''));
 
-// The parent waits for this line before it starts the FIFO writer.
 \fwrite(\STDOUT, "reading\n");
 \fflush(\STDOUT);
 

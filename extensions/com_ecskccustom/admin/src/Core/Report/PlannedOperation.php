@@ -17,30 +17,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ProposedOpera
 /**
  * One operation of a run plan: what it would do, what stops it, and what it did.
  *
- * The walk proposes operations and knows nothing about whether they could be
- * performed, because deciding that means reading permissions, hashing payloads and
- * naming backup destinations - which is the dry run's job, plan work item 2. This is
- * where the two meet.
- *
- * ## The same object in both directions
- *
- * Brief §5.3 requires the dry run to produce the plan an apply would execute, so
- * both build this from the same code and the dry run differs only in that it stops
- * here. `result` is what separates them: on a dry run it says the operation was not
- * executed, and on an apply it says what happened.
- *
  * `displaced` is "what this operation would replace". A create displaces nothing and
  * says so rather than leaving the field out, on the same rule the required fields
  * follow: an empty field and a field that means "nothing here" read alike and send
  * an operator to different places.
- *
- * `backup` is the computed destination, before anything is written. It is the whole
- * point of showing a plan: an operator who cannot see where the displaced original
- * is going has no way to tell a safe apply from one that would lose it.
- *
- * `refusals` holds every precondition that does not hold, not the first. A run that
- * reported only the denied path would send the operator to fix it and then meet the
- * bad payload hash on the next pass.
  */
 final class PlannedOperation
 {

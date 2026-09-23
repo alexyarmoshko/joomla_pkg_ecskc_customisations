@@ -125,7 +125,6 @@ final class RunMarkerTest extends TestCase
     {
         self::assertTrue($this->marker()->publish(1_757_275_985));
 
-        // The dead process's own write, through the code a publish uses.
         $temporary = (new StateFile($this->paths->marker()))
             ->beginPublication("2025-09-08T09:00:00Z\n");
         self::assertIsString($temporary);

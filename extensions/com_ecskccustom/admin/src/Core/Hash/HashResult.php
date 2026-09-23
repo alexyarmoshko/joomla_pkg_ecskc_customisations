@@ -22,11 +22,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash;
  * reason instead of a hash. Do not omit the field." A nullable string would let a
  * caller omit it and would say nothing about why; this cannot be built without one
  * or the other.
- *
- * It follows the same rule the environment values follow: a value that cannot be
- * determined is a fault, never a default. An unavailable result therefore matches
- * nothing - not even another unavailable one - because "we could not read the file"
- * is not evidence that the file is what the rule expects.
  */
 final class HashResult
 {
@@ -49,17 +44,6 @@ final class HashResult
 
     /**
      * There is no file at this path, which is a different answer from "no digest".
-     *
-     * The forward walk has to tell the two apart and cannot do it from the reason
-     * text. An absent file is an ordinary state the rule set describes: an object
-     * that may create writes there, one that may not reports `not applicable`, and a
-     * removal is already done. Every other unavailable result - a directory in the
-     * way, an unreadable file, a parent that cannot be searched - says the package
-     * could not look, which is `faulted`. Sending an operator to the wrong one of
-     * those two costs them the whole diagnosis.
-     *
-     * It carries no digest, so it matches nothing, exactly as any other unavailable
-     * result does.
      */
     public static function absent(string $reason): self
     {

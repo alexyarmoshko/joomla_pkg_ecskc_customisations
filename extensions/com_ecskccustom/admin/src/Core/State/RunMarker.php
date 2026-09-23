@@ -19,27 +19,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
 
 /**
  * The file that says a write run began, at `state/run.marker`.
- *
- * **It records only that a run began, and when.** Not how far it got. Each target is
- * updated atomically and the file's own bytes recover it, so an ordinary check
- * already reports which targets completed and a progress record would be a second,
- * staler answer to a question the tree answers itself. The marker is therefore
- * published once at the start of a run and never updated mid-run.
- *
- * Published and removed under the run lock, never without it. A process acquires the
- * lock before it creates or replaces this file, and removes the file before it
- * releases the lock, which is what makes lock-held-and-marker-absent a live run
- * rather than a clean tree, decision 34.
- *
- * A marker that is present and cannot be read, is empty, or does not parse is a
- * fault carrying its reason - never a clean history. The marker is the claim that a
- * run began, so a claim nobody can read is not the same as no claim at all.
- *
- * This class publishes, reads and removes. It does not decide which caller removes
- * it: apply and recovery do so from ticket 34, freeze and unfreeze from ticket 32,
- * revert and redo from ticket 33.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class RunMarker
 {
@@ -130,12 +109,6 @@ final class RunMarker
 
     /**
      * Remove the marker, which only a completed write run may do.
-     *
-     * Settling leftover intent does not complete a run, including a committed
-     * neither-state fault: that run still holds the lock and still has work,
-     * decision 35. Removing the marker before that work, and then dying, would
-     * leave a free lock and no marker, which the brief's table calls clean, and the
-     * next run would not recover.
      */
     public function remove(): bool
     {

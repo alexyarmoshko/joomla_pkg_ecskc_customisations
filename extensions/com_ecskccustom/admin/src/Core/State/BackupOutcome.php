@@ -15,11 +15,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\State;
 /**
  * What one backup request did, and where the backup is.
  *
- * Three outcomes preserve the displaced bytes and one does not. The caller needs
- * only the split: a failed backup stops the operation at that target, brief
- * decision 4. The other three stay distinct because a report that says "kept" over
- * a backup that was in fact re-made would hide the corruption that forced it.
- *
  * The path is the computed destination in every case, a failure included, so a dry
  * run and a fault both name where the backup belongs.
  */

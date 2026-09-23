@@ -24,86 +24,9 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
 
 /**
- * Freeze and unfreeze, the write half of `FreezeMarkers`, work item 13.
- *
- * ## A write run of its own
- *
- * Decision 30. Each call takes `run.lock` itself and publishes the run marker
- * through WriteRun, then looks at the freeze marker. A freeze that has returned has
- * therefore excluded every apply, revert or redo that had not already finished, and
- * `FreezeGuard` stops every one that starts later. The runner does not take the
- * lock around these calls: a second acquire in the same process is a second handle,
- * and it would fail.
- *
  * A process that cannot take the lock returns without touching the run marker, the
  * write intent or the freeze marker. The run marker is removed when the call
  * completes, and kept when a write intent is left for recovery.
- *
- * ## An interrupted run is settled first
- *
- * A leftover write intent, or a run marker found while holding the lock, belongs to a
- * run that died. `WriteRun` hands it to `RunRecovery` - one place, so Freezer and
- * Reverter cannot come to settle it differently - and the marker change goes ahead
- * once that has settled. It does not take over the dead run's remaining target
- * writes; only apply does that. An intent recovery could not settle refuses the call,
- * because publishing a new intent over the old one would destroy the only evidence of
- * that mutation.
- *
- * ## The marker mutation
- *
- * Decision 32. The freeze-marker state is `absent` or `present`, never a digest, and
- * `present` is anything `isFrozen()` treats as frozen, which is never a symbolic link,
- * decision 40. The shape is inspected before the intent: freeze on a frozen path and
- * unfreeze on an unfrozen one are not mutations, and a non-empty directory, or a
- * symbolic link where freeze would create the marker, is a fault. None of them
- * publishes an intent. An unreadable empty directory is still a freeze, so unfreeze
- * publishes intent and removes it with `rmdir`. An unlistable directory is opened
- * by changing its mode long enough to read the entries, then the full saved mode,
- * special bits included, is put back on the opened inode. The listing opens the
- * last component and keeps the descriptor that open added. A follow of a
- * different inode cannot match. A follow of the recorded inode is refused
- * because `lstat` of the last component must still be that real directory. The
- * 0700 change still goes through the name, because PHP has no `fchmod` and a
- * mode-0000 directory cannot be opened first. Identity is checked immediately
- * before each pathname `chmod` and after it, so a replacement already visible
- * then is not changed. A rename that lands between that last `lstat` and the
- * pathname `chmod` can still change another inode; unfreeze then reports the
- * identity change and publishes no intent. A restore is not attempted once
- * identity has already moved. A restore that itself races is reported as that
- * identity change rather than as a listing failure. A directory whose entries
- * still cannot be determined, or whose mode cannot be put back, is not known to
- * be empty, and unfreeze refuses it before any intent. Unknown is not empty. A
- * non-empty directory whose entries become readable that way faults before
- * intent, the same as one the bound listing could read.
- *
- * Freeze creates a regular empty file with an exclusive create. Unfreeze removes an
- * empty directory with `rmdir` and any other shape with `unlink`. It never deletes
- * recursively.
- *
- * The parent directory is opened from `backup/` down before the intent, and a
- * missing mirrored directory is created through that handle. PHP has no `openat`
- * or `O_NOFOLLOW`, so a pathname `fopen` or `mkdir` after a path check can follow
- * a symbolic link swapped into an ancestor and land outside `backup/`. The handle
- * cannot. A later swap of a directory already walked does not redirect the
- * mutation.
- *
- * Both operations then check that the logical parent still names that bound inode
- * and that `isFrozen()` reads the post-state before they commit success. A swap
- * that left the freeze marker only under the renamed original tree is an orphan:
- * it is removed and the mutation reports failure, because a freeze that returned
- * while the guard still admits a write is not a freeze. An unfreeze whose removal
- * went into a renamed tree while the logical path still reads frozen reports
- * failure too. It does not delete the marker at the replacement path to make the
- * result true.
- *
- * Then: intent, mutation, event, clear intent. A mutation that fails is settled only
- * when the marker at the logical path is still in its pre-state and `mutation-failed`
- * commits with the same correlation id, decision 32 case 2. Anything short of that
- * leaves the intent, including a detached unfreeze whose logical path now reads
- * unfrozen for a reason other than its own removal. Freeze-marker state has only two
- * values, so neither-state recovery cannot arise.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class Freezer
 {
@@ -367,21 +290,6 @@ final class Freezer
     /**
      * Directory entries, including those of a directory whose mode forbids listing.
      *
-     * The last component is identified with `lstat` through the bound parent, which
-     * does not follow a symbolic link there. The listing then opens that name and
-     * keeps the descriptor that open added. `opendir` follows, so a replacement
-     * at a different inode cannot match. A symbolic link to the recorded inode is
-     * refused because `lstat` of the last component must still be that real
-     * directory. PHP has no `fchmod`, and a mode-0000 directory cannot be opened
-     * first, so the 0700 change still goes through the name. Identity is checked
-     * immediately before each pathname `chmod` and after it. The saved mode is
-     * put back on the opened inode through `/proc/self/fd` when that open
-     * succeeded, with every permission and special bit it had. A pathname restore
-     * after a failed open is checked the same way as the 0700 change. A directory
-     * whose entries cannot be determined, whose identity moved, or whose mode
-     * cannot be put back, is not known to be empty, and the caller refuses it
-     * before any intent.
-     *
      * @param string $named The marker's logical path, for the reason.
      *
      * @return list<string>|string The entries, or why they could not be determined.
@@ -614,9 +522,6 @@ final class Freezer
 
     /**
      * The marker state at the target's logical path, in the intent's vocabulary.
-     *
-     * The logical state, not the bound path's. It is what the guard reads and what
-     * ticket 34's recovery will observe, so a settlement compares the same thing.
      *
      * @return Closure(): string
      */

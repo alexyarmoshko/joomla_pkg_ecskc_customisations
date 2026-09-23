@@ -22,12 +22,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package;
  * closed. An incomplete copy unlinks the destination this call created. A source
  * that cannot be opened, or a name that cannot be created exclusively, is left
  * alone, because this call never created it.
- *
- * Callers own the failure text. This class returns a kind, and reports a leftover
- * destination only when the exclusive create succeeded and the incomplete-copy
- * unlink did not.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class ExclusiveCopy
 {

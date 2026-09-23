@@ -23,27 +23,11 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
 
 /**
  * Creates and protects the package's own state folders.
- *
- * **This script never touches a managed customisation.** Brief decision 2 requires
- * the operator to ask for an apply; installation only prepares the component's own
- * storage. Phase 3 adds the message that asks.
- *
- * **Failure throws, and does not return false.** Joomla discards a false return
- * from postflight - `InstallerAdapter::triggerManifestScript()` guards the abort
- * with `if ($method !== 'postflight')` - so returning false reported a successful
- * install with unprotected folders. A RuntimeException is caught one level up and
- * rolls the installation back, which is the right outcome: an unprotected backup/
- * discloses displaced site files, and an unprotected state/ discloses the event
- * log. No component is better than an unprotected one.
  */
 class Com_EcskccustomInstallerScript
 {
     /**
      * A deny-all .htaccess.
-     *
-     * Brief section 5.6 records that this goes silently inert on an origin not
-     * served by Apache, which is why Phase 1 proves over HTTP that the folders are
-     * actually unreachable rather than trusting that the file exists.
      */
     private const DENY_ALL = <<<'HTACCESS'
         # Files here belong to the ECSKC Customisations component and are never served.
@@ -83,12 +67,8 @@ class Com_EcskccustomInstallerScript
      */
     public function postflight($type, InstallerAdapter $adapter): bool
     {
-        // Joomla runs postflight after an uninstall too - InstallerAdapter::uninstall()
-        // triggers it once finaliseUninstall() has deleted the tree - and $type is
-        // 'uninstall' there. Creating the folders again would put three empty
-        // directories back where the component used to be, and the protection pass
-        // that follows would then throw on payload/, which no longer exists: the
-        // operator was told "Extension not removed" after a successful uninstall.
+        // Joomla calls postflight after uninstall; recreating folders then would
+        // make a successful uninstall appear to fail.
         if ($type === 'uninstall') {
             return true;
         }
@@ -124,17 +104,6 @@ class Com_EcskccustomInstallerScript
 
     /**
      * Runs before Joomla deletes the component's directories.
-     *
-     * `InstallerAdapter::uninstall()` triggers this hook and only then reaches
-     * `ComponentAdapter::finaliseUninstall()`, which removes the administrator tree
-     * and with it `backup/`, `staging/` and `state/`. Until now that loss was silent:
-     * the operator was told the component was removed and not that every displaced
-     * original, every freeze marker and the whole event log went with it.
-     *
-     * So the history is copied to a zip in the temporary folder first. The uninstall
-     * itself is not obstructed - it is deliberate, and Joomla discards a false return
-     * from this hook anyway (`triggerManifestScript()` guards the abort with
-     * `if ($method !== 'uninstall')`). Only `preflight` can refuse an uninstall.
      *
      * **Never throws.** A failure here must not leave the component half-removed, so
      * the reason is enqueued and the uninstall carries on.
@@ -184,10 +153,7 @@ class Com_EcskccustomInstallerScript
 
             $this->enqueue($this->reasonKey($failure->reason), 'error', $path);
         } catch (\Throwable $error) {
-            // Nothing the core raises reaches here: everything it knows how to fail at
-            // arrives above with a reason and a path. What is left is unforeseen, and
-            // its message is English from a stack trace, so the operator gets the
-            // translated wrapper and the detail goes to a log file.
+
             $this->enqueue('COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_FAILED', 'error');
             $this->log($error->getMessage());
         }
@@ -198,13 +164,6 @@ class Com_EcskccustomInstallerScript
     /**
      * Where the archive goes: a guarded folder of the package's own inside the
      * site's temporary folder.
-     *
-     * Outside the component tree, which is the whole point - anywhere under it is
-     * deleted moments later. Not the temporary folder itself: measured on the DDEV
-     * reference site, a file written there is served over HTTP with status 200, and
-     * this archive holds displaced site files and the event log. It gets the same
-     * deny-all treatment as backup/ and state/ had, in a folder of its own so that
-     * nothing else in tmp/ is affected.
      *
      * A folder that cannot be created or protected raises, and the hook above turns
      * that into the message that the history could not be saved. An unprotected dump
@@ -288,12 +247,6 @@ class Com_EcskccustomInstallerScript
      * writing somewhere else instead would put an archive of displaced site files in
      * a folder the administrator did not choose, and the message would name a path
      * they never configured.
-     *
-     * The default applies only when Joomla returns an empty setting, which names no
-     * folder at all. It is Joomla's own default location, not a second guess at the
-     * setting. A failure to reach the application or its configuration is not caught
-     * here either: it reaches the hook's error path, because a lookup that failed is
-     * not the same as a site configured with no temporary folder.
      */
     private function temporaryFolder(): string
     {

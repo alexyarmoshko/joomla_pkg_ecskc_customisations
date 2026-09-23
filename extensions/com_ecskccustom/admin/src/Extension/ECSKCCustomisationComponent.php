@@ -18,9 +18,6 @@ use Joomla\CMS\Extension\MVCComponent;
 
 /**
  * The component itself.
- *
- * Bare on purpose. Phase 1 needs a real installation and bootstrap path in DDEV
- * and nothing more; the views, controllers and permissions arrive in Phase 3.
  */
 class ECSKCCustomisationComponent extends MVCComponent
 {

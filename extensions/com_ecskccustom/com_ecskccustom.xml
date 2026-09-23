@@ -10,31 +10,10 @@
     <version>0.1.0</version>
     <description>COM_ECSKCCUSTOM_XML_DESCRIPTION</description>
     <namespace path="src">YakShaver\Component\ECSKCCustomisation</namespace>
-    <!--
-        The installer resolves scriptfile against the package root, while uninstall
-        re-reads it from the installed administrator folder (ComponentAdapter sets
-        source to extension_administrator there). The script therefore ships twice,
-        from one source file: once at the archive root for install, and once inside
-        admin/ so uninstall can still find it. The build owns that duplication.
-    -->
+    <!-- Joomla reads this at the package root on install and from admin/ on uninstall. -->
     <scriptfile>script.php</scriptfile>
 
-    <!--
-        Administrator only. The plan keeps every package code path in the
-        administrator and in the installer event; the site plugin that delivers
-        override.css is a separate extension, added in Phase 4.
-
-        payload/ and rules/ are declared, so a package update replaces them with the
-        new release's files. Both ship empty for now; ticket 18 authors the rule set
-        and payload inventory into them, and PackagePaths::rules() already points
-        here. backup/, staging/ and state/ are deliberately NOT
-        declared: Joomla removes files by comparing the old and new manifests and
-        ignores what appears in neither, which is what carries a site's backups,
-        freeze markers and event log across an update. Uninstall still deletes the
-        three directories. The uninstall hook copies the contents of backup/ and
-        state/ to a guarded archive outside the component first. staging/ is not
-        archived: it holds nothing that outlives a completed run.
-    -->
+    <!-- Keep backup/, staging/, and state/ out of the manifest so updates preserve site state. -->
     <administration>
         <files folder="admin">
             <filename>script.php</filename>

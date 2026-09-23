@@ -6,28 +6,8 @@ EXT_NAME := com_ecskccustom
 COM_ROOT := extensions/com_ecskccustom
 MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 
-# One explicit list of what ships. Never a directory.
-#
-# Paths under COMPONENT_FILES are relative to $(COM_ROOT) and land at the
-# same relative path in the archive, except script.php which also ships at
-# the archive root: the installer resolves <scriptfile> against the package
-# root, while uninstall re-reads it from the installed administrator folder.
-#
-# `admin/src/Core/Build/` is deliberately absent. Outside tests/Unit/Build/, its
-# only consumers are tools/validate.php and tools/copy_nofollow.php, all three
-# reaching it from the repository through Composer's autoloader.
-# LinkSafeCopy::copy() is the build-time copy. A report-only package that shipped
-# it would put a write implementation on the site for nothing to call. Runtime
-# exclusive copies go through ExclusiveCopy, which BackupStore and TargetWriter
-# both call. Decision 32's intent sequence goes through MutationTransaction, which
-# Freezer and TargetWriter both call. The lock, run marker, interrupted-run
-# refusal and marker cleanup go through WriteRun, which Freezer and Reverter both
-# call.
-#
-# `admin/src/Core/State/ReportOnlyHistory.php` is absent on the same grounds from
-# Phase 2 on. The provider wires EventLogHistory, so nothing installed calls it;
-# it stays in the repository as the answer for a caller with no state tree, and
-# as what the report's own tests compose against.
+# Explicit package inventory. script.php also ships at the archive root because
+# Joomla looks there on install and under admin/ on uninstall.
 COMPONENT_FILES := \
 	com_ecskccustom.xml \
 	admin/script.php \

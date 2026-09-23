@@ -27,46 +27,6 @@ use UnexpectedValueException;
  * made there at all, because the thing being judged spans files: a chain may start
  * in one rule file and continue in another, and a duplicate path is not a duplicate
  * until both halves are in the same set.
- *
- * Every violation names the rule file and the object it came from, because an
- * author reading a build failure has the whole merged set in front of them and no
- * way to guess which of thirteen objects at a path is the wrong one.
- *
- * ## Ownership is read from permissions, not from a marker
- *
- * Nothing in the rule set says whether a target is vendor-owned or package-owned,
- * and brief 5.2 refuses to add a marker: it would be a second, weaker way of
- * describing a file. The permissions get close enough, and this uses them the same
- * way the brief does. A path whose first object may **create** the file is
- * package-owned - the package put every byte that file has ever held - so every
- * later expectation at that path must be a payload the package itself shipped, and
- * one that is not is a mis-typed link.
- *
- * A path whose first object may only replace is a customisation of a vendor file.
- * Its objects are alternatives rather than a chain, each expecting an original from
- * a different vendor build, so an expectation matching no earlier payload is
- * exactly right and is not reported here. Those hashes are computed at authoring
- * time with `tools/hash.php`. Decision 24 withdrew the second copy this layer
- * would have checked them against.
- *
- * A removal told to keep no copy is different. Apply leaves no backup of the
- * predecessor, so revert can restore it only when an earlier object at the target
- * ships those bytes as a payload. A `remove backup="false"` whose expectedHash no
- * earlier object writes is permanently one-way and is rejected here.
- *
- * ## What deliberately is not here
- *
- * Path confinement, the extension allow list and the deny list belong to path
- * policy, which the build runs without a live site. Hashing a payload's bytes
- * against `sourceHash` belongs to BuildValidator, which has the hasher. This
- * layer checks that a payload is named exactly once, that it exists, and that it
- * resolves inside the payload directory rather than through a symbolic link to
- * somewhere else.
- *
- * **Nothing here warns.** Every check returns a violation or nothing, and a
- * violation stops the artefact. The plan's warning pass lives on BuildValidator.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class MergedSetValidator
 {
@@ -135,8 +95,7 @@ final class MergedSetValidator
             $width = HashAlgorithm::digestLength($object->hashType);
 
             if ($width === null) {
-                // An unsupported algorithm is already reported against the file. Its
-                // digests have no width to be measured against.
+
                 continue;
             }
 
@@ -258,9 +217,7 @@ final class MergedSetValidator
                     $seen[$object->version]
                 );
             } elseif ($highest !== null && $object->version < $highest) {
-                // The engine walks objects in document order and does no version
-                // comparison of its own, so the order in the merged set is the
-                // semantics. This is what guarantees it matches the versions.
+
                 $violations[] = \sprintf(
                     '%s: appears after version %d, so the objects at %s are out of version order',
                     $object->label(),
@@ -269,8 +226,6 @@ final class MergedSetValidator
                 );
             }
 
-            // ??= so a third object at one version still points at the first, not
-            // the second. The author is being sent somewhere to compare.
             $seen[$object->version] ??= $object->label();
             $highest                  = $highest === null ? $object->version : \max($highest, $object->version);
         }
@@ -288,9 +243,7 @@ final class MergedSetValidator
         $head = $objects[0];
 
         if (!$head->create) {
-            // Vendor-owned: the objects are alternatives, each expecting an original
-            // from a different vendor build. Their expectations are established
-            // outside the rule set, computed with tools/hash.php (decision 24).
+
             return [];
         }
 
@@ -314,8 +267,6 @@ final class MergedSetValidator
                 );
             }
 
-            // A disabled object still links the chain structurally; that it strands
-            // a site not already past it is a build warning, not a broken link.
             foreach ($object->payloadHashes() as $hash) {
                 $available[\strtolower($hash)] = $object->label();
             }
@@ -330,11 +281,6 @@ final class MergedSetValidator
      * bytes. Vendor-owned chains are included: a first-object vendor removal with
      * backup="false" expects an original the package never wrote, and would be
      * permanently one-way if it passed.
-     *
-     * Naming no expected original at all is the same removal with the check taken
-     * off: it matches whatever file happens to be there, keeps no copy, and names
-     * no state for revert to put back. That is a wider hole than a mis-linked
-     * hash, not a narrower one, so it is rejected on the same grounds.
      *
      * @param list<RuleObject> $objects
      *
@@ -398,9 +344,7 @@ final class MergedSetValidator
         }
 
         foreach ($referencedBy as $source => $labels) {
-            // Counted per object, not per action. One object may carry several
-            // actions writing the same payload under different conditions - brief
-            // 5.2's conditional variation - and that is one owner, not two.
+
             $owners = \array_values(\array_unique($labels));
 
             if (\count($owners) > 1) {
@@ -489,18 +433,6 @@ final class MergedSetValidator
      * standing in for a directory would take the whole subtree with it.
      * RecursiveDirectoryIterator does not descend into a linked directory by default,
      * so such a link arrives here as a single entry that is not a file.
-     *
-     * A directory the account cannot list is collected the same way, rather than
-     * being allowed to throw. Both the opening of the root and every descent below it
-     * raise UnexpectedValueException on a permission failure, and an exception here
-     * leaves the runner with no report at all - the one thing a check must always
-     * produce. CATCH_GET_CHILD keeps the walk going past such a directory, and
-     * SELF_FIRST is what puts the directory itself in front of this loop so the
-     * unreadable one can be named instead of silently skipped. Every other directory
-     * falls through the isFile() test exactly as it did before.
-     *
-     * An unreadable directory is named by its payload-relative path, or by the
-     * payload directory itself when that root cannot be opened.
      *
      * @return array{files: list<string>, links: list<string>, unreadable: list<string>}|null
      *         Null when the directory does not exist.

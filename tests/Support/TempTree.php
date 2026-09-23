@@ -9,49 +9,9 @@ use RuntimeException;
 /**
  * A real temporary directory tree for core tests.
  *
- * Decision 6 of the execution plan runs the core integration tests against real
- * temporary directories rather than an in-memory filesystem, so that permission
- * bits, atomic renames and same-filesystem staging behave as they do in
- * production. This helper is the only place that knows how such a tree is made
- * and removed.
- *
- * Bytes are written and read verbatim. Nothing here normalises line endings or
- * adds a trailing newline: decision 14 makes those part of a payload's identity.
- *
- * ## What this class does and does not confine
- *
- * Its own reads and writes stay inside the tree. That is the whole promise.
- *
- * It is **not** a security boundary, and it is not the confinement the package
- * itself needs. Once path() returns a string, what a caller does with that string
- * is the caller's business - ticket 14 will hand hostile paths to the package's
- * path policy on purpose, and that policy has to do its own resolution, its own
- * site-root confinement and its own deny list. Mistaking this helper for that
- * check would be a bad trade.
- *
- * Confinement here is verified by resolving the path and asking where it landed,
- * rather than by refusing a list of hostile spellings. Three review rounds each
- * found the next spelling the list had missed - ".." first, then a symbolic link
- * used as a parent directory, then the same link through read() - which is what a
- * list of shapes does. Asking where a path resolves to has no such list.
- *
  * It stays check-then-act, and on a single-threaded test suite that is fine. PHP
  * offers no openat/O_NOFOLLOW without an extension, so the race cannot be closed
  * here, and against a careless test rather than an attacker it does not need to be.
- *
- * Hard links are handled separately, by link count rather than by resolution: a
- * hard link is a second name for one inode, not a path that leads elsewhere, so
- * there is no path for resolve() to inspect. The count cannot say where the other
- * names are, so a wholly internal hard link is refused too; nothing needs them.
- *
- * One more accepted limit: a symbolic link inside the tree whose target does not
- * exist yet is refused, because realpath() cannot resolve it and this class will
- * not guess where it would land.
- *
- * A note for ticket 14: build its hostile inputs as plain strings and use this
- * helper only to lay down fixtures. resolve() is a test-helper guard, not a model
- * of the package's path policy, and reusing it as one would test the helper
- * instead of the code under review.
  */
 final class TempTree
 {
@@ -142,13 +102,6 @@ final class TempTree
 
     /**
      * Create a symbolic link inside the tree, pointing anywhere.
-     *
-     * Ticket 14 has to prove that the package's path policy resolves symbolic
-     * links, confines them to the site root and applies the deny list through
-     * them. It therefore has to create links that leave the tree, which is exactly
-     * what resolve() refuses to traverse. Both are correct: a test may build such
-     * a link deliberately, and no ordinary read or write may follow one by
-     * accident.
      *
      * The link itself must sit inside the tree; only its target may be outside.
      * remove() unlinks it rather than following it.
@@ -266,15 +219,6 @@ final class TempTree
      * it is a second name for one inode, so realpath() quite correctly reports a
      * path inside the tree while the bytes are also reachable from outside it. The
      * link count is the only signal available.
-     *
-     * The count says how many names exist, never where they are, so this refuses a
-     * multiply-linked file whether or not the other name is outside the tree. That
-     * is the right trade here: nothing in the plan needs hard links at all, so the
-     * false positive costs nothing, where refusing symbolic links would have cost
-     * ticket 14 its escape tests.
-     *
-     * Called from resolve(), so it covers every entry point rather than the one a
-     * review last named. Guarding write() alone was this helper's recurring bug.
      */
     private function assertNotAnInodeAlias(string $path): void
     {

@@ -14,42 +14,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report;
 
 /**
  * What one run of the runner returns. Everything the operator is shown comes from here.
- *
- * The plan's list, and where each part lives:
- *
- * | The report carries                      | Where it is                             |
- * |-----------------------------------------|-----------------------------------------|
- * | one state per target path               | `targets()`, one TargetReport each      |
- * | the object-by-object outcome            | `TargetReport::objectOutcomes()`        |
- * | the reason for an action, skip or fault | on the state, the object and the run    |
- * | the backup path                         | `TargetReport::$backup`                 |
- * | the last recorded package write         | `TargetReport::$lastPackageWrite`       |
- * | run-level counts                        | `$counts`                               |
- * | interrupted-run information             | `$interruption`                         |
- * | the operational-checks section          | `$checks`, present and empty in Phase 1 |
- *
- * ## A run that faults before it can walk
- *
- * A rule set that does not load, or that loads and fails merged-set validation, ends
- * the run: there is nothing to report state against, and reporting zero targets and
- * saying nothing else would read as a site with no customisations. So the report
- * carries run-level faults of its own, and `faulted()` has no targets rather than an
- * empty list that means "all well". That is the package at fault, never a target,
- * which is the same line brief 5.3 draws for `faulted`.
- *
- * **A fault is not always the end of a run.** Decision 29: a damaged line in the event
- * log is a fault about the package's own history and says nothing about the bytes at a
- * target, so `of()` takes faults too and the report lists them beside the walk. A
- * report is faulted whenever it carries a fault; whether it also has targets is what
- * separates the two cases.
- *
- * ## Interrupted runs
- *
- * Decision 16 of the brief: a marker on disk with a free lock means the previous run
- * was interrupted. Both are written by the write path, which is Phase 2, so in a
- * report-only phase the field says so rather than claiming a clean run it has no
- * record of. It is a ReportedValue for that reason - "no run was interrupted" and
- * "the package cannot tell" have to read differently.
  */
 final class RunReport
 {
@@ -68,12 +32,7 @@ final class RunReport
 
     /**
      * @param list<TargetReport> $targets
-     * @param list<string>       $faults Faults a completed walk found beside its
-     *                                   targets, which in Phase 2 are the event log's
-     *                                   damaged records and a log that could not be
-     *                                   read at all. The walk still stands: a line
-     *                                   nobody can parse says nothing about the bytes
-     *                                   at a target, so the report lists both.
+     * @param list<string> $faults
      */
     public static function of(
         array $targets,

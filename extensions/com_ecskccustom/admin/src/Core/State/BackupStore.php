@@ -19,55 +19,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ExclusiveC
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 
 /**
- * Deterministic, verified backups of displaced content, work items 8 and 9.
- *
- * Brief decision 4: before an apply overwrites a file it always backs it up, and no
- * rule can turn that off. The backup sits at `PackagePaths::backupFile()`, named for
- * the version whose write displaces the content and the digest of that content.
- *
- * **The name is a claim, never proof.** A backup already at the name is re-hashed
- * before it is kept, and so is the live source. Trusting the name is what would
- * let a truncated or edited backup pass as valid, and the next write would then
- * overwrite the last intact original. Trusting the backup hash alone would let a
- * stale caller digest certify an outside edit the backup does not contain.
- * Anything at the name that does not hash to it is replaced. A symbolic link is
- * replaced even when its destination holds the right bytes, because a link is a
- * pointer somebody else controls, not a backup. A valid existing backup is kept
- * without rewriting, but its modification time is updated: revert picks the
- * newest backup at a version by that time, and a later reuse of the same bytes
- * has to rank newer than a sibling written in between.
- *
- * **That time is a rank, not a clock reading.** `filemtime()` answers in whole
- * seconds, so two backups of one target published or reused inside the same second
- * would tie and leave revert to break the tie on a digest, which says nothing about
- * order. Every backup this class publishes or keeps is therefore stamped one second
- * past the newest of its target's other backups when the clock does not already put
- * it there, so the backups of one target carry a strict order however fast they are
- * written. A new backup is stamped before the rename, so the ordering is part of the
- * atomic publication rather than a second step that could fail after it.
- *
- * A new backup is copied through ExclusiveCopy to an exclusive temporary beside
- * its destination, so it is written in the backup filesystem and the rename is
- * atomic. The copy is hashed and compared with the digest the caller decided on,
- * then renamed onto the name. A crash before the rename leaves
- * `<name>.<12 hex>.tmp`. No lookup reads that name, so a partial copy is never
- * taken for a backup. Sweeping those leftovers needs the run lock, and this class
- * does not take it.
- *
  * ExclusiveCopy owns the temporary. An incomplete copy unlinks the file it
  * created. A verify, chmod or rename failure does the same from preserve().
  * A source that cannot be opened, or a name that cannot be created exclusively, is
  * left alone, because this call never created it.
- *
- * The caller's digest is what both the copy and a kept backup are held to. The
- * caller has already decided which bytes it is displacing, and the intent it
- * publishes names them. A target that changed since that decision fails here,
- * even when a file that hashes to the digest already sits at the backup name.
- * The write does not go ahead over bytes nobody backed up.
- *
- * Only the write run holding the run lock calls this. It takes no lock of its own.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class BackupStore
 {
@@ -283,9 +238,6 @@ final class BackupStore
      * written in the same second. Siblings at other versions are counted too: they
      * are the same target's history, and keeping one order over the whole of it is
      * what makes the ranking readable to a maintainer looking at a listing.
-     *
-     * Only names parseBackupName() accepts count, so a freeze marker, a publication
-     * temporary, or a file an operator dropped beside them moves nothing.
      */
     private function nextRecency(string $targetPath, string $destination): int
     {

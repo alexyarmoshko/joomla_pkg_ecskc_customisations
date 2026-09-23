@@ -20,32 +20,11 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\RuleCond
 /**
  * Reads the rule directory and merges every rule file into one rule set.
  *
- * Files load in **byte-order alphabetical** order, and objects keep their document
- * order within each file. That order is the semantics: the engine walks objects as
- * it finds them and does no version comparison of its own.
- *
- * ## Why the load order has to be unambiguous
- *
- * Byte order and a case-insensitive order disagree whenever two filenames differ
- * in case: byte order puts every capital ahead of every lower-case letter, so
- * `Kunena.xml` loads before `helix.xml` while a human reading the directory expects
- * the reverse. An author who cannot predict the order cannot author a chain that
- * spans two files. Rather than pick one order and hope, this refuses any directory
- * whose two orders disagree, which is a rename away from fixed.
- *
- * ## Schema first, then parse
- *
  * Each file is schema-validated before it is parsed, and a file that fails
  * contributes no objects - its shape cannot be trusted enough to read. The bytes
  * are parsed a second time to build the objects rather than reusing the validator's
  * document, because SchemaValidator owns libxml's global error queue for the
  * duration of its call and handing its internals out would leak that ownership.
- *
- * Attribute defaults are applied here, explicitly, rather than read back from the
- * schema. libxml can fill defaults during validation, but relying on it would make
- * the parsed meaning of an object depend on whether validation had run first.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class RuleLoader
 {
@@ -78,10 +57,7 @@ final class RuleLoader
         $hashTypes  = [];
 
         foreach ($names as $name) {
-            // Brief 5.4: "The rule set is only ever read from the installed package.
-            // Rules are not accepted from an upload, an arbitrary location, or the
-            // database." A symbolic link is an arbitrary location wearing the
-            // package's own name, and is_file() follows one without saying so.
+
             if (\is_link($rulesDirectory . '/' . $name)) {
                 $violations[] = \sprintf(
                     '%s: is a symbolic link. The rule set is only ever read from the installed '
@@ -128,8 +104,7 @@ final class RuleLoader
             $patch = $document->documentElement;
 
             if ($patch !== null) {
-                // Recorded even when the file carries no objects. The declaration is
-                // the file's, not the objects', and a file with none still makes one.
+
                 $hashTypes[$name] = $this->collapse($patch->getAttribute('hashType'));
             }
 
@@ -161,7 +136,6 @@ final class RuleLoader
                 continue;
             }
 
-            // index.html is the folder's own guard, not a rule.
             if (\strtolower(\pathinfo($entry, \PATHINFO_EXTENSION)) !== self::EXTENSION) {
                 continue;
             }
@@ -376,11 +350,6 @@ final class RuleLoader
      * pretty-printing, and none of the four values it is compared against carries
      * any: an indented literal would silently match nothing, and the customisation
      * would quietly never apply.
-     *
-     * Not collapsed, unlike a token. Collapsing rewrites the inside of a regular
-     * expression, where a run of literal spaces is as significant as any other
-     * character, and rewriting an author's expression without saying so is the same
-     * fault as rewriting their path.
      */
     private function operand(DOMElement $element): string
     {

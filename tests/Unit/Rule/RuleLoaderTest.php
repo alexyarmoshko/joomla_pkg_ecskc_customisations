@@ -61,8 +61,7 @@ final class RuleLoaderTest extends TestCase
 
     public function testFilesLoadInByteOrderAlphabeticalOrderAndObjectsKeepDocumentOrder(): void
     {
-        // Written in an order that is neither the byte order nor the reverse, so a
-        // loader that simply kept the directory's own order could not pass.
+
         $directory = $this->rulesDirectory([
             '20-kunena.xml' => self::oneObject('b/second.css', 'b/second.css'),
             '10-helix.xml'  => RuleXml::patch(
@@ -158,7 +157,6 @@ final class RuleLoaderTest extends TestCase
             self::assertStringStartsWith('10-broken.xml:', $violation);
         }
 
-        // The sound file still loads: one bad file does not hide the rest of the set.
         self::assertSame(
             ['a/one.css'],
             \array_map(static fn (RuleObject $o): string => $o->targetPath, $result->ruleSet->objects())
@@ -178,12 +176,6 @@ final class RuleLoaderTest extends TestCase
         ];
     }
 
-    /**
-     * These faults are named in ticket 12's rejection list but are settled inside a
-     * single file, so the schema layer owns them. What matters here is that loading
-     * a directory containing one still refuses the file and names it: an author gets
-     * the same answer whether the fault is a shape or a relationship.
-     */
     #[DataProvider('schemaRejections')]
     public function testLoadingRefusesAFileTheSchemaRejects(string $fixture): void
     {
@@ -197,13 +189,6 @@ final class RuleLoaderTest extends TestCase
         self::assertTrue($result->ruleSet->isEmpty());
     }
 
-    /**
-     * Brief 5.4: "The rule set is only ever read from the installed package. Rules are
-     * not accepted from an upload, an arbitrary location, or the database." A symbolic
-     * link is an arbitrary location wearing the package's own name, and is_file()
-     * follows one without saying so - measured: a rule file linked in from outside
-     * loaded with no violation at all.
-     */
     public function testARuleFileThatIsASymbolicLinkIsRefused(): void
     {
         $directory = $this->rulesDirectory([
@@ -480,8 +465,7 @@ final class RuleLoaderTest extends TestCase
             . '<condition type="regex" attribute="HOST"' . "\n"
             . '           description="Any host except production">^(?!ecskc\.eu$).*$</condition>'
             . '<conditions match="any">'
-            // Pretty-printed, which is the shape that silently matches nothing when
-            // the indentation is read as part of the value.
+
             . '<condition attribute="SITE_URL">' . "\n            https://dev.example.invalid\n        " . '</condition>'
             . '<condition type="version" attribute="JOOMLA_VERSION">&gt;=5.4.0</condition>'
             . '</conditions>'
@@ -519,7 +503,7 @@ final class RuleLoaderTest extends TestCase
 
         $literal = $nested->members[0];
         self::assertInstanceOf(RuleCondition::class, $literal);
-        // The type is omitted, and brief 5.1 makes literal the default.
+
         self::assertSame(RuleCondition::LITERAL, $literal->type);
         self::assertSame('https://dev.example.invalid', $literal->operand);
         self::assertNull($literal->description);

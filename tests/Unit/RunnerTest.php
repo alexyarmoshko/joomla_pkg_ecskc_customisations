@@ -66,8 +66,6 @@ final class RunnerTest extends TestCase
         $this->tree->remove();
     }
 
-    // Decision 14: CRLF and the missing final newline are part of a payload's
-    // identity, so the fixtures carry them rather than being tidied.
     private const ORIGINAL = "body { color: red; }\r\n.a { top: 0 }";
     private const FIRST    = "body { color: blue; }\r\n.a { top: 0 }";
     private const SECOND   = "body { color: green; }\r\n.a { top: 1 }";
@@ -119,10 +117,6 @@ final class RunnerTest extends TestCase
         self::assertStringContainsString('Joomla did not report its version', $faulted->reason());
     }
 
-    /**
-     * Phase 1 has no write path, so the field is a determined negative rather than a
-     * fault: there is no record to read and the report says why.
-     */
     public function testTheLastPackageWriteFieldSaysWhyThereIsNone(): void
     {
         $report = $this->report();
@@ -162,12 +156,6 @@ final class RunnerTest extends TestCase
         self::assertSame(0, $report->counts->notifiableChecks);
     }
 
-    /**
-     * Phase 4 puts a check in the section. The target counts must not move, because
-     * an operational check is not a target path. The core owns the section, so the
-     * runner is not handed one; the invariant is a property of the counts, exercised
-     * here over the run's real targets with and without a check beside them.
-     */
     public function testTargetCountsAreUnaffectedByTheOperationalChecksSection(): void
     {
         $targets = $this->report()->targets();
@@ -245,10 +233,6 @@ final class RunnerTest extends TestCase
 
     /**
      * A damaged history record says nothing about the bytes at any target.
-     *
-     * So it is a fault the report carries beside the walk rather than instead of it,
-     * decision 29. Only the history port is substituted here: the event log it reads is
-     * ticket 29's, and ticket 34 runs this case again over a real damaged log.
      */
     public function testADamagedHistoryRecordFaultsTheRunAndStillReportsEveryTarget(): void
     {
@@ -307,8 +291,6 @@ final class RunnerTest extends TestCase
             }
         }
 
-        // The snapshot proves nothing unless the run proposed a creation and a
-        // removal as well as an overwrite.
         self::assertContains('copy templates/et_tennis/css/created.css', $proposed);
         self::assertContains('remove plugins/system/helixultimate/comingsoon.php', $proposed);
         self::assertFileDoesNotExist($this->tree->path('templates/et_tennis/css/created.css'));

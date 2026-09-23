@@ -15,19 +15,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report;
 /**
  * One operational check: what was checked, how it came out, and whether to say so.
  *
- * Decision 22 of the brief puts these outside the rule vocabulary. A check is not a
- * target path: it carries no path, no hash and no backup, it is never planned,
- * applied, reverted, redone, frozen or unfrozen, and it never enters the per-target
- * state counts. Everything it can say about itself is here.
- *
- * Version 1 of the plan defines one check, `system_plugin_enabled`, and Phase 4
- * builds it together with the provider that feeds it. Phase 1 defines none, so the
- * section this belongs to is present and empty. The outcome vocabulary is
- * deliberately left as a string rather than fixed as constants here: `enabled`,
- * `disabled` and `unknown` belong to that one check, and a second check would answer
- * in words of its own. What every check shares is the three fields below, which is
- * the part the report shape has to settle now.
- *
  * `notifiable` is the check's own judgement rather than the reader's. The installer
  * plugin enqueues a message when a report holds a notifiable check even where every
  * target is `ok`, and it must not have to know which outcomes of which check mean

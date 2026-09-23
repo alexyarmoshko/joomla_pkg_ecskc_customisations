@@ -13,14 +13,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\TargetWriter;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 
-/**
- * Plan work items 13 to 16 through the runner: freeze, unfreeze, revert and redo.
- *
- * Decision 27 makes each of these a write run of its own that takes the run lock
- * itself, so the runner calls them rather than wrapping them. What is proved here is
- * that they are serialized against apply and against each other, and that each moves
- * one object and no more.
- */
 #[CoversClass(Runner::class)]
 final class OperationsTest extends RunnerHarness
 {
@@ -83,10 +75,6 @@ final class OperationsTest extends RunnerHarness
         self::assertTrue($this->lockIsFree());
     }
 
-    /**
-     * Decision 30, the half the freeze guard cannot cover: a freeze that has returned
-     * has to exclude an apply that had already passed the guard.
-     */
     public function testAFreezeThatHasReturnedExcludesALaterApply(): void
     {
         $this->writeFixture();
@@ -142,10 +130,6 @@ final class OperationsTest extends RunnerHarness
         self::assertSame(TargetStatus::ACTIONABLE, $this->target($report, self::VENDOR)->status());
     }
 
-    /**
-     * Decision 40. A link is never a freeze marker, so unfreezing a path that has one
-     * beside it is not a release and must not delete what the link points at.
-     */
     public function testASymbolicLinkIsNotAFreezeMarker(): void
     {
         $this->writeFixture();
@@ -270,18 +254,11 @@ final class OperationsTest extends RunnerHarness
         self::assertFalse($this->target($report, self::VENDOR)->outcome()->isKnown());
     }
 
-    /**
-     * Decision 43: the newest backup at the step's version is the one restored, and
-     * the step is read from the newest backup among the versions whose payload the
-     * live bytes match.
-     */
     public function testRevertRestoresTheNewestBackupWhenAVersionHasSeveral(): void
     {
         $this->writeFixture();
         $this->runner()->apply(self::VENDOR);
 
-        // A second original is put back on the site and applied again, so version 1
-        // has two backups and the newer one is what the file last displaced.
         $second = "body { color: teal; }\r\n";
         $this->tree->write(self::VENDOR, $second);
         $this->tree->write(self::PACKAGE . '/rules/10-run.xml', RuleXml::patch(RuleXml::object(
@@ -302,10 +279,6 @@ final class OperationsTest extends RunnerHarness
         );
     }
 
-    /**
-     * Ticket 14 through the runner: a link at the target is not a managed file, and
-     * a write must not follow one out of the site root.
-     */
     public function testAPayloadIsNeverWrittenThroughASymbolicLink(): void
     {
         // A second tree, because the link has to leave the site root and the site
@@ -365,9 +338,6 @@ final class OperationsTest extends RunnerHarness
         self::assertSame([], $this->backupNames());
     }
 
-    /**
-     * Decision 39's whole list, proved by what a run of every operation leaves.
-     */
     public function testTheEventLogRecordsMutationsAndNothingElse(): void
     {
         $this->writeFixture();

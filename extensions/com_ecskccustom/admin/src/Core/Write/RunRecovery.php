@@ -23,72 +23,14 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
 
 /**
- * What a write run does about the leftovers of one that died, work item 7.
- *
- * Brief decision 16 says the package resumes through the ordinary check-and-apply
- * process rather than through a repair tool, so this is not an operator command. It
- * is the first thing every write run does once it holds the lock, and on a healthy
- * tree it finds nothing and says so.
- *
- * **Only for the holder of the run lock.** Every question here - is an intent
- * outstanding, is this staging file abandoned, is this temporary somebody's live
- * publish - has a different answer while another process is writing, and acting on
- * the wrong one turns a healthy run into a broken one.
- *
- * ## Settling the intent, decision 32
- *
  * The intent holds one correlation id and the complete event payload the dead run
  * would have appended. Recovery matches on that id and on nothing else: target,
  * operation and the two states cannot tell a leftover intent from an older identical
  * transition at the same target, which is exactly the case a rule set with a
  * repeated payload produces.
- *
- * - An event with that id is already in the log. The run got there; only the removal
- *   of the intent was lost. Remove it and append nothing.
- * - No such event, and the target is in the post-state. The mutation happened and
- *   its event did not. Append the intent's own payload, re-attributed as observed,
- *   then remove the intent. It is never attributed to the package: nobody saw the
- *   package do it, and an outside writer that created the same post-state produces
- *   the same evidence.
- * - No such event, and the target is in the pre-state. Nothing happened, or somebody
- *   put it back. Append an observed `intent-abandoned`, then remove the intent.
- * - Neither state. The package cannot say what happened, so it says that: an
- *   `unresolved-intent` fault carrying the intent's payload and the state actually
- *   found, decision 35. The intent goes and **the run marker stays**, so a death
- *   before the current run completes is still read as an interruption. The run that
- *   settled it publishes its own marker over the stale one by atomic rename, and
- *   removes that marker if it completes, like any other run.
- *
- * A freeze marker is `absent` or `present` and never a digest, so the neither-state
- * branch cannot arise for one.
- *
- * ## What a fault does here
- *
- * A required event that cannot be committed leaves the intent and the marker exactly
- * where they are and reports why. The alternative - clearing the intent and carrying
- * on - destroys the only record of a mutation the log never received. A later run,
- * once the log can accept the record, commits it and continues under the retained
- * marker.
- *
- * Event-log I/O failures are reported and never logged, decision 39. A fault about a
- * log that will not take a record cannot be written into that log.
- *
- * ## The sweeps
- *
- * `staging/` holds files part-way through an atomic move. Under the lock, none of
- * them belongs to a live run, so each is an abandoned copy from a run that died. The
- * `state/` publication temporaries are the same case for the run marker, the write
- * intent and the log. Neither sweep refuses the run: a temporary that will not go is
- * a fault on the report and the operation still goes ahead. It does make the recovery
- * `incomplete`, because ticket 34 counts an empty `staging/` as part of a completed
- * recovery, so the run keeps its marker and stays reported as an interruption until
- * a later one can clear the file.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class RunRecovery
 {
-    /** Event states are sha256 digests whatever the rule declared, decision 32. */
     private const STATE_HASH = 'sha256';
 
     private const NOTHING = 'no earlier run left a marker or a write intent';
@@ -130,10 +72,6 @@ final class RunRecovery
 
     /**
      * Settle what an interrupted run left behind, with the run lock held.
-     *
-     * The sweeps run whether or not anything was interrupted: plan work item 6 makes
-     * a free lock with no marker and leftover temporaries a clean tree, and the next
-     * write run is what deletes those temporaries.
      */
     public function settle(): RecoveryOutcome
     {
@@ -185,9 +123,6 @@ final class RunRecovery
         return $read->isKnown() ? [] : [$read->describe()];
     }
 
-    /**
-     * Decision 32's four cases, in the order that distinguishes them.
-     */
     private function settleIntent(): RecoveryOutcome
     {
         $read = $this->intents->read();
@@ -200,9 +135,7 @@ final class RunRecovery
         }
 
         if (!$read->isPresent()) {
-            // A marker with no intent is a run that died between two mutations, or
-            // before its first. Nothing is outstanding; the marker alone is the
-            // report, and the run that found it removes it when it completes.
+
             return RecoveryOutcome::settled(\sprintf(
                 'an earlier run left the run marker at %s and no write intent, so no '
                 . 'mutation is outstanding',
@@ -299,8 +232,6 @@ final class RunRecovery
             );
         }
 
-        // Neither state. The package will not guess, and it will not let the next
-        // run treat this tree as settled history either, decision 35.
         return $this->commit(
             EventRecord::mutation(
                 EventRecord::UNRESOLVED_INTENT,

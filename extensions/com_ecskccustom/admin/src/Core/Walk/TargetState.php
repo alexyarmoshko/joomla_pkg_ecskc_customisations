@@ -22,20 +22,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\HashResult;
  * skipped target carries an expected and an actual hash, and where one cannot be
  * computed the field carries the reason instead of a hash. A nullable string would
  * let a caller omit it and would say nothing about why.
- *
- * `expected` is the hash the walk was measuring against where it settled or stopped,
- * which is the one an operator needs to see next to the actual bytes. On a blocked
- * target that is the expected original nothing matched; on an ok target it is the
- * payload the file already holds.
- *
- * ## Frozen wraps rather than replaces
- *
- * Decision 19: a freeze prevents every write and prevents no reporting, and the
- * package still shows the state the path would otherwise be in - "frozen (would be
- * actionable)" - so a forgotten freeze stays visible. A frozen state therefore holds
- * the state it wraps, and answers `operations()` with nothing. An executor that
- * honours only this class cannot write to a frozen path even if it never learned
- * about freezing, which is a better guarantee than remembering to check a flag.
  */
 final class TargetState
 {

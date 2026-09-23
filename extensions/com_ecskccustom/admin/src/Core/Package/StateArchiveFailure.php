@@ -21,27 +21,11 @@ use RuntimeException;
  * failures end up in front of an operator: the uninstall hook puts them in the message
  * that says the history was not saved. An exception message would put untranslated
  * English there.
- *
- * So the reason travels as one of the codes below and the path travels beside it. The
- * installer maps the code to a language key and the operator reads their own language
- * with the path they need in it. The message this exception carries is for a developer
- * reading a stack trace, and never for a screen.
- *
- * Seven codes rather than one per throw site. They are the seven things an operator can
- * act on: a write run held the lock, a check or dry run held it for a read, the lock
- * file could not be opened, or the package could not read its own state, could not
- * write the archive, could not secure it, or could not put it where it belongs.
  */
 final class StateArchiveFailure extends RuntimeException
 {
     /**
      * A write run held `run.lock`, so the tree could not be snapshotted.
-     *
-     * The archive takes that lock before it walks, decision 34, so what it copies is
-     * never a tree caught mid-move. Nothing here waits for the holder: an uninstall
-     * must not stall on a live run. The operator is told the history went with the
-     * component, which is what happened, rather than being sent to check a folder
-     * that is perfectly writable.
      */
     public const RUN_LOCKED = 'run-locked';
 

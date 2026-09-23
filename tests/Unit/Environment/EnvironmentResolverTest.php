@@ -13,10 +13,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\RawEnv
 
 /**
  * The derivation the core owns, exercised through the same path production uses.
- *
- * No Joomla here at all: decision 16 puts the derivation in the core precisely so a
- * test can hand it the four raw inputs and get the four attributes back, and so the
- * path a temporary-tree test exercises is the path a site runs.
  */
 #[CoversClass(EnvironmentResolver::class)]
 #[CoversClass(EnvironmentValues::class)]
@@ -85,14 +81,10 @@ final class EnvironmentResolverTest extends TestCase
             'subdirectory install kept'     => ['https://ecskc.eu/site/', 'https://ecskc.eu/site'],
             'subdirectory administrator'    => ['https://ecskc.eu/site/administrator/', 'https://ecskc.eu/site'],
             'nothing to remove'             => ['https://ecskc.eu', 'https://ecskc.eu'],
-            // A host named "administrator" is the authority, not a path segment.
-            // Cutting there left "http:", which is not a URL and is not empty
-            // either, so it was carried as a determined SITE_URL and an exclusion
-            // anchored on the real value matched the wreckage. Review s1.v23,
-            // finding 2.
+
             'a host named administrator'    => ['http://administrator/', 'http://administrator'],
             'that host with a port'         => ['http://administrator:8080/', 'http://administrator:8080'],
-            // And the same name as a real path segment under it still comes off.
+
             'that host with the segment'    => ['http://administrator/administrator/', 'http://administrator'],
         ];
     }
@@ -124,15 +116,11 @@ final class EnvironmentResolverTest extends TestCase
     public static function configuredLiveSites(): array
     {
         return [
-            // The same resource either way (RFC 3986), and left on, an exclusion
-            // anchored `^(?!https://ecskc\.eu$).*$` excludes nothing and applies on
-            // production.
+
             'trailing slash removed'     => ['https://ecskc.eu/', 'https://ecskc.eu'],
             'nothing to remove'          => ['https://ecskc.eu', 'https://ecskc.eu'],
             'subdirectory install kept'  => ['https://ecskc.eu/site/', 'https://ecskc.eu/site'],
-            // Not the same resource, and an operator configured it. Removing it would
-            // be a guess about what they meant. The brief and the plan assign this
-            // removal to the request-derived branch alone.
+
             'administrator segment kept' => ['https://ecskc.eu/administrator', 'https://ecskc.eu/administrator'],
             'administrator with slash'   => ['https://ecskc.eu/administrator/', 'https://ecskc.eu/administrator'],
         ];

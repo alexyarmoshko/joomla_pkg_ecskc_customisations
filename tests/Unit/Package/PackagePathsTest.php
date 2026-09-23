@@ -96,8 +96,7 @@ final class PackagePathsTest extends TestCase
 
     public function testPayloadIsProtectedButNotCreatedByTheInstaller(): void
     {
-        // payload/ ships with the package, so Joomla creates it; the other three are
-        // made at install time. All four are protected.
+
         self::assertSame(['backup', 'staging', 'state'], PackagePaths::CREATED_FOLDERS);
         self::assertSame(
             ['payload', 'rules', 'backup', 'staging', 'state'],

@@ -63,7 +63,6 @@ final class RunStateReaderTest extends TestCase
         $lock = new RunLock($this->paths);
         self::assertTrue($lock->acquire());
 
-        // Between acquiring the lock and renaming the marker into place.
         self::assertTrue(
             $this->state()->isLive(),
             'Lock held and marker absent is a live run, not a clean tree.'
@@ -72,7 +71,6 @@ final class RunStateReaderTest extends TestCase
         self::assertTrue((new RunMarker($this->paths))->publish());
         self::assertTrue($this->state()->isLive());
 
-        // Between removing the marker and releasing the lock.
         self::assertTrue((new RunMarker($this->paths))->remove());
         self::assertTrue($this->state()->isLive());
 
@@ -130,7 +128,6 @@ final class RunStateReaderTest extends TestCase
         self::assertTrue($state->wasInterrupted());
         self::assertTrue($state->hasLeftoverIntent());
 
-        // Readable as the record it is, which is what recovery matches on.
         self::assertSame($id, (new WriteIntentStore($this->paths))->read()->intent?->id);
     }
 
@@ -168,7 +165,6 @@ final class RunStateReaderTest extends TestCase
             'A death before the marker was published leaves nothing to recover.'
         );
 
-        // And the next write run clears the leftover.
         $lock = new RunLock($this->paths);
         self::assertTrue($lock->acquire());
         self::assertSame([], (new RunMarker($this->paths))->sweepTemporaries());
@@ -187,7 +183,6 @@ final class RunStateReaderTest extends TestCase
         $marker = \file_get_contents($this->paths->marker());
         $intent = \file_get_contents($this->paths->writeIntent());
 
-        // What a second write run does: ask for the lock, and stop when refused.
         $loser = new RunLock($this->paths);
 
         if ($loser->acquire()) {
@@ -265,13 +260,6 @@ final class RunStateReaderTest extends TestCase
     /**
      * The window a first write run starts in, closed rather than narrowed.
      *
-     * A tree with no `run.lock` has nothing to hold, so the records are read while
-     * nothing excludes a write run. Decision 34 calls lock-held-with-no-marker a live
-     * run, and that is precisely the state a first run is in for the moment between
-     * taking the lock it has just created and publishing its marker. A reader that
-     * answered from the records alone would report that tree clean, and a dry run
-     * would go on to describe a tree being written to.
-     *
      * The checkpoint puts a run in that window on purpose. Two handles in one process
      * are two open file descriptions, so the exclusive lock below excludes the shared
      * lock the reader then asks for, exactly as a second process would.
@@ -302,7 +290,6 @@ final class RunStateReaderTest extends TestCase
             $run->release();
         }
 
-        // Once that run is over, the same read answers from the records again.
         self::assertTrue($this->state()->isClean());
     }
 
@@ -324,7 +311,7 @@ final class RunStateReaderTest extends TestCase
 
     public function testAProcessWithoutTheLockLeavesTheRecordPathsUntouched(): void
     {
-        // Nothing has run, so neither record exists, and a reader creates neither.
+
         self::assertTrue($this->state()->isClean());
 
         self::assertFileDoesNotExist($this->paths->marker());

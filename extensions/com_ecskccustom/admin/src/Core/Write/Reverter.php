@@ -31,111 +31,11 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetState;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 
 /**
- * One step back or one step forward along a target's chain, work items 15 and 16.
- *
- * Brief decision 4: revert moves back one object, redo moves forward one object,
- * and neither writes a backup. Both restore through TargetWriter, so a step is the
- * same staged, verified, atomic move an apply makes, under decision 28's mode rule.
- *
- * ## The chain has two different shapes, so the two directions read it differently
- *
- * Backwards is a question about bytes that already exist. The file holds a payload
- * the package shipped; the object that shipped it left the displaced content under
- * `backup/<target>.v<version>.<digest>`; restoring that file is the step. Nothing
- * about the environment comes into it, because the bytes were written under
- * whatever conditions held at the time and the digest is what identifies them now.
- *
  * Forwards is the same question apply asks, so redo asks it the same way: it takes
  * the first operation ObjectWalker proposes for the target and performs that one
  * alone. The enable flag, the conditions, the object permissions and the expected
  * original are then settled in one place rather than two, and a redo cannot
  * disagree with the apply that follows it.
- *
- * ## No step proceeds from content the package cannot name
- *
- * Work item 16. Revert refuses when the file matches neither a payload the rule set
- * ships nor an expected original it declares, because bytes nothing recorded are an
- * edit somebody made on the server, and restoring over them would destroy the only
- * copy.
- *
- * Redo needs the same guarantee from the other side. It writes no backup, so the
- * content it displaces has to be reproducible: a shipped payload, or bytes already
- * preserved under one of this target's backup names. Anything else is refused and
- * sent to apply, which backs up what it displaces.
- *
- * ## A write run of its own
- *
- * Decision 30. Each call takes `run.lock` itself and publishes the run marker
- * through WriteRun, the way Freezer does, and the runner does not wrap it in a
- * second acquire. Revert is the more dangerous of the two, since it moves a file
- * backwards while another run may be reading it as current, and the lock is what
- * keeps freeze and unfreeze from returning while it holds.
- *
- * A leftover write intent or a run marker found under the lock belongs to a run that
- * died. `WriteRun` hands it to `RunRecovery`, and the step goes ahead once that has
- * settled - a step of its own, never the dead run's remaining target writes. An
- * intent recovery could not settle refuses the step, because publishing a new intent
- * over the old one would destroy the only evidence of that mutation.
- *
- * FreezeGuard is consulted under the lock, so a freeze that has returned excludes a
- * step that had not yet started.
- *
- * ## Backwards is read from bytes, then from backups
- *
- * Several objects may ship one payload, as NTS KBee topic-edit v1 and v2 do. The
- * file's digest then names more than one version. Decision 43 ranks every backup
- * of a target, so among the objects whose payload the file holds, the version of
- * the newest matching backup is the step, and the newest backup at that version
- * is what is restored. Rule order alone is the wrong step when a later write of
- * the same bytes left the newer backup under an earlier version.
- *
- * A declared `sourceHash` is not enough to treat the live bytes as reproducible.
- * The matching payload file under `payload/` has to hash to them, or a verified
- * backup of this target already has to hold them. Otherwise the live target is
- * the only intact copy, and a step that writes no backup would destroy it.
- *
- * The other end of a chain is absence. A package-owned customisation starts with
- * an object that creates the file where the vendor ships none, and that object
- * displaced nothing, so it left no backup: putting it back means taking the file
- * away again. Decision 4 is what makes that readable from the tree, because an
- * apply preserves everything it overwrites, so a version with no backup at its
- * target overwrote nothing. An absent target whose chain begins that way has run
- * out of chain rather than lost its file.
- *
- * A version can also leave no backup when the mutation displaced nothing kept:
- * a no-copy removal, or a later package-owned revision that ships the same bytes
- * it expected. The authored predecessor is then the step: restore the expected
- * original from a verified payload, or walk back through a content-identical
- * revision to the create that can still be taken away. Naming a predecessor and
- * finding neither a verified payload nor a verified backup that holds it is a
- * fault, not the start of the chain: the object still has somewhere to step
- * back to, and the package cannot put those bytes back.
- *
- * Absence is the one state that does not identify what wrote it. Present bytes
- * carry a digest, and the digest names the object that shipped them; every
- * removal at a target leaves the same nothing, and so does a site the package
- * has never touched. Decision 46: absence is attributed to a removal only where
- * one removal is the only history it can have. A chain that begins by creating
- * the file, and a target with more than one removal, are both read without
- * guessing - the first as decision 42's start of the chain, the second as a
- * refusal - because the alternative is creating a file the vendor ships none of,
- * or restoring a predecessor this state never had.
- *
- * A restored backup is held to the digest in its own name, because TargetWriter
- * hashes the staged copy before it moves it. Ticket 30 makes that name a claim
- * rather than proof, and this is where the claim is tested. Redo hashes each
- * candidate through the bound backup path before treating it as content the
- * package already holds: a corrupt file under a matching name is not a copy it
- * can put back.
- *
- * ## The re-apply warning belongs to the report
- *
- * Decision 19 and brief section 8. A revert leaves the target behind the head the
- * rule set declares, and the next apply carries it forward again unless the operator
- * freezes the path. Version 1 does not freeze on its own, so the outcome carries the
- * sentence and the report shows it. The write does nothing about it.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class Reverter
 {
@@ -148,7 +48,6 @@ final class Reverter
      */
     public const LOCKED = 'locked';
 
-    /** What a successful revert tells the operator, decision 19. */
     public const REAPPLY_WARNING = 'the next apply carries %s forward to the head again; '
         . 'freeze the path to hold this revert';
 
@@ -312,18 +211,12 @@ final class Reverter
                 return WriteOutcome::refused((string) $reason);
             }
 
-            // Absence several removals could each have written names a state the
-            // rule set declares, so it is not an unrecorded edit and not the start
-            // of a chain either. Neither account fits, and guessing one mutates.
             if ($ambiguity !== null) {
                 return WriteOutcome::refused($ambiguity);
             }
 
             $start = $this->startOfChain($targetPath, $objects, $current);
 
-            // Two different answers. A file sitting at a declared expected original
-            // has simply run out of chain, and an operator has nothing to fix. Bytes
-            // nothing declares are a fault about the site, work item 16.
             return $start === null
                 ? WriteOutcome::refused($this->unrecorded($targetPath, $current))
                 : WriteOutcome::unchanged($start);
@@ -352,10 +245,7 @@ final class Reverter
         ));
 
         if ($atVersion !== []) {
-            // Decision 4: the newest of several backups at one version. BackupStore
-            // ranks the ones it publishes, so a tie is only reachable through files an
-            // operator put there by hand, and name order settles those the same way on
-            // every run.
+
             $guard = $this->guardReproducible($targetPath, $objects, $hashType, $current);
 
             if ($guard !== null) {
@@ -386,8 +276,6 @@ final class Reverter
             ));
         }
 
-        // A create put these bytes where there was no file, so putting the target
-        // back means taking the file away.
         if ($current !== EventRecord::ABSENT
             && $object === $objects[0]
             && self::createsFromNothing($object)) {
@@ -402,8 +290,6 @@ final class Reverter
 
         $expected = $object->expectedHash !== null ? \strtolower($object->expectedHash) : null;
 
-        // A no-copy removal left absence and kept no backup. The expected original is
-        // the authored predecessor; restore it from a verified payload when one ships it.
         if ($current === EventRecord::ABSENT) {
             return $this->restoreExpected(
                 $targetPath,
@@ -425,9 +311,6 @@ final class Reverter
             ));
         }
 
-        // A later package-owned revision that ships the same bytes it expected left no
-        // distinct backup of its own. Undoing it is a content no-op; the previous object
-        // is the real step.
         if ($expected === $current) {
             $previous = $this->previousObject($objects, $version);
 
@@ -710,21 +593,9 @@ final class Reverter
     /**
      * The version of the object that wrote the state the target now holds.
      *
-     * Several objects may ship one payload. The backups of this target already
-     * carry a strict newest-first rank, so among the objects whose verified
-     * payload the file holds, the version of the newest matching backup is the
-     * one that actually wrote last. When none of them left a backup, the last
-     * matching object is kept so a payload with no backup is still a named state
-     * rather than an unrecorded edit, and stepBackAtVersion reads the authored
-     * predecessor from there.
-     *
      * A declared sourceHash alone is not a match: the payload file has to hash to
      * the live bytes, or a verified backup of this target already has to hold
      * them. Otherwise the live target is the only intact copy.
-     *
-     * Absence is a state an object writes too, which is how a removal is stepped
-     * back through, but it is read by removalThatWrote rather than here: absent
-     * bytes carry nothing that tells the removals at a target apart.
      *
      * @param list<RuleObject>                                        $objects
      * @param list<array{path: string, digest: string, version: int}> $backups
@@ -783,22 +654,6 @@ final class Reverter
      * one. Absence carries none of that. Every removal at a target leaves exactly
      * the same nothing, and so does a site the package has never written to, so
      * the tree alone cannot say which removal ran or whether any of them did.
-     *
-     * Two shapes are therefore not attributed at all:
-     *
-     * - A chain that begins by creating the file. Its pristine state is absence
-     *   too, and decision 42 reads an absent target there as the start of the
-     *   chain rather than as a removal's work. Stepping back would put a file
-     *   where the vendor ships none and the package never wrote one.
-     * - More than one removal at the target. A backup under one of their versions
-     *   proves only that that version ran at some point, not that it wrote the
-     *   absence the target holds now, and a later no-copy removal leaves nothing
-     *   to weigh against it. Restoring the wrong one's predecessor would report
-     *   success while putting back bytes that never preceded this state.
-     *
-     * The second is a refusal, because absence is a state those removals do
-     * declare; the first falls through to startOfChain, which has the decision 42
-     * account for it. Only an unambiguous single removal is a step.
      *
      * @param list<RuleObject> $objects
      */
@@ -868,11 +723,6 @@ final class Reverter
     /**
      * The target sits where the chain begins, so there is nothing before it.
      *
-     * An expected original is a state the rule set names but no object of it wrote,
-     * which is what the start of a chain looks like from the bytes alone. Absence is
-     * the same answer for a chain whose first object creates the file: the site had
-     * none, the package made one, and a target back at none has run out of chain.
-     *
      * @param list<RuleObject> $objects
      *
      * @return string|null The account for the report, or null when the bytes are
@@ -910,16 +760,6 @@ final class Reverter
      * can be absence: every later object wrote over what the one before it left. An
      * object that declares an expected original is out too, because it wrote over
      * that original and preserved it, so it has somewhere to step back to.
-     *
-     * What is left is `create="true"` with nothing expected, which is how every
-     * package-owned customisation in `data/rules/` is written: a file in a folder
-     * the vendor ships nothing in. Without this the five of them can be carried
-     * forward from absence and never walked back to it.
-     *
-     * `replace` is not consulted. It defaults to true, so the objects this has to
-     * recognise all carry it, and what rules the replacement out is decision 4: an
-     * apply preserves whatever it overwrites, so a version with no backup at this
-     * target overwrote nothing.
      */
     private static function createsFromNothing(RuleObject $object): bool
     {
@@ -927,8 +767,6 @@ final class Reverter
     }
 
     /**
-     * Bytes nothing in the rule set names, work item 16.
-     *
      * An edit somebody made on the server. A revert over it would be the only thing
      * that ever destroyed it, so it stops here.
      */
@@ -944,13 +782,6 @@ final class Reverter
 
     /**
      * Can the package put these bytes back after a redo displaces them?
-     *
-     * Redo writes no backup, decision 4, so it may only displace content that is
-     * already reproducible. A shipped payload whose file still hashes to the live
-     * digest is, and so is content a backup of this target already holds. The
-     * backup is re-hashed through the bound path rather than trusted for its name,
-     * on ticket 30's grounds. A declared sourceHash alone is not enough: a missing
-     * or damaged payload file would leave the live target as the only intact copy.
      *
      * @param list<RuleObject> $objects
      */
@@ -1052,28 +883,10 @@ final class Reverter
     /**
      * This target's backups, newest first.
      *
-     * The directory is opened from `backup/` down, so a symbolic link swapped into
-     * an ancestor does not decide which names a revert can see, and each entry is
-     * checked at its last component, because a link there points at bytes outside
-     * the package tree. Names go through PackagePaths::parseBackupName(), so a name
-     * BackupStore could not have written is not a backup.
-     *
      * A target with no mirrored directory has no backups, and that is an answer. Not
      * being able to look is not: a symbolic link at a segment, a file where the
      * directory should be, or a directory that cannot be listed or bound all refuse
      * the step rather than report a chain with nothing behind it.
-     *
-     * The paths returned are logical ones all the same. A descriptor in
-     * `/proc/self/fd` dies with the handle, and the handle closes here while the
-     * restore happens in TargetWriter, so carrying one out of this method would hand
-     * the writer a path that no longer resolves. What protects the restore is not
-     * the descriptor: TargetWriter stages a copy and hashes it against the digest in
-     * the name before it moves anything, so a backup swapped or edited after this
-     * listing stops the revert there. Ticket 30 makes that name a claim, and this is
-     * where the claim is tested.
-     *
-     * Redo asks for $requireHashMatch. It writes no backup of what it displaces, so
-     * a name whose bytes do not hash to it is not content the package already holds.
      *
      * @return list<array{path: string, digest: string, version: int}>|null
      *                          Null with $reason set when they could not be listed.

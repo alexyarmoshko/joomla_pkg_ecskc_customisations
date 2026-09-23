@@ -20,8 +20,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
 
 /**
- * The intent, mutation, event, and settlement sequence decision 32 requires.
- *
  * Freezer and TargetWriter each inspect their own path, then hand the mutation
  * to this class. The caller keeps the state it observes after a failed mutation,
  * the messages, the backup result, and when its checkpoint fires. The protocol
@@ -100,8 +98,6 @@ final class MutationTransaction
     }
 
     /**
-     * A mutation that reported failure after its intent was published, decision 32 case 2.
-     *
      * @param Closure(): string $observed
      */
     private function settleFailure(

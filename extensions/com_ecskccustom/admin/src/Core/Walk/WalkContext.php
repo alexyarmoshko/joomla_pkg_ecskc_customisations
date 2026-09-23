@@ -108,8 +108,7 @@ final class WalkContext
             }
         }
 
-        // @codeCoverageIgnoreStart
         throw new \LogicException('Object not found in the walk context');
-        // @codeCoverageIgnoreEnd
+
     }
 }

@@ -18,37 +18,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleObject;
 /**
  * One write the walk says would move a target forward. Nothing here performs it.
  *
- * ## Why this carries no resolved path
- *
- * Security review v1 (2026-08-29): PathPolicy::decide() resolves a path, and the
- * write happens later. Anything that can swap a path under the site root in between
- * defeats a decision taken earlier. PHP has no openat and no O_NOFOLLOW, so the
- * window cannot be closed, only narrowed, and staging followed by an atomic move
- * narrows it to the move itself - provided the decision is taken there rather than
- * carried forward from the report.
- *
- * So this object carries the canonical root-relative `targetPath` and no absolute
- * one. An executor has to call path policy again immediately before it moves, and
- * cannot accidentally trust a resolution that is by then minutes old. The walk's own
- * resolution decided what to hash, which is a read and answers only for the moment
- * it happened.
- *
- * The payload source is likewise relative to the installed `payload/` directory, as
- * the rule wrote it. `payloadHash` is what the rule declared, not a digest of the
- * bytes on disk. Verifying the payload against it is a write precondition that
- * belongs to the dry run in Phase 2, and a check that only reports has no business
- * hashing files it will not write.
- *
  * `hashType` is the object's declared algorithm, carried because `payloadHash` is
  * meaningless without it: a digest is a claim under one algorithm, and an executor
  * that assumed sha256 would verify the wrong thing for a rule that declared
  * something else.
- *
- * `backup` reads as "preserve whatever this displaces". A copy always does, per
- * decision 4, and the schema gives it no attribute to say otherwise; only a removal
- * can be told to keep no copy. A copy that creates a file where none existed
- * displaces nothing and so writes no backup, which the executor sees for itself
- * without being told here.
  */
 final class ProposedOperation
 {

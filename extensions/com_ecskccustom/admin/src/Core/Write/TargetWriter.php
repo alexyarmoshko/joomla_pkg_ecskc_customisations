@@ -27,55 +27,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
 
 /**
- * Staged atomic payload writes and removals, work items 10, 11 and 12.
- *
- * The only route by which a payload reaches a target or a target is removed. A
- * target is always the complete old file or the complete new file.
- *
- * ## A write
- *
- * Stage, verify, decide, set-mode, intent, move, event, clear intent, decision 32.
- *
- * The payload is copied to an exclusive `staging/<basename>.<12 hex>.tmp` and hashed
- * there, so the bytes that are moved are the bytes that were verified. Nothing
- * normalises them on the way, decision 14. Path policy then decides the target. A
- * target that is not a regular file, a missing parent directory, or a parent on a
- * different filesystem from `staging/` is refused: a cross-device rename is a copy,
- * and a copy is not atomic. The current bytes must still be what the caller planned
- * to displace, absent for a create. A required backup is published next (ticket 30).
- * The staged file takes the target's mode, or `0644` for a create, decision 28, and a
- * failed `chmod` stops the write.
- *
- * ## A removal
- *
- * Backup, intent, unlink, event, clear intent. A removal told to keep no copy uses
- * the same protocol, because its event is the only record it leaves. An absent
- * target is already removed and writes nothing.
- *
- * ## Deciding at the move
- *
  * `PathPolicy::decide()` resolves a path and the mutation happens later, so a link
  * swapped in between defeats a decision taken earlier. PHP has no `openat` or
  * `O_NOFOLLOW`, so the window cannot be closed. It is narrowed instead: path policy
  * is asked again immediately before the intent is published, the answer must be the
  * same resolved path, and the target must still be in its pre-state. The deny list
  * therefore applies at the move and not only at the plan.
- *
- * ## After the intent
- *
- * The intent carries a new correlation id and the complete event payload. A
- * completed mutation appends that event, then removes the intent. A mutation that
- * reports failure is settled only when the target still matches its pre-state and a
- * `mutation-failed` event with the same id is committed. Anything short of that
- * leaves the intent for ticket 34's recovery. Nothing here logs before the mutation.
- *
- * The caller holds the run lock. This class does not take it, and it does not sweep
- * `staging/`: a completed call leaves none of its own temporaries there, and a crash
- * leaves one for recovery to remove under the lock. If a returned call cannot remove
- * its own temporary, the outcome names that leftover so the run cannot claim the
- * completed-run guarantee.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class TargetWriter
 {
@@ -93,24 +50,15 @@ final class TargetWriter
     public const MUTATED          = 'mutated';
     public const EVENT_COMMITTED  = 'event-committed';
 
-    /** The mode a created file gets, decision 28. */
     public const CREATE_MODE = 0o644;
 
     /**
      * The event kinds a caller may record a payload write or a removal as.
-     *
-     * Apply records a `write` or a `remove`. Ticket 33's revert and redo move the
-     * same bytes through the same staged, verified move, and the log has to say
-     * which of the three moved them: decision 39 lists reverts and redos as
-     * durable history in their own right, and an operator reading `write` where a
-     * revert happened would be told the package carried the target forward when it
-     * stepped it back. The kind is the caller's because only the caller knows.
      */
     public const WRITE_KINDS = [EventRecord::WRITE, EventRecord::REVERT, EventRecord::REDO];
 
     public const REMOVE_KINDS = [EventRecord::REMOVE, EventRecord::REVERT, EventRecord::REDO];
 
-    /** Event states are sha256 digests whatever the rule declared, decision 32. */
     private const STATE_HASH = 'sha256';
 
     private readonly Hasher $hasher;

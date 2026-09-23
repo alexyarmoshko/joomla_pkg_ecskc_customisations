@@ -19,43 +19,11 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetState;
 /**
  * One line of the report: what the walk found at a target, plus what the walk cannot know.
  *
- * ## Why this wraps the walk's state instead of extending it
- *
  * The walk reads bytes. The last package write and the backup location are read from
  * the event log and the backup tree, which are state records rather than site files,
  * and giving ObjectWalker a second source to consult would put the whole event log
  * behind a class whose job is comparing hashes. So the walk answers what it measured
  * and the report layer composes the rest onto it.
- *
- * The four fields the contract makes mandatory are therefore present by construction
- * rather than by discipline. Every `blocked`, `incomplete`, `faulted`, refused and
- * skipped target carries the target path, the expected hash, the actual hash and the
- * last package write, and where a hash cannot be computed the field holds the reason
- * instead. HashResult and ReportedValue each hold one or the other, and neither is
- * nullable here, so there is no way to build a line that omits one. `requiredFields()`
- * is what a renderer asks for rather than reaching into the state itself.
- *
- * ## The backup field
- *
- * "The backup path when the operation preserves displaced content." A check performs
- * no operation and displaces nothing, so in a report-only run the field carries that
- * as its reason. A dry run and an apply fill it from the plan: where a chain
- * preserves content at more than one step, it names every destination, because an
- * operator judging whether an apply is safe needs to see all of them and not the
- * first.
- *
- * ## The plan and the outcome
- *
- * `plan()` is what a dry run or an apply worked out for this target, one line per
- * operation, with the write preconditions already checked. It is empty for a check,
- * which proposes nothing to perform, and for a frozen target, which proposes
- * nothing at all.
- *
- * `outcome` is what the run did here. A check and a dry run say they performed
- * nothing; an apply says what happened, including that it refused. It is separate
- * from the state because the state is what the tree holds afterwards and the outcome
- * is how it got there - a target that was already `ok` and a target this run carried
- * to `ok` read identically on the state alone.
  */
 final class TargetReport
 {

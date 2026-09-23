@@ -14,20 +14,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash;
 
 /**
  * Hashes payload bytes and files on disk, under the algorithm the rule declared.
- *
- * **Nothing here normalises anything** - no line-ending conversion, no final-newline
- * fix-up, no trim, no re-encoding, no BOM stripping. Decision 14 makes line endings
- * part of a payload's identity, so a normalised digest would report a file as
- * unchanged after something had changed it, which is the one answer this package must
- * never give. `hash_file()` reads in binary on every platform.
- *
- * The algorithm is an argument, never a name chosen here, and an unsupported one is
- * refused rather than quietly computed under sha256.
- *
- * An absent, unreadable or non-regular file yields a reason and no digest.
- *
- * Resolution and confinement are `PathPolicy`'s, settled before a path arrives here;
- * `hash_file()` follows a link, which is correct once the path has been decided.
  */
 final class Hasher
 {
@@ -63,7 +49,7 @@ final class Hasher
             $parent = \dirname($directory);
 
             if ($parent === $directory) {
-                // The root, or a relative path with nothing left to climb.
+
                 return false;
             }
 
@@ -80,12 +66,6 @@ final class Hasher
      * directory and an absent file both fail `is_file()`, and telling an operator
      * "the file is absent" when a directory sits at the path would send them
      * looking for the wrong fault.
-     *
-     * `is_readable()` is checked and then the read is checked again, because the
-     * first can be true and the read still fail - the permission may change in
-     * between, and a file readable by the account may still be unreadable through
-     * an open-basedir restriction. The second check is the one that guarantees the
-     * digest is of bytes actually read.
      */
     public function hashFile(string $algorithm, string $path): HashResult
     {

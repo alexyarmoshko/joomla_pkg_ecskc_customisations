@@ -20,12 +20,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package;
  * chmods the log that way. BoundBackupDirectory writes freeze markers and
  * mirrored directories the same way, so a later symbolic link in an ancestor
  * cannot redirect the mutation.
- *
- * The lookup is the scan and the device-and-inode match. Each caller decides
- * what to do with a matching descriptor. A caller that opens a handle and keeps
- * it takes the descriptor that open added, not the first one that matches.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class ProcDescriptor
 {

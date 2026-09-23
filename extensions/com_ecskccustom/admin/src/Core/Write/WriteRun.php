@@ -27,40 +27,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentS
  * this class, and the runner's apply goes through it too. The settlement an
  * interrupted run needs is therefore written once rather than in three copies that
  * would drift.
- *
- * ## An interrupted run is settled, not refused
- *
- * Work item 7 and brief decision 16: the package resumes through the ordinary
- * process. So a leftover write intent or a stale run marker found under the lock is
- * handed to `RunRecovery`, and the operation goes ahead once that has settled. A
- * freeze, unfreeze, revert or redo settles and then performs its own operation; it
- * does not take over the dead run's remaining target writes, which only apply does.
- *
- * Recovery that could **not** settle refuses the operation. An unsettled intent is a
- * mutation whose event may still be missing, and publishing a new intent over that
- * record would destroy the only evidence of it.
- *
- * A run constructed without a recovery refuses instead, which is what every caller
- * did before ticket 34. It is the safe half of the same rule: refusing changes
- * nothing, where proceeding over an unsettled intent cannot be undone.
- *
- * ## The marker
- *
- * It is published by atomic rename, so a retained stale marker is replaced rather
- * than unlinked and re-created: an unlink followed by a mutation leaves a window in
- * which a death reads as a clean history. That replacement is what decision 35's
- * retained neither-state marker amounts to here: the marker is present for the whole
- * of this run, so a death before it finishes is still an interruption.
- *
- * It is removed only when the run completes, and a run does not complete while an
- * intent is left for recovery, while its own operation has left a staged file it
- * could not remove, or while recovery has left an abandoned staging file or
- * publication temporary behind.
- *
- * The caller still fires its own checkpoint after the lock and marker, because
- * Freezer and Reverter name that point on their own closures.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class WriteRun
 {
@@ -159,14 +125,6 @@ final class WriteRun
 
             $outcome = $operation();
 
-            // The marker goes only when the run completed. An intent left for
-            // recovery means it did not; neither did a staged file this run's own
-            // operation could not remove, nor a recovery that could not sweep an
-            // abandoned staging file or publication temporary. Ticket 34 counts an
-            // empty `staging/` as part of a completed run whether the file was left
-            // by the dead run recovery swept for or by this run's own operation.
-            // Either way the marker is the only thing that says a later run has to
-            // look again.
             if ($outcome->intentLeft
                 || $outcome->leftover !== null
                 || ($recovered?->incomplete ?? false)

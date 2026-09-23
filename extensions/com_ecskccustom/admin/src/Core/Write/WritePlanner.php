@@ -24,41 +24,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BoundBackupD
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ProposedOperation;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetState;
 
-/**
- * The write preconditions, checked without writing anything, work items 1 and 2.
- *
- * The walk says which operations would carry a target to the head of its chain. It
- * does not say whether they could be performed: that needs the payload hashed, the
- * target's own permissions read, the path policy asked, and the backup destination
- * named. All four are reads, so the dry run can do them all, and brief §5.3 makes
- * doing them the dry run's whole purpose.
- *
- * **Nothing here writes, creates, or removes.** Not a directory, not a probe file,
- * not a temporary. A dry run that created the backup directory to prove it could
- * would have changed the tree it was asked only to describe. Whether the backup
- * path can be published is `BoundBackupDirectory::publishRefusal()`, the same
- * classification the create path applies before it binds a descriptor.
- *
- * ## Why apply asks again
- *
- * Ticket 31 requires the path decision to be taken immediately before the move, and
- * bytes and paths can move between a preview and an execution. So the plan is a
- * preview and never a licence: the runner re-runs this for each operation just
- * before it performs it, and `TargetWriter` decides the path a third time at the
- * move itself. The cost of the repetition is three stat calls; the cost of trusting
- * a minutes-old resolution is a payload written through a symbolic link somebody
- * swapped in.
- *
- * ## Walking the chain on paper
- *
- * An object's operation replaces whatever the one before it left, so the chain is
- * followed in the same order an apply would follow it: the first operation displaces
- * the bytes on disk now, and each one after it displaces what its predecessor
- * wrote. That is what lets a dry run at v1 say it will advance to v3 through v2 and
- * name a backup destination for each step.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
- */
 final class WritePlanner
 {
     private const NO_BACKUP_ON_CREATE = 'the file does not exist yet, so this operation '
@@ -89,8 +54,6 @@ final class WritePlanner
     {
         $plan = [];
 
-        // The bytes on disk now, which the first operation is the one to displace.
-        // A frozen state proposes nothing, so this loop does not run for one.
         $current = $state->actual;
 
         foreach ($state->operations() as $operation) {
@@ -120,8 +83,7 @@ final class WritePlanner
         $decision = $this->policy->decide($operation->targetPath);
 
         if (!$decision->allowed) {
-            // Everything below reads the resolved path, and there is not one. The
-            // denied path is the whole answer.
+
             return new PlannedOperation(
                 $operation,
                 self::displacedValue($displaced),
@@ -148,7 +110,7 @@ final class WritePlanner
         $backup = $this->backupDestination($operation, $displaced);
 
         if ($backup->isKnown()) {
-            // The bound walk's own classification. Nothing is created.
+
             $refusal = BoundBackupDirectory::publishRefusal($this->paths, (string) $backup->value);
 
             if ($refusal !== null) {
@@ -171,9 +133,7 @@ final class WritePlanner
     public function backupDestination(ProposedOperation $operation, HashResult $displaced): ReportedValue
     {
         if (!$displaced->isAvailable()) {
-            // A target the package could not read is not a target with nothing at
-            // it. Naming no backup for the first is the answer; naming none for the
-            // second is a claim that the bytes there are expendable.
+
             if (!$displaced->isAbsent()) {
                 return ReportedValue::unavailable(\sprintf(
                     'what is at %s now could not be read, so no backup destination is computed',
@@ -287,7 +247,7 @@ final class WritePlanner
         }
 
         if ($operation->operation === RuleAction::REMOVE && $displaced->isAbsent()) {
-            // Already absent. Removal writes nothing and needs no permission.
+
             return null;
         }
 
@@ -311,9 +271,6 @@ final class WritePlanner
             return ReportedValue::known((string) $displaced->digest);
         }
 
-        // A determined absence and a state the package could not read are the two
-        // halves ReportedValue exists to keep apart, and HashResult already knows
-        // which of them this is.
         return $displaced->isAbsent()
             ? ReportedValue::none(self::NOTHING_DISPLACED)
             : ReportedValue::unavailable((string) $displaced->reason);

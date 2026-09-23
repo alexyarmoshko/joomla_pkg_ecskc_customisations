@@ -16,19 +16,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
 
 /**
  * The write history of a caller that has no package state tree to read.
- *
- * Phase 1 wired this, because nothing existed then that could write a target, append
- * to the event log, or leave a run marker: both answers were a determined negative
- * rather than a fault - the package was not failing to read a record, there was no
- * record to read and it could say why.
- *
- * Phase 2's runtime reads the records instead, through EventLogHistory. This stays as
- * the report-only answer, and as what the report's own tests compose against: the
- * report shape does not depend on there being a log, and that is worth being able to
- * demonstrate rather than assert.
- *
- * It answers the same way for every target, which is the honest answer and not a
- * placeholder.
  */
 final class ReportOnlyHistory implements WriteHistoryInterface
 {

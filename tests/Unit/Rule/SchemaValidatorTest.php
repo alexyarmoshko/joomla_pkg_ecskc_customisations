@@ -116,10 +116,6 @@ final class SchemaValidatorTest extends TestCase
     }
 
     /**
-     * Every managed target from the plan's Managed inventory, in both the relative
-     * and the web-root-absolute form brief 5.1 allows, plus the payload naming
-     * convention and paths that are awkward but legal.
-     *
      * @return array<string, array{string}>
      */
     public static function acceptedTargetPaths(): array
@@ -152,10 +148,6 @@ final class SchemaValidatorTest extends TestCase
         $cases['a name of three dots']          = ['...'];
         $cases['a name beginning with dots']    = ['..a'];
 
-        // Odd but legal on Linux, and accepted deliberately rather than by accident.
-        // A segment ending in a colon is a valid POSIX name; "C:" is a directory
-        // name here, not a drive. Confinement and the allow list are ticket 14's,
-        // not the schema's.
         $cases['a drive-like first segment']    = ['C:/x.php'];
 
         return $cases;
@@ -180,10 +172,6 @@ final class SchemaValidatorTest extends TestCase
             'a backslash separator'       => ['a\\b.php'],
             'a backslash traversal'       => ['..\\..\\a.php'],
 
-            // Whitespace is refused throughout, which is what stops a pretty-printed
-            // element validating with its own indentation inside the path. A space is
-            // a legal POSIX filename character and this gives it up on purpose: see
-            // the relativePath comment in the schema.
             'a name containing a space'   => ['a file.php'],
             'a segment that is one space' => [' '],
             'a segment of spaces'         => ['a/   /b.php'],
@@ -357,11 +345,7 @@ final class SchemaValidatorTest extends TestCase
 
     public function testTheBriefSampleIsStillTheModelThisSchemaEncodes(): void
     {
-        // The sample is illustrative, not exhaustive: it demonstrates neither an
-        // absolute target nor a literal condition, which is why it validated while
-        // the schema refused both (an early schema review, findings 1 and 2). It is kept
-        // as a regression guard, not as proof of conformance - the path table and the
-        // literal fixtures above carry that.
+
         $sample = \file_get_contents(self::repositoryRoot() . '/tests/Fixtures/sample_schema.xml');
         self::assertIsString($sample);
 

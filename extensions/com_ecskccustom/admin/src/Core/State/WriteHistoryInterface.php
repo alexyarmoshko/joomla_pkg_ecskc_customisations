@@ -17,13 +17,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
 /**
  * What the package's own records say about earlier runs.
  *
- * Three questions, all of which the report has to answer and the walk cannot: when
- * the package last wrote at a target, whether the previous run was interrupted, and
- * which of its own records it could not read. Brief 5.6 says why they need a record at
- * all. A file created where none existed leaves no backup behind it, an unfreeze
- * deletes its own evidence, and a target that was reported rather than written leaves
- * nothing anywhere, so the event log is the only place several of these events exist.
- *
  * An implementation reads records and answers. It writes nothing, and a check that
  * cannot read its own records reports a fault rather than a clean history: a
  * ReportedValue holds the reason either way, and a damaged record is a fault of its

@@ -15,12 +15,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report;
 /**
  * The named operational-checks section of the report, which may hold nothing.
  *
- * It is a section rather than a plain array so that "present and empty" is a state
- * the report can actually be in. Phase 1 defines no check, and an empty section says
- * the run looked and found nothing to report; a missing section would say the run
- * did not look. Phase 4 adds `system_plugin_enabled` by putting a check in here, and
- * nothing else about the report changes.
- *
  * It sits alongside the per-target states and never inside them. The run-level counts
  * report it separately, so the target counts stay exactly the counts of managed paths.
  */

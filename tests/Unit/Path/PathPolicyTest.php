@@ -13,10 +13,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
- * Run against a real temporary site tree, as decision 6 requires: symbolic links
- * and the difference between a path that exists and one that does not are the whole
- * subject here, and neither survives an in-memory filesystem.
- *
  * Hostile inputs are built as plain strings. TempTree's own resolve() refuses most
  * of them, and using it to construct them would test the helper rather than the
  * policy.
@@ -35,7 +31,6 @@ final class PathPolicyTest extends TestCase
     {
         $this->tree = TempTree::create('ecskc-site-');
 
-        // A site tree with the shapes the policy has to tell apart.
         $this->tree->write(self::PACKAGE . '/rules/10-kunena.xml', 'a rule');
         $this->tree->write(self::PACKAGE . '/payload/one.css', 'a payload');
         $this->tree->write('templates/et_tennis/css/override.css', 'a stylesheet');
@@ -319,8 +314,7 @@ final class PathPolicyTest extends TestCase
     public static function refusedExtensions(): array
     {
         return [
-            // Brief section 6 singles out params.ini as saved settings that must
-            // never be shipped. The allow list is what keeps it unreachable.
+
             'a settings file'      => ['components/com_kunena/params.ini'],
             'a shell script'       => ['media/deploy.sh'],
             'an archive'           => ['media/backup.zip'],

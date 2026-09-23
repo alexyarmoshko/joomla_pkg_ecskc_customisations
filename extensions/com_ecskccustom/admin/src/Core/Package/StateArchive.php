@@ -18,46 +18,6 @@ use ZipArchive;
 
 /**
  * Copies the package's own history out of the tree before an uninstall deletes it.
- *
- * Joomla removes a component's directories on uninstall, and `backup/` and `state/`
- * live inside them. That takes every displaced original, every freeze marker and the
- * whole event log - the history decision 4 reverts from, which nothing can rebuild.
- * `InstallerAdapter::uninstall()` triggers the script's `uninstall` hook before
- * `ComponentAdapter::finaliseUninstall()` deletes anything, so this runs while the
- * files are still there.
- *
- * `staging/` is not archived. It holds files part-way through an atomic move and
- * nothing that survives a completed run, so a copy of it would preserve no history.
- *
- * The archive is one zip written outside the component tree. It is evidence, not
- * package state: nothing reads it back, and reinstalling does not restore it. An
- * operator who wants the history keeps the file.
- *
- * ## One operation, under the run lock
- *
- * Decisions 34, 36 and 39. `archive()` is the whole of it: take `run.lock`, then
- * decide whether there is history, then ask for the destination, then write. A
- * caller that walked first and locked afterwards would decide against a tree a
- * live apply was still moving files through, and would copy a torn snapshot.
- *
- * The acquisition is non-blocking and a refusal fails the archive: `RUN_LOCKED`
- * for a write run, `REPORT_READING` for a check or dry run's read, and
- * `LOCK_UNAVAILABLE` for a lock file that cannot be opened. Waiting would stall an
- * uninstall behind a run that may never end.
- * The uninstall itself still proceeds, decision 26: it is deliberate, and Joomla
- * discards a false return from the hook.
- *
- * The destination provider is called only once history has been found, so a fresh
- * install that never wrote anything creates no folder to hold an archive it will
- * not write.
- *
- * The flock is released before the operation returns, whatever happened. It is not
- * held into uninstall `postflight`: `run.lock` lives in the tree Joomla is about to
- * unlink, and ticket 28 forbids unlinking a held lock. So the lock guarantees a
- * consistent zip, not the survival of a live run - uninstall may delete the tree
- * under one, decision 38.
- *
- * No Joomla dependency, so the tests build one of these over a temporary tree.
  */
 final class StateArchive
 {
@@ -92,25 +52,12 @@ final class StateArchive
      * tree can only have been put there by hand, and following one would copy a file
      * from outside the package into an archive that claims to hold package state.
      *
-     * The folder guards are left out. `.htaccess` and `index.html` at a folder's own
-     * root are the installer's, not content, and the folder they would protect does
-     * not exist inside a zip.
-     *
-     * So are `state/run.lock`, an `events.log` with nothing in it, and the
-     * publication temporaries of the state files. None of them is history, decision
-     * 35: taking the lock creates the lock file, and a log that has been opened and
-     * never appended to holds no record. A tree that has only those is a tree that
-     * never wrote, and an archive of it would tell the operator the opposite.
-     *
      * @return array<string, string>
      */
     public function contents(): array
     {
         $entries = [];
 
-        // Paths come from PackagePaths, not a second list of names. Each folder
-        // becomes the top-level folder of the same name inside the zip, so the
-        // layout matches the installed tree and a restore is a plain copy.
         foreach ([$this->paths->backup(), $this->paths->state()] as $directory) {
             $this->collect($directory, \basename($directory), true, $entries);
         }
@@ -159,8 +106,6 @@ final class StateArchive
         try {
             $entries = $this->contents();
 
-            // Nothing to save, so nothing is asked of the destination provider and
-            // no folder appears in the site's temporary directory.
             if ($entries === []) {
                 return null;
             }
@@ -173,10 +118,6 @@ final class StateArchive
 
     /**
      * Write the archive into $directory.
-     *
-     * The zip is built inside a private staging directory, given its mode, and
-     * renamed into place, so no reader sees a half-written archive and no other user
-     * sees a complete one before its mode is set and checked.
      *
      * @param string   $directory Where to write. Outside the component tree, or the
      *                            uninstall deletes the archive along with the rest.
@@ -203,9 +144,6 @@ final class StateArchive
             );
         }
 
-        // The configured temporary path can sit under the component. Writing there
-        // succeeds, the operator is told the history was saved, and Joomla then
-        // deletes the archive with the tree.
         if ($this->paths->contains($directory)) {
             throw new StateArchiveFailure(
                 StateArchiveFailure::UNWRITABLE,
@@ -216,17 +154,8 @@ final class StateArchive
 
         $name = self::name($time ?? \time(), \bin2hex(\random_bytes(6)));
 
-        // The archive is built inside a private directory of its own rather than
-        // beside its final name.
-        //
-        // ZipArchive creates the file during close(), with the mode the process umask
-        // decides - 0644 under the usual 022, and 0666 under 000, both measured. A
-        // chmod() afterwards closes the file's permissions but not the interval
-        // between the two calls, during which a complete archive of displaced site
-        // files sits there readable. A 0700 directory closes the interval instead: no
-        // other user can reach the file at any point, whatever mode it is created
-        // with. The mode is then set and checked before the archive is published, and
-        // the rename carries it across.
+        // ZipArchive creates files with the process umask. A private staging
+        // directory prevents access before the archive's mode is restricted.
         $staging = $directory . '/.' . \bin2hex(\random_bytes(6)) . '.staging';
 
         if (!@\mkdir($staging, 0700)) {
@@ -252,9 +181,7 @@ final class StateArchive
                 );
             }
         } finally {
-            // Whatever happened, nothing of the package's is left in a folder the
-            // package does not own. An archive that reached $final has been renamed
-            // out of $staging already.
+
             @\unlink($temporary);
             @\rmdir($staging);
         }
@@ -271,12 +198,8 @@ final class StateArchive
     {
         $zip = new ZipArchive();
 
-        // The three calls below are error-suppressed because each is already checked.
-        // ZipArchive reports failure twice: through the return value, and through a PHP
-        // warning in English - "Read error: No such file or directory" from close(),
-        // most often. Installer output is captured and shown to the operator, so that
-        // warning would land on the screen beside the translated message this class
-        // exists to make possible. The typed failure carries the same information.
+        // ZipArchive also emits English warnings; checked return values become
+        // translated installer failures instead.
         if (@$zip->open($path, ZipArchive::CREATE | ZipArchive::EXCL) !== true) {
             throw new StateArchiveFailure(
                 StateArchiveFailure::UNWRITABLE,
@@ -299,8 +222,6 @@ final class StateArchive
             }
         }
 
-        // close() is where the entries are actually read and written, so a failure
-        // here is a failure of the whole archive and not of tidying up after it.
         if (!@$zip->close()) {
             // Measured on PHP 8.3: a source the process cannot read is accepted by
             // addFile() and fails here, at the point the entries are actually read. So

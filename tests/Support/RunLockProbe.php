@@ -15,10 +15,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
  * and the installer's. It lives here rather than in each of them because the pair is
  * the assertion, and a copy that drifted into asking something slightly different
  * would have those suites proving different things about the same lock.
- *
- * It takes the exclusive lock on purpose. `RunLock::observe()` would answer a weaker
- * question: a shared lock succeeds while another shared one is held, and what these
- * suites are proving is that nothing at all is holding this file.
  */
 final class RunLockProbe
 {

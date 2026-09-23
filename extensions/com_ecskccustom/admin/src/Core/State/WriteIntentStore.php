@@ -16,23 +16,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 
 /**
  * The one in-flight mutation, at `state/write.intent`.
- *
- * Decision 32 calls this an atomic intent store, and that is all it is: it publishes
- * one record, reads it back, and removes it. **At most one exists**, because the run
- * lock serializes write runs.
- *
- * It does not wrap a mutation. Tickets 31 and 32 sequence their own - publish,
- * mutate, append the event, clear - and ticket 34 recovers a leftover record and
- * asserts a completed run. Nothing here decides when an intent may be cleared;
- * decision 32's terminal outcomes do, and they are about the event log, which this
- * class does not touch.
- *
- * A present record with a free run lock is a leftover: one mutation may have
- * happened and its event may not have been recorded. Reading one while the lock is
- * held says nothing on its own - the holder may have published it a moment ago - so
- * RunState answers the leftover question and this class answers the record one.
- *
- * No Joomla dependency: the core is testable on a bare PHP CLI.
  */
 final class WriteIntentStore
 {
@@ -99,9 +82,6 @@ final class WriteIntentStore
         return $this->file->exists();
     }
 
-    /**
-     * Remove the record, which only a terminal outcome of decision 32 may do.
-     */
     public function remove(): bool
     {
         return $this->file->remove();

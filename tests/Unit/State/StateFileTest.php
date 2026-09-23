@@ -86,11 +86,10 @@ final class StateFileTest extends TestCase
 
     public function testTheNextHolderSweepsAnAbandonedTemporaryAndKeepsALiveOne(): void
     {
-        // What a dead process left behind, written by the same code path it used.
+
         $abandoned = (new StateFile($this->paths->marker()))->beginPublication("orphan\n");
         self::assertIsString($abandoned);
 
-        // The next process holding the run lock, part-way through its own publish.
         $file = $this->file();
         $live = $file->beginPublication("mine\n");
         self::assertIsString($live);
