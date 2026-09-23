@@ -75,6 +75,8 @@ final class Runner
 
     private const PLANNED_BEFORE_WALK = '%s, as this run planned it: %s';
 
+    private const UNDECLARED = 'the rule set declares no target at %s, so nothing was done';
+
     private readonly WritePlanner $planner;
 
     private readonly RunRecovery $recovery;
@@ -124,12 +126,14 @@ final class Runner
     }
 
     /**
-     * Read the state of every managed path and report it. Writes nothing.
+     * Read the state of every managed path, or of one, and report it. Writes nothing.
+     *
+     * @param string|null $targetPath One canonical target path, or null for the set.
      */
-    public function check(): RunReport
+    public function check(?string $targetPath = null): RunReport
     {
         $faulted = null;
-        $walk    = $this->walk(null, $faulted);
+        $walk    = $this->walk($targetPath, $faulted);
 
         if ($walk === null) {
             return $faulted;
@@ -865,6 +869,20 @@ final class Runner
                 $states,
                 static fn (TargetState $state): bool => $state->targetPath === $targetPath
             ));
+
+            // The path may come from request input. One the set does not declare, in
+            // any spelling, is refused here, before any operation can take the write lock
+            // or build a marker path out of it. Control bytes are escaped so the reason
+            // stays one printable line.
+            if ($states === []) {
+                $faulted = RunReport::faulted(
+                    [\sprintf(self::UNDECLARED, \addcslashes($targetPath, "\0..\37"))],
+                    $checks,
+                    $interruption
+                );
+
+                return null;
+            }
         }
 
         return ['ruleSet' => $loaded->ruleSet, 'values' => $values, 'states' => $states];
