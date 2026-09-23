@@ -27,9 +27,10 @@ use RuntimeException;
  * with the path they need in it. The message this exception carries is for a developer
  * reading a stack trace, and never for a screen.
  *
- * Five codes rather than one per throw site. They are the five things an operator can
- * act on: a write run held the lock, or the package could not read its own state, could
- * not write the archive, could not secure it, or could not put it where it belongs.
+ * Seven codes rather than one per throw site. They are the seven things an operator can
+ * act on: a write run held the lock, a check or dry run held it for a read, the lock
+ * file could not be opened, or the package could not read its own state, could not
+ * write the archive, could not secure it, or could not put it where it belongs.
  */
 final class StateArchiveFailure extends RuntimeException
 {
@@ -43,6 +44,28 @@ final class StateArchiveFailure extends RuntimeException
      * that is perfectly writable.
      */
     public const RUN_LOCKED = 'run-locked';
+
+    /**
+     * A check or dry run held a shared lock on `run.lock` for its read.
+     *
+     * Nothing was being written, so telling the operator a write was in progress
+     * would send them looking for one. The archive still does not wait.
+     */
+    public const REPORT_READING = 'report-reading';
+
+    /**
+     * `run.lock` could not be opened, so the archive could not take the lock at all.
+     *
+     * A fault in the package's own tree, not a contended lock: no other run is
+     * involved.
+     */
+    public const LOCK_UNAVAILABLE = 'lock-unavailable';
+
+    /**
+     * The codes that come from taking the run lock. None names a path an operator
+     * can act on, because the lock file is deleted with the tree.
+     */
+    public const LOCK_REASONS = [self::RUN_LOCKED, self::REPORT_READING, self::LOCK_UNAVAILABLE];
 
     /** A folder or file under the package's own tree could not be read. */
     public const UNREADABLE = 'unreadable';

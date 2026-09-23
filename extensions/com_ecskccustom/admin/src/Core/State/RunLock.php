@@ -49,6 +49,8 @@ final class RunLock
 {
     public const IN_PROGRESS = 'another write run is in progress';
 
+    public const READING = 'a check or dry run is reading the run state';
+
     private const UNAVAILABLE = 'the run lock at %s could not be opened';
 
     /** @var resource|null */
@@ -74,7 +76,9 @@ final class RunLock
      *
      * A caller that gets false has not acquired the lock and must not create,
      * replace or remove the run marker, publish or remove a write intent, or sweep
-     * publication temporaries. refusal() says which of the two reasons applied.
+     * publication temporaries. refusal() says which of the three reasons applied:
+     * another write run holds the lock, a check or dry run holds it for its read, or
+     * the lock file could not be opened.
      */
     public function acquire(): bool
     {
@@ -93,10 +97,14 @@ final class RunLock
         }
 
         if (!\flock($handle, \LOCK_EX | \LOCK_NB)) {
-            \fclose($handle);
-            $this->refusal = self::IN_PROGRESS;
+            $refusal = self::holder($handle);
 
-            return false;
+            if ($refusal !== null) {
+                $this->refusal = $refusal;
+                \fclose($handle);
+
+                return false;
+            }
         }
 
         $this->handle  = $handle;
@@ -164,11 +172,51 @@ final class RunLock
     }
 
     /**
+     * Who holds the lock that `acquire()` was just refused, or null once `$handle`
+     * holds it exclusively after all.
+     *
+     * flock() names no holder, but a shared lock answers it: a write run's exclusive
+     * lock refuses it, and a report's shared lock lets it through. So does a lock
+     * nobody holds any more, when the holder let go after the exclusive attempt
+     * failed. A probe that succeeds is therefore dropped and the exclusive lock tried
+     * once more. Only when that second attempt fails too and a second probe still
+     * succeeds is the holder taken to be a report. A holder that changes twice inside
+     * this method costs the operator one inaccurate refusal, never a lock this
+     * process keeps.
+     *
+     * @param resource $handle
+     */
+    private static function holder($handle): ?string
+    {
+        if (!\flock($handle, \LOCK_SH | \LOCK_NB)) {
+            return self::IN_PROGRESS;
+        }
+
+        // Unlock before retrying rather than converting in place: flock() does not
+        // promise an atomic conversion, and a failed one may leave no lock at all.
+        \flock($handle, \LOCK_UN);
+
+        if (\flock($handle, \LOCK_EX | \LOCK_NB)) {
+            return null;
+        }
+
+        if (!\flock($handle, \LOCK_SH | \LOCK_NB)) {
+            return self::IN_PROGRESS;
+        }
+
+        \flock($handle, \LOCK_UN);
+
+        return self::READING;
+    }
+
+    /**
      * Why the last acquire() or observe() failed, or null when it succeeded.
      *
-     * Two reasons, and they send an operator somewhere different: a lock held by
-     * another run is the design working, and a lock file that cannot be opened is a
-     * fault in the package's own tree.
+     * Three reasons, and they send an operator somewhere different: a lock held by
+     * another write run is the design working, a lock a check or dry run holds for
+     * its read is gone once that read ends, and a lock file that cannot be opened is
+     * a fault in the package's own tree. Only `acquire()` can meet a read; a read
+     * refused by `observe()` met a write run.
      */
     public function refusal(): ?string
     {

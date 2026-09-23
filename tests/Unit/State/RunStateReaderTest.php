@@ -250,7 +250,7 @@ final class RunStateReaderTest extends TestCase
                 'A read holds the run lock from before it asks it to after it has read both '
                 . 'records, so no run can begin in the middle of one.'
             );
-            self::assertSame(RunLock::IN_PROGRESS, $contender->refusal());
+            self::assertSame(RunLock::READING, $contender->refusal());
         } finally {
             $reading->kill();
             $writer?->kill();

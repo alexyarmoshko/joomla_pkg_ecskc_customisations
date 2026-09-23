@@ -268,6 +268,55 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
             self::assertDirectoryDoesNotExist($tmp . '/com_ecskccustom-state');
         }
 
+        public function testUninstallReportsARunLockHeldByAReadAsAReadNotAWrite(): void
+        {
+            $paths = $this->freshInstall();
+            $made  = new RunLock($paths);
+            self::assertTrue($made->acquire());
+            $made->release();
+
+            $reading = new RunLock($paths);
+            self::assertTrue($reading->observe());
+
+            $tmp = self::$site->path('tmp');
+            \mkdir($tmp, 0755, true);
+
+            $app    = $this->application($tmp);
+            $script = new Com_EcskccustomInstallerScript();
+
+            try {
+                $result = $script->uninstall(new InstallerAdapter());
+            } finally {
+                $reading->release();
+            }
+
+            self::assertTrue($result, 'The uninstall is never obstructed, decision 26.');
+            self::assertSame(
+                [['message' => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_REPORT_READING', 'type' => 'error']],
+                $app->messages
+            );
+            self::assertDirectoryDoesNotExist($tmp . '/com_ecskccustom-state');
+        }
+
+        public function testUninstallReportsARunLockThatCannotBeOpenedAsUnavailable(): void
+        {
+            $paths = $this->freshInstall();
+            \mkdir($paths->lock());
+
+            $tmp = self::$site->path('tmp');
+            \mkdir($tmp, 0755, true);
+
+            $app    = $this->application($tmp);
+            $script = new Com_EcskccustomInstallerScript();
+
+            self::assertTrue($script->uninstall(new InstallerAdapter()));
+            self::assertSame(
+                [['message' => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_LOCK_UNAVAILABLE', 'type' => 'error']],
+                $app->messages
+            );
+            self::assertDirectoryDoesNotExist($tmp . '/com_ecskccustom-state');
+        }
+
         /**
          * The tree an install leaves behind, and the paths that address it.
          */

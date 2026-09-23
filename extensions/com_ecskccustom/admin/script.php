@@ -173,11 +173,14 @@ class Com_EcskccustomInstallerScript
                 $this->enqueue('COM_ECSKCCUSTOM_UNINSTALL_ARCHIVED', 'warning', $archive);
             }
         } catch (StateArchiveFailure $failure) {
-            // A contended run lock names no path the operator can act on. The lock
-            // file is the package's own and is about to be deleted with the tree, so
-            // its path would only point at something that no longer exists. The
-            // exception still carries it for a developer reading a stack trace.
-            $path = $failure->reason === StateArchiveFailure::RUN_LOCKED ? null : $failure->path;
+            // A run lock that could not be taken names no path the operator can act
+            // on. The lock file is the package's own and is about to be deleted with
+            // the tree, so its path would only point at something that no longer
+            // exists. The exception still carries it for a developer reading a stack
+            // trace.
+            $path = \in_array($failure->reason, StateArchiveFailure::LOCK_REASONS, true)
+                ? null
+                : $failure->path;
 
             $this->enqueue($this->reasonKey($failure->reason), 'error', $path);
         } catch (\Throwable $error) {
@@ -267,11 +270,13 @@ class Com_EcskccustomInstallerScript
     private function reasonKey(string $reason): string
     {
         return match ($reason) {
-            StateArchiveFailure::RUN_LOCKED  => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_RUN_LOCKED',
-            StateArchiveFailure::UNREADABLE  => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNREADABLE',
-            StateArchiveFailure::UNSECURED   => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNSECURED',
-            StateArchiveFailure::UNPUBLISHED => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNPUBLISHED',
-            default                          => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNWRITABLE',
+            StateArchiveFailure::RUN_LOCKED       => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_RUN_LOCKED',
+            StateArchiveFailure::REPORT_READING   => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_REPORT_READING',
+            StateArchiveFailure::LOCK_UNAVAILABLE => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_LOCK_UNAVAILABLE',
+            StateArchiveFailure::UNREADABLE       => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNREADABLE',
+            StateArchiveFailure::UNSECURED        => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNSECURED',
+            StateArchiveFailure::UNPUBLISHED      => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNPUBLISHED',
+            default                               => 'COM_ECSKCCUSTOM_UNINSTALL_ARCHIVE_UNWRITABLE',
         };
     }
 

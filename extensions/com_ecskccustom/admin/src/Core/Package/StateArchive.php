@@ -40,8 +40,10 @@ use ZipArchive;
  * caller that walked first and locked afterwards would decide against a tree a
  * live apply was still moving files through, and would copy a torn snapshot.
  *
- * The acquisition is non-blocking and a refusal fails the archive with
- * `RUN_LOCKED`. Waiting would stall an uninstall behind a run that may never end.
+ * The acquisition is non-blocking and a refusal fails the archive: `RUN_LOCKED`
+ * for a write run, `REPORT_READING` for a check or dry run's read, and
+ * `LOCK_UNAVAILABLE` for a lock file that cannot be opened. Waiting would stall an
+ * uninstall behind a run that may never end.
  * The uninstall itself still proceeds, decision 26: it is deliberate, and Joomla
  * discards a false return from the hook.
  *
@@ -135,8 +137,8 @@ final class StateArchive
      * @return string|null The archive's absolute path, or null when there was no
      *                     history to save.
      *
-     * @throws StateArchiveFailure When the run lock is held, or the archive cannot
-     *                             be written.
+     * @throws StateArchiveFailure When the run lock is held, the lock file cannot be
+     *                             opened, or the archive cannot be written.
      */
     public function archive(Closure $destination, ?int $time = null): ?string
     {
@@ -144,7 +146,11 @@ final class StateArchive
 
         if (!$lock->acquire()) {
             throw new StateArchiveFailure(
-                StateArchiveFailure::RUN_LOCKED,
+                match ($lock->refusal()) {
+                    RunLock::IN_PROGRESS => StateArchiveFailure::RUN_LOCKED,
+                    RunLock::READING     => StateArchiveFailure::REPORT_READING,
+                    default              => StateArchiveFailure::LOCK_UNAVAILABLE,
+                },
                 $lock->path(),
                 \sprintf('%s: %s', $lock->path(), (string) $lock->refusal())
             );

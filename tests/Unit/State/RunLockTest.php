@@ -154,7 +154,11 @@ final class RunLockTest extends TestCase
 
         $writer = new RunLock($this->paths);
         self::assertFalse($writer->acquire(), 'No write run may begin in the middle of a read.');
-        self::assertSame(RunLock::IN_PROGRESS, $writer->refusal());
+        self::assertSame(
+            RunLock::READING,
+            $writer->refusal(),
+            'A read is not a write run, and the refusal says which one held the lock.'
+        );
 
         $reader->release();
         $second->release();

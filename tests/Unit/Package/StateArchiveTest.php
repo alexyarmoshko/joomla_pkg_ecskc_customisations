@@ -455,6 +455,49 @@ final class StateArchiveTest extends TestCase
         self::assertFalse(\is_dir($destination), 'A refused archive creates no destination folder.');
     }
 
+    public function testAReadHoldingTheRunLockFailsTheArchiveAsAReadNotAWrite(): void
+    {
+        $this->tree->write('com_ecskccustom/state/events.log', 'kept');
+
+        $paths = $this->paths();
+        $made  = new RunLock($paths);
+        self::assertTrue($made->acquire());
+        $made->release();
+
+        $reading = new RunLock($paths);
+        self::assertTrue($reading->observe());
+
+        try {
+            (new StateArchive($paths))->archive($this->refusingDestination());
+            self::fail('A read holding the run lock must fail the archive.');
+        } catch (StateArchiveFailure $failure) {
+            self::assertSame(StateArchiveFailure::REPORT_READING, $failure->reason);
+            self::assertSame($paths->lock(), $failure->path);
+        } finally {
+            $reading->release();
+        }
+
+        self::assertFalse(\is_dir($this->tree->root() . '/tmp'));
+    }
+
+    public function testARunLockThatCannotBeOpenedFailsTheArchiveAsUnavailable(): void
+    {
+        $this->tree->write('com_ecskccustom/state/events.log', 'kept');
+
+        $paths = $this->paths();
+        \mkdir($paths->lock());
+
+        try {
+            (new StateArchive($paths))->archive($this->refusingDestination());
+            self::fail('A lock file that cannot be opened must fail the archive.');
+        } catch (StateArchiveFailure $failure) {
+            self::assertSame(StateArchiveFailure::LOCK_UNAVAILABLE, $failure->reason);
+            self::assertSame($paths->lock(), $failure->path);
+        }
+
+        self::assertFalse(\is_dir($this->tree->root() . '/tmp'));
+    }
+
     /**
      * The walk happens under the lock, so a tree that holds only the installer's
      * guards is decided after the lock is taken - and taking the lock is what
