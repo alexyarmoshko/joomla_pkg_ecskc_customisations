@@ -29,6 +29,8 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Model\TargetFilter;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\Reverter;
 
     /**
      * The target report's two sublayouts, rendered over hand-built reports with the
@@ -37,6 +39,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
      */
     #[CoversClass(TargetFilter::class)]
     #[CoversClass(RunRequest::class)]
+    #[CoversClass(WriteResult::class)]
     final class TargetReportLayoutTest extends TestCase
     {
         private const EXPECTED = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -70,15 +73,27 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
         /**
          * @param list<TargetReport>|null $items The rows the filters let through; all of them if null.
+         * @param string                  $sublayout A `default_` sublayout, or `result` for the result layout.
          */
-        private static function render(string $sublayout, RunReport $report, ?array $items = null, ?RunRequest $run = null): string
-        {
-            $view = new class ($report, $items ?? $report->targets(), $run ?? RunRequest::wholeSetCheck()) {
+        private static function render(
+            string $sublayout,
+            RunReport $report,
+            ?array $items = null,
+            ?RunRequest $run = null,
+            bool $canWrite = false,
+            ?WriteResult $result = null,
+        ): string {
+            $view = new class ($report, $items ?? $report->targets(), $run ?? RunRequest::wholeSetCheck(), $canWrite, $result) {
                 /**
                  * @param list<TargetReport> $items
                  */
-                public function __construct(public RunReport $report, public array $items, public RunRequest $run)
-                {
+                public function __construct(
+                    public RunReport $report,
+                    public array $items,
+                    public RunRequest $run,
+                    public bool $canWrite,
+                    public ?WriteResult $result,
+                ) {
                 }
 
                 public function escape($var): string
@@ -91,9 +106,21 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                 {
                     return \htmlspecialchars(RunRequest::displayUrl($run, $path), ENT_COMPAT, 'UTF-8');
                 }
+
+                public function taskUrl(string $operation): string
+                {
+                    return \htmlspecialchars('index.php?option=com_ecskccustom&task=targets.' . $operation, ENT_COMPAT, 'UTF-8');
+                }
+
+                // The write form needs HTMLHelper for its token; the layouts are tested without it.
+                public function loadTemplate(string $tpl): string
+                {
+                    return '';
+                }
             };
 
-            $file = self::component() . '/admin/tmpl/targets/default_' . $sublayout . '.php';
+            $file = self::component() . '/admin/tmpl/targets/'
+                . ($sublayout === 'result' ? 'result' : 'default_' . $sublayout) . '.php';
 
             return (function (string $file): string {
                 \ob_start();
@@ -541,6 +568,169 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                 'backup backup/' . self::ACTUAL,
                 self::texts($dryRun, '//ul[@class="ecskc-plan"]/li')[0]
             );
+        }
+
+        /**
+         * @return iterable<string, array{RunRequest, bool, bool}>
+         */
+        public static function applyPlanPages(): iterable
+        {
+            foreach ([true, false] as $canWrite) {
+                $who = $canWrite ? 'writer' : 'reader';
+
+                yield 'whole-set dry run, ' . $who => [RunRequest::fromInput('dryrun', null), $canWrite, $canWrite];
+                yield 'single-path dry run, ' . $who => [RunRequest::fromInput('dryrun', self::PATH), $canWrite, false];
+                yield 'whole-set check, ' . $who => [RunRequest::fromInput('check', null), $canWrite, false];
+            }
+        }
+
+        private const PATH = 'templates/et_tennis/css/actionable.css';
+
+        #[DataProvider('applyPlanPages')]
+        public function testOnlyAWriterGetsTheApplyThisPlanFormAndOnlyOnTheWholeSetDryRun(RunRequest $run, bool $canWrite, bool $shown): void
+        {
+            $xpath  = self::dom(self::render('summary', self::everyStatus(OperationalChecks::none()), null, $run, $canWrite));
+            $button = '//button[@id="ecskc-apply-plan"]';
+
+            if (!$shown) {
+                self::assertSame([], self::texts($xpath, $button));
+
+                return;
+            }
+
+            self::assertSame(['Apply this plan'], self::texts($xpath, $button));
+            self::assertSame(['ecskc-write'], self::texts($xpath, $button . '/@form'));
+            self::assertSame(['index.php?option=com_ecskccustom&task=targets.applyall'], self::texts($xpath, $button . '/@formaction'));
+            self::assertSame([WriteResult::CONFIRM_FIELD], self::texts($xpath, $button . '/@name'));
+            self::assertSame(['1'], self::texts($xpath, $button . '/@value'));
+        }
+
+        public function testAReaderGetsNoWriteButtons(): void
+        {
+            $html = self::render('targets', self::everyStatus(OperationalChecks::none()));
+
+            self::assertSame([], self::texts(self::dom($html), '//button'));
+            self::assertStringNotContainsString('task=', $html);
+        }
+
+        public function testEachRowGivesAWriterItsWritesWithAPromptNamingTheOperationAndThePath(): void
+        {
+            $report = self::everyStatus(OperationalChecks::none());
+            $xpath  = self::dom(self::render('targets', $report, null, null, true));
+
+            foreach ($report->targets() as $target) {
+                $path    = $target->targetPath();
+                $buttons = '//tbody/tr[th/code = "' . $path . '"]//p[@class="ecskc-row-writes mb-0"]/button';
+                $toggle  = $target->status() === TargetStatus::FROZEN ? 'unfreeze' : 'freeze';
+
+                self::assertSame(['Apply', 'Revert', 'Redo', \ucfirst($toggle)], self::texts($xpath, $buttons));
+                self::assertSame(
+                    \array_map(
+                        static fn (string $task): string => 'index.php?option=com_ecskccustom&task=targets.' . $task,
+                        ['apply', 'revert', 'redo', $toggle]
+                    ),
+                    self::texts($xpath, $buttons . '/@formaction')
+                );
+                self::assertSame(\array_fill(0, 4, $path), self::texts($xpath, $buttons . '/@value'));
+                self::assertSame(\array_fill(0, 4, 'path'), self::texts($xpath, $buttons . '/@name'));
+                self::assertSame(\array_fill(0, 4, 'ecskc-write'), self::texts($xpath, $buttons . '/@form'));
+
+                $prompts = self::texts($xpath, $buttons . '/@data-ecskc-confirm');
+
+                self::assertCount(4, $prompts);
+
+                foreach ($prompts as $index => $prompt) {
+                    self::assertStringContainsString($path, $prompt);
+                    self::assertStringStartsWith(['Apply', 'Revert', 'Redo', \ucfirst($toggle)][$index] . ' ', $prompt);
+                }
+
+                self::assertStringContainsString('The next apply redoes this change unless the path is frozen.', $prompts[1]);
+            }
+        }
+
+        public function testAPathInAWriteButtonRendersEscaped(): void
+        {
+            $path   = 'templates/et_tennis/css/vendor.css"><script>alert(1)</script>';
+            $report = RunReport::of(
+                [self::line(self::state($path, TargetStatus::ACTIONABLE, 'version 1 would apply'))],
+                OperationalChecks::none(),
+                ReportedValue::none('no earlier write run was interrupted')
+            );
+
+            $html  = self::render('targets', $report, null, null, true);
+            $xpath = self::dom($html);
+
+            self::assertStringNotContainsString('<script>', $html);
+            self::assertSame(\array_fill(0, 4, $path), self::texts($xpath, '//p[@class="ecskc-row-writes mb-0"]/button/@value'));
+        }
+
+        private static function revertResult(): WriteResult
+        {
+            $path    = 'templates/et_tennis/css/chain.css';
+            $warning = \sprintf(Reverter::REAPPLY_WARNING, $path);
+            $report  = RunReport::of(
+                [self::line(
+                    self::state($path, TargetStatus::ACTIONABLE, 'version 2 would apply'),
+                    [],
+                    ReportedValue::known('the target was stepped back to version 1. ' . $warning)
+                )],
+                OperationalChecks::none(),
+                ReportedValue::known('the run begun at 10:00 was interrupted <b>after</b> its intent'),
+                ['another write run is in progress', 'the write intent published for x is still outstanding']
+            );
+
+            return WriteResult::fromReport(WriteResult::REVERT, $path, $report);
+        }
+
+        public function testAfterARevertTheWarningIsProminentWithAFreezeButtonForThatPath(): void
+        {
+            $result = self::revertResult();
+            $empty  = self::everyStatus(OperationalChecks::none());
+            $xpath  = self::dom(self::render('result', $empty, null, null, true, $result));
+            $block  = '//*[@id="ecskc-revert-warning"]';
+
+            self::assertSame(['The next apply undoes this revert'], self::texts($xpath, $block . '/h2'));
+            self::assertSame([(string) $result->warning], self::texts($xpath, $block . '/p'));
+
+            $freeze = $block . '/button[@id="ecskc-revert-freeze"]';
+
+            self::assertSame(['Freeze'], self::texts($xpath, $freeze));
+            self::assertSame(['index.php?option=com_ecskccustom&task=targets.freeze'], self::texts($xpath, $freeze . '/@formaction'));
+            self::assertSame([$result->path], self::texts($xpath, $freeze . '/@value'));
+            self::assertStringStartsWith('Freeze ' . $result->path . '?', self::texts($xpath, $freeze . '/@data-ecskc-confirm')[0]);
+
+            $reader = self::dom(self::render('result', $empty, null, null, false, $result));
+
+            self::assertSame([(string) $result->warning], self::texts($reader, $block . '/p'));
+            self::assertSame([], self::texts($reader, '//button'));
+        }
+
+        public function testTheResultShowsWhyTheRunStoppedVerbatimAndNeverSaysNothingWasWritten(): void
+        {
+            $result = self::revertResult();
+            $html   = self::render('result', self::everyStatus(OperationalChecks::none()), null, null, false, $result);
+            $xpath  = self::dom($html);
+
+            self::assertStringStartsWith('Result of reverting one path: ' . $result->path, self::texts($xpath, '//*[@id="ecskc-run"]/p')[0]);
+            self::assertSame($result->faults, self::texts($xpath, '//*[@id="ecskc-faults"]//li'));
+            self::assertSame([(string) $result->interruption], self::texts($xpath, '//*[@id="ecskc-interruption"]/p'));
+            self::assertStringNotContainsString('<b>', $html);
+            self::assertStringNotContainsString('wrote nothing', $html);
+            self::assertSame(['index.php?option=com_ecskccustom&view=targets&run=check'], self::texts($xpath, '//*[@id="ecskc-run"]//a/@href'));
+        }
+
+        public function testTheResultRowsShowTheirFieldsBackupAndOutcome(): void
+        {
+            $result = self::revertResult();
+            $xpath  = self::dom(self::render('result', self::everyStatus(OperationalChecks::none()), null, null, false, $result));
+            $row    = $result->targets[0];
+
+            self::assertSame([$row['status']], self::texts($xpath, '//table[@id="ecskc-targets"]/tbody/tr/@data-status'));
+            self::assertSame([$row['state']], self::texts($xpath, '//table[@id="ecskc-targets"]/tbody/tr/td[1]'));
+            self::assertSame(\array_values($row['required']), self::texts($xpath, '//table[@id="ecskc-targets"]/tbody/tr//dl/dd'));
+            self::assertSame([$row['backup']], self::texts($xpath, '//p[@class="ecskc-backup"]'));
+            self::assertSame([(string) $row['outcome']], self::texts($xpath, '//p[@class="ecskc-outcome"]'));
+            self::assertSame([], self::texts($xpath, '//details[not(@open)]'));
         }
     }
 }

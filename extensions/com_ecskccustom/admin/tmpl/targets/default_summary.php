@@ -11,11 +11,13 @@
 \defined('_JEXEC') or die;
 
 use Joomla\CMS\Language\Text;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
 
 /**
  * Everything above the list. It describes the whole report, so the filters never
  * change it. Report text is the runner's, escaped (plan decision 48). The run
- * line names what ran and says that nothing was written.
+ * line names what ran and says that nothing was written. A whole-set dry run is
+ * also where a writer confirms the whole-set apply (plan decision 49).
  *
  * @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Targets\HtmlView $this
  */
@@ -43,6 +45,13 @@ if ($run->path === null) {
         <p class="mb-0"><a href="<?php echo $this->runUrl($run->run); ?>"><?php echo Text::_('COM_ECSKCCUSTOM_RUN_ALL_LINK'); ?></a></p>
     <?php endif; ?>
     <p class="mb-0 fw-bold"><?php echo Text::_($run->isDryRun() ? 'COM_ECSKCCUSTOM_RUN_DRY_RUN_NOTHING_WRITTEN' : 'COM_ECSKCCUSTOM_RUN_CHECK_NOTHING_WRITTEN'); ?></p>
+    <?php if ($this->canWrite && $run->isDryRun() && $run->path === null) : ?>
+        <p class="mt-3 mb-2"><?php echo Text::_('COM_ECSKCCUSTOM_APPLY_PLAN_DESC'); ?></p>
+        <button type="submit" form="ecskc-write" formaction="<?php echo $this->taskUrl(WriteResult::APPLY_ALL); ?>" name="<?php echo WriteResult::CONFIRM_FIELD; ?>" value="1" class="btn btn-primary" id="ecskc-apply-plan">
+            <span class="icon-check" aria-hidden="true"></span>
+            <?php echo Text::_('COM_ECSKCCUSTOM_APPLY_PLAN'); ?>
+        </button>
+    <?php endif; ?>
 </div>
 <?php if ($report->faults() !== []) : ?>
     <div class="alert alert-danger" id="ecskc-faults">

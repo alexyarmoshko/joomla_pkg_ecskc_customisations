@@ -22,6 +22,7 @@ COMPONENT_FILES := \
 	admin/services/provider.php \
 	admin/src/Access/WritePermission.php \
 	admin/src/Controller/DisplayController.php \
+	admin/src/Controller/TargetsController.php \
 	admin/src/Core/Condition/ConditionEvaluator.php \
 	admin/src/Core/Condition/ConditionGroup.php \
 	admin/src/Core/Condition/ConditionOutcome.php \
@@ -56,6 +57,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Rule/SchemaValidator.php \
 	admin/src/Core/ReadOnlyRunnerInterface.php \
 	admin/src/Core/Runner.php \
+	admin/src/Core/WriteRunnerInterface.php \
 	admin/src/Core/State/BackupOutcome.php \
 	admin/src/Core/State/BackupStore.php \
 	admin/src/Core/State/BoundBackupDirectory.php \
@@ -98,12 +100,15 @@ COMPONENT_FILES := \
 	admin/src/Model/RunRequest.php \
 	admin/src/Model/TargetFilter.php \
 	admin/src/Model/TargetsModel.php \
+	admin/src/Model/WriteResult.php \
 	admin/src/View/Dashboard/HtmlView.php \
 	admin/src/View/Targets/HtmlView.php \
 	admin/tmpl/dashboard/default.php \
 	admin/tmpl/targets/default.php \
 	admin/tmpl/targets/default_summary.php \
-	admin/tmpl/targets/default_targets.php
+	admin/tmpl/targets/default_targets.php \
+	admin/tmpl/targets/default_writeform.php \
+	admin/tmpl/targets/result.php
 
 RULE_FILES := \
 	10-comprofiler.xml \

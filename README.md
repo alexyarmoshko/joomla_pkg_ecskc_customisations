@@ -68,7 +68,10 @@ freeze and unfreeze managed customisations. In the administrator, Components, EC
 Customisations runs a whole-set check and lists every managed path with its state, reason, and
 hashes, filtered by state or path. The same screen runs a check or a dry run of the whole set or
 of one path, and each row links to its own. A dry run shows the operations, backups, and refusals
-an apply would produce. The screen writes nothing yet; the write actions come later in Phase 3. Installing the component writes no managed file. Joomla deletes `backup/`
+an apply would produce. A user with the Change Managed Files permission also gets apply, revert,
+redo, freeze, and unfreeze on each row, each confirmed in the browser. The whole set is applied
+from the whole-set dry run's Apply this plan button. Each write shows its result once; reloading
+runs a fresh check. Installing the component writes no managed file. Joomla deletes `backup/`
 and `state/` with the component on uninstall. So, when those folders hold any history,
 uninstalling first copies them to a guarded archive under the site's temporary folder —
 decision 26 of [`docs/execution_plan.md`](docs/execution_plan.md). If a write run holds the run

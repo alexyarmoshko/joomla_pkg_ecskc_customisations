@@ -19,6 +19,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Model {
     use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomisationComponent;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Model\TargetsModel;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
     use YakShaver\ECSKCCustomisation\Tests\Unit\Runner\RunnerHarness;
 
     /**
@@ -30,6 +31,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Model {
     #[CoversClass(TargetsModel::class)]
     #[CoversClass(ECSKCCustomisationComponent::class)]
     #[CoversClass(RunRequest::class)]
+    #[CoversClass(WriteResult::class)]
     final class TargetsModelTest extends RunnerHarness
     {
         /** @var list<string> */
@@ -273,6 +275,72 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Model {
             self::assertSame([['run', null, 'raw'], ['path', null, 'raw']], $input->reads);
             self::assertSame(RunRequest::DRY_RUN, $model->getRunRequest()->run);
             self::assertSame(' a&amp;b/../c<script> ', $model->getRunRequest()->path);
+        }
+
+        /**
+         * Replaces the application with one that also holds user state, as the
+         * session does between the write task and the page.
+         *
+         * @param array<string, mixed> $state
+         */
+        private function withUserState(array &$state): void
+        {
+            $application          = Factory::$application;
+            Factory::$application = new class ($application, $state) {
+                /**
+                 * @param array<string, mixed> $state
+                 */
+                public function __construct(private readonly object $application, private array &$state)
+                {
+                }
+
+                public function getUserState($key, $default = null)
+                {
+                    return $this->state[$key] ?? $default;
+                }
+
+                public function setUserState($key, $value)
+                {
+                    $this->state[$key] = $value;
+                }
+
+                public function bootComponent(string $component): object
+                {
+                    return $this->application->bootComponent($component);
+                }
+            };
+        }
+
+        public function testAStoredResultIsShownOnceAndTheNextLoadRunsAFreshCheck(): void
+        {
+            $written = WriteResult::fromReport(WriteResult::APPLY, self::VENDOR, $this->runner()->apply(self::VENDOR));
+            $state   = [WriteResult::STATE_KEY => $written->toArray()];
+            $this->withUserState($state);
+            $this->runnerCalls = 0;
+
+            $first = new TargetsModel();
+
+            self::assertEquals($written, $first->takeWriteResult());
+            self::assertEquals($written, $first->takeWriteResult(), 'The same page asks again and gets the same result.');
+            self::assertNull($state[WriteResult::STATE_KEY], 'Taking the result drops the stored copy.');
+            self::assertSame(0, $this->runnerCalls, 'Showing a stored result runs nothing.');
+
+            $second = new TargetsModel();
+
+            self::assertNull($second->takeWriteResult());
+            self::assertEquals($this->runner()->check(), $second->getReport());
+            self::assertSame(1, $this->runnerCalls);
+        }
+
+        public function testAStoredValueThatIsNotAResultIsDroppedForAFreshCheck(): void
+        {
+            $state = [WriteResult::STATE_KEY => ['operation' => 'revert']];
+            $this->withUserState($state);
+
+            $model = new TargetsModel();
+
+            self::assertNull($model->takeWriteResult());
+            self::assertNull($state[WriteResult::STATE_KEY]);
         }
     }
 }

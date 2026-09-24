@@ -27,3 +27,4 @@ use Joomla\CMS\Layout\LayoutHelper;
         </div>
     </div>
 </form>
+<?php echo $this->loadTemplate('writeform'); ?>

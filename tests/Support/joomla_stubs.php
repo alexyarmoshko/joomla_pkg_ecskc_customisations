@@ -59,6 +59,42 @@ namespace Joomla\CMS\Language {
     }
 }
 
+namespace Joomla\CMS\User {
+    class User
+    {
+        /** @var list<array{string, ?string}> */
+        public array $asked = [];
+
+        /**
+         * @param  list<string>  $granted  Actions granted on com_ecskccustom.
+         */
+        public function __construct(private readonly array $granted = [])
+        {
+        }
+
+        public function authorise($action, $assetname = null)
+        {
+            $this->asked[] = [$action, $assetname];
+
+            return $assetname === 'com_ecskccustom' && \in_array($action, $this->granted, true);
+        }
+    }
+}
+
+namespace Joomla\CMS\Router {
+    final class Route
+    {
+        /**
+         * The non-SEF URL as given, escaped when `$xhtml` asks for it, as Joomla's
+         * admin router leaves an `index.php?option=...` URL.
+         */
+        public static function _($url, $xhtml = true): string
+        {
+            return $xhtml ? \htmlspecialchars((string) $url, ENT_COMPAT, 'UTF-8') : (string) $url;
+        }
+    }
+}
+
 namespace Joomla\CMS\Extension {
     class MVCComponent
     {

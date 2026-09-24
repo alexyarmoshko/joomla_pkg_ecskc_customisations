@@ -17,19 +17,37 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\View\HtmlView as BaseHtmlView;
 use Joomla\CMS\Router\Route;
 use Joomla\CMS\Toolbar\ToolbarHelper;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Access\WritePermission;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\RunReport;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\TargetReport;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Model\TargetsModel;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
 
 \defined('_JEXEC') or die;
 
 /**
  * One read-only runner report: a check or a dry run, of the set or of one path. The
  * summary describes the whole report; the rows are what the filters let through.
+ *
+ * After a write task, the page shows that task's stored result instead, once, in
+ * the `result` layout, and runs nothing.
  */
 class HtmlView extends BaseHtmlView
 {
+    /**
+     * Asks before a write button submits, with the prompt the button carries. The
+     * prompt guards against a slip. The task checks the token and the permission.
+     */
+    private const CONFIRM_SCRIPT = <<<'JS'
+        document.addEventListener('submit', (event) => {
+            const message = event.submitter ? event.submitter.dataset.ecskcConfirm : undefined;
+            if (message !== undefined && !window.confirm(message)) {
+                event.preventDefault();
+            }
+        });
+        JS;
+
     public RunReport $report;
 
     public RunRequest $run;
@@ -38,6 +56,11 @@ class HtmlView extends BaseHtmlView
     public array $items = [];
 
     public ?Form $filterForm = null;
+
+    public ?WriteResult $result = null;
+
+    /** Whether to show write buttons. Hiding them is not the control; the task checks. */
+    public bool $canWrite = false;
 
     /** @var array<string, mixed> */
     public array $activeFilters = [];
@@ -49,6 +72,22 @@ class HtmlView extends BaseHtmlView
     {
         /** @var TargetsModel $model */
         $model = $this->getModel();
+
+        $this->canWrite = WritePermission::allows($this->getCurrentUser());
+        $this->result   = $model->takeWriteResult();
+
+        if ($this->canWrite) {
+            $this->getDocument()->getWebAssetManager()->addInlineScript(self::CONFIRM_SCRIPT);
+        }
+
+        if ($this->result !== null) {
+            $this->setLayout('result');
+            $this->addToolbar();
+
+            parent::display($tpl);
+
+            return;
+        }
 
         $this->run           = $model->getRunRequest();
         $this->report        = $model->getReport();
@@ -72,6 +111,16 @@ class HtmlView extends BaseHtmlView
         return Route::_(RunRequest::displayUrl($run, $path));
     }
 
+    /**
+     * The URL a write button posts to, escaped for an HTML attribute.
+     *
+     * @param string $operation One of WriteResult::OPERATIONS.
+     */
+    public function taskUrl(string $operation): string
+    {
+        return Route::_('index.php?option=com_ecskccustom&task=targets.' . $operation);
+    }
+
     private function addToolbar(): void
     {
         ToolbarHelper::title(Text::_('COM_ECSKCCUSTOM'), 'wrench');
@@ -85,6 +134,14 @@ class HtmlView extends BaseHtmlView
         $toolbar->linkButton('ecskc-dryrun', 'COM_ECSKCCUSTOM_TOOLBAR_DRY_RUN')
             ->icon('icon-eye')
             ->url($this->runUrl(RunRequest::DRY_RUN));
+
+        // A link to the whole-set dry run, whose "Apply this plan" button is the
+        // confirmation (plan decision 49).
+        if ($this->canWrite) {
+            $toolbar->linkButton('ecskc-apply', 'COM_ECSKCCUSTOM_TOOLBAR_APPLY')
+                ->icon('icon-check')
+                ->url($this->runUrl(RunRequest::DRY_RUN));
+        }
 
         $user = $this->getCurrentUser();
 

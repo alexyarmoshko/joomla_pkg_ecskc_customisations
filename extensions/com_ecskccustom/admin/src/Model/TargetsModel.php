@@ -30,10 +30,15 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomis
  *
  * The report is the read-only run the display URL names in `run` and `path`. Both
  * are request parameters and not user state: the same URL always runs the same thing.
+ * The one piece of user state is a write task's result, which is shown once.
  */
 class TargetsModel extends ListModel
 {
     private ?RunReport $report = null;
+
+    private ?WriteResult $writeResult = null;
+
+    private bool $writeResultTaken = false;
 
     /**
      * The requested run, done once per request however often the view asks.
@@ -41,6 +46,24 @@ class TargetsModel extends ListModel
     public function getReport(): RunReport
     {
         return $this->report ??= $this->getRunRequest()->execute($this->runner());
+    }
+
+    /**
+     * The result a write task left in the session, once. The stored copy is dropped
+     * on the first read, so a reload runs the display URL's check instead.
+     */
+    public function takeWriteResult(): ?WriteResult
+    {
+        if (!$this->writeResultTaken) {
+            $app = Factory::getApplication();
+
+            $this->writeResult      = WriteResult::fromArray($app->getUserState(WriteResult::STATE_KEY));
+            $this->writeResultTaken = true;
+
+            $app->setUserState(WriteResult::STATE_KEY, null);
+        }
+
+        return $this->writeResult;
     }
 
     public function getRunRequest(): RunRequest

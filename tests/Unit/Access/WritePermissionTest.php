@@ -2,32 +2,8 @@
 
 declare(strict_types=1);
 
-namespace Joomla\CMS\User {
-    class User
-    {
-        /** @var list<array{string, ?string}> */
-        public array $asked = [];
-
-        /**
-         * @param  list<string>  $granted  Actions granted on com_ecskccustom.
-         */
-        public function __construct(private readonly array $granted)
-        {
-        }
-
-        public function authorise($action, $assetname = null)
-        {
-            $this->asked[] = [$action, $assetname];
-
-            return $assetname === 'com_ecskccustom' && \in_array($action, $this->granted, true);
-        }
-    }
-}
-
 namespace {
-    if (!\defined('_JEXEC')) {
-        \define('_JEXEC', 1);
-    }
+    require_once \dirname(__DIR__, 2) . '/Support/joomla_stubs.php';
 }
 
 namespace YakShaver\ECSKCCustomisation\Tests\Unit\Access {

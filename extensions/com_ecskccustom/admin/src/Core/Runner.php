@@ -47,7 +47,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteRun;
 /**
  * The one entry point into the core, and the only thing a Joomla adapter talks to.
  */
-final class Runner implements ReadOnlyRunnerInterface
+final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
 {
     /**
      * A check displaces nothing, so there is no backup to name.

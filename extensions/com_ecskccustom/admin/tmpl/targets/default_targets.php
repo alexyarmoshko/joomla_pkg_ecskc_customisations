@@ -14,12 +14,14 @@ use Joomla\CMS\Language\Text;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\TargetReport;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
 
 /**
  * One row per target path the filters let through. A row that is not `ok` shows
  * the required fields in the report's order, each a value or the reason there is
  * none; this is a Phase 3 exit criterion. Each row links to its own check and
- * dry run, and a dry run opens every row's plan.
+ * dry run, and a dry run opens every row's plan. A writer also gets the row's
+ * write buttons, each with a browser prompt naming the operation and the path.
  *
  * @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Targets\HtmlView $this
  */
@@ -30,6 +32,16 @@ $labels = [
     TargetReport::ACTUAL_HASH        => 'COM_ECSKCCUSTOM_FIELD_ACTUAL_HASH',
     TargetReport::LAST_PACKAGE_WRITE => 'COM_ECSKCCUSTOM_FIELD_LAST_PACKAGE_WRITE',
 ];
+
+// Each button posts the row's path to one task through the write form. A frozen
+// row offers unfreeze instead of freeze.
+$writeButton = fn (string $operation, string $path): string => \sprintf(
+    '<button type="submit" form="ecskc-write" formaction="%s" name="path" value="%s" data-ecskc-confirm="%s" class="btn btn-sm btn-outline-secondary me-1 mt-1">%s</button>',
+    $this->taskUrl($operation),
+    $this->escape($path),
+    $this->escape(Text::sprintf('COM_ECSKCCUSTOM_CONFIRM_' . \strtoupper($operation), $path)),
+    Text::_('COM_ECSKCCUSTOM_ROW_' . \strtoupper($operation))
+);
 
 // A field is never left blank, even if the report hands over an empty string.
 $field = fn (string $value): string => $value === ''
@@ -64,6 +76,14 @@ $field = fn (string $value): string => $value === ''
                             <a href="<?php echo $this->runUrl(RunRequest::CHECK, $target->targetPath()); ?>"><?php echo Text::_('COM_ECSKCCUSTOM_ROW_CHECK'); ?></a>
                             <a href="<?php echo $this->runUrl(RunRequest::DRY_RUN, $target->targetPath()); ?>" class="ms-2"><?php echo Text::_('COM_ECSKCCUSTOM_ROW_DRY_RUN'); ?></a>
                         </p>
+                        <?php if ($this->canWrite) : ?>
+                            <p class="ecskc-row-writes mb-0">
+                                <?php echo $writeButton(WriteResult::APPLY, $target->targetPath()); ?>
+                                <?php echo $writeButton(WriteResult::REVERT, $target->targetPath()); ?>
+                                <?php echo $writeButton(WriteResult::REDO, $target->targetPath()); ?>
+                                <?php echo $writeButton($target->status() === TargetStatus::FROZEN ? WriteResult::UNFREEZE : WriteResult::FREEZE, $target->targetPath()); ?>
+                            </p>
+                        <?php endif; ?>
                     </th>
                     <td><?php echo $field($target->describe()); ?></td>
                     <td>
