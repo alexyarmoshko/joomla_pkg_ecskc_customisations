@@ -16,13 +16,16 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Installer\InstallerAdapter;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
+use Joomla\CMS\Router\Route;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
 
 /**
- * Creates and protects the package's own state folders.
+ * Creates and protects the package's own state folders, and asks the operator to
+ * review and apply the customisations.
  */
 class Com_EcskccustomInstallerScript
 {
@@ -57,6 +60,9 @@ class Com_EcskccustomInstallerScript
      * contents alone. They carry a site's backups, freeze markers and event log,
      * and they survive an update precisely because the manifest does not mention
      * them.
+     *
+     * Applies nothing, brief decision 2. It asks the operator to, with one message
+     * linking to the read-only whole-set check.
      *
      * @param   string            $type     Install type.
      * @param   InstallerAdapter  $adapter  Installer adapter.
@@ -99,7 +105,29 @@ class Com_EcskccustomInstallerScript
             }
         }
 
+        // Sent only once the folders are in place: a throw above fails the install,
+        // and an operator must not be sent to a component that has no state folders.
+        // The link is a check, not a write task, so the first thing the operator sees
+        // is what applying would do.
+        $this->loadCoreClass($root, RunRequest::class, 'src/Model/RunRequest.php');
+        $this->enqueue(
+            'COM_ECSKCCUSTOM_INSTALL_REVIEW_AND_APPLY',
+            'notice',
+            $this->link(RunRequest::displayUrl(RunRequest::CHECK))
+        );
+
         return true;
+    }
+
+    /**
+     * An escaped link for an installer message.
+     *
+     * Route::_() returns null when the application has no router, as on the command
+     * line. The non-SEF URL still works from the administrator, so it is used as is.
+     */
+    private function link(string $url): string
+    {
+        return Route::_($url) ?? htmlspecialchars($url, ENT_COMPAT, 'UTF-8');
     }
 
     /**
@@ -278,7 +306,11 @@ class Com_EcskccustomInstallerScript
     }
 
     /**
-     * Translate and tell the operator, without letting either step stop the uninstall.
+     * Translate and tell the operator, without letting either step stop the install or
+     * the uninstall.
+     *
+     * After an install the folders are already protected, so a message that cannot
+     * be shown is not worth failing a good install for.
      *
      * Text::sprintf() delegates to PHP sprintf(), which raises ValueError on a
      * malformed format string. A broken language override would otherwise escape
@@ -286,10 +318,10 @@ class Com_EcskccustomInstallerScript
      * RuntimeException rather than Throwable, so the removal would stop before
      * file cleanup.
      */
-    private function enqueue(string $key, string $type, ?string $path = null): void
+    private function enqueue(string $key, string $type, ?string $argument = null): void
     {
         try {
-            $message = $path === null ? Text::_($key) : Text::sprintf($key, $path);
+            $message = $argument === null ? Text::_($key) : Text::sprintf($key, $argument);
             Factory::getApplication()->enqueueMessage($message, $type);
         } catch (\Throwable $error) {
             $this->log($error->getMessage());

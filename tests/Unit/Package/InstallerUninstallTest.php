@@ -41,18 +41,23 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
     use Joomla\CMS\Language\Text;
     use Joomla\CMS\Log\Log;
     use PHPUnit\Framework\Attributes\CoversClass;
+    use PHPUnit\Framework\Attributes\DataProvider;
     use PHPUnit\Framework\TestCase;
     use ReflectionMethod;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
     use YakShaver\ECSKCCustomisation\Tests\Support\RunLockProbe;
     use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
     /**
      * The uninstall hook must not throw, recreate folders after Joomla has deleted
      * them, or leave an empty archive directory when there was nothing to save.
+     *
+     * Install and update send one message, and only after the state folders are
+     * protected.
      */
     #[CoversClass(Com_EcskccustomInstallerScript::class)]
     final class InstallerUninstallTest extends TestCase
@@ -84,6 +89,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
         protected function setUp(): void
         {
             Text::$fail            = false;
+            Text::$strings         = [];
             Log::$messages         = [];
             Factory::$application  = null;
 
@@ -91,6 +97,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
             \class_exists(StateArchive::class);
             \class_exists(StateArchiveFailure::class);
             \class_exists(RunLock::class);
+            \class_exists(RunRequest::class);
 
             $this->forgetSiteWrites();
         }
@@ -99,6 +106,146 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
         {
             $this->forgetSiteWrites();
             Factory::$application = null;
+            Text::$strings        = [];
+        }
+
+        /**
+         * @return array<string, array{string}>
+         */
+        public static function installRoutes(): array
+        {
+            return ['install' => ['install'], 'update' => ['update']];
+        }
+
+        /**
+         * One message, linking to the read-only whole-set check and to no write task.
+         */
+        #[DataProvider('installRoutes')]
+        public function testPostflightSendsOneMessageLinkingToTheWholeSetCheck(string $type): void
+        {
+            $this->shippedFolders();
+            Text::$strings['COM_ECSKCCUSTOM_INSTALL_REVIEW_AND_APPLY'] = 'link:%s';
+
+            $app    = $this->application(self::$site->path('tmp'));
+            $script = new Com_EcskccustomInstallerScript();
+
+            self::assertTrue($script->postflight($type, new InstallerAdapter()));
+            self::assertSame(
+                [[
+                    'message' => 'link:index.php?option=com_ecskccustom&amp;view=targets&amp;run=check',
+                    'type'    => 'notice',
+                ]],
+                $app->messages
+            );
+        }
+
+        public function testPostflightOnUninstallSendsNoMessage(): void
+        {
+            $app    = $this->application(self::$site->path('tmp'));
+            $script = new Com_EcskccustomInstallerScript();
+
+            self::assertTrue($script->postflight('uninstall', new InstallerAdapter()));
+            self::assertSame([], $app->messages);
+        }
+
+        /**
+         * A folder that cannot be protected fails the install, and the operator is
+         * not sent to review a component with no guarded state folders.
+         */
+        public function testAFolderFailureThrowsAndSendsNoMessage(): void
+        {
+            // payload/ ships with the package; its absence is the build fault
+            // postflight refuses to paper over.
+            \mkdir(JPATH_ADMINISTRATOR . '/components/com_ecskccustom/rules', 0755, true);
+
+            $app    = $this->application(self::$site->path('tmp'));
+            $script = new Com_EcskccustomInstallerScript();
+
+            try {
+                $script->postflight('install', new InstallerAdapter());
+                self::fail('A missing payload/ folder must fail the install.');
+            } catch (\RuntimeException $failure) {
+                self::assertSame('COM_ECSKCCUSTOM_ERROR_STATE_PROTECTION', $failure->getMessage());
+            }
+
+            self::assertSame([], $app->messages);
+        }
+
+        /**
+         * An update leaves every state file byte for byte as it found it, guards
+         * included, and still sends its one message.
+         */
+        public function testAnUpdateKeepsTheStateFoldersByteForByte(): void
+        {
+            $this->shippedFolders();
+            $script = new Com_EcskccustomInstallerScript();
+            $this->application(self::$site->path('tmp'));
+            self::assertTrue($script->postflight('install', new InstallerAdapter()));
+
+            $state = 'administrator/components/com_ecskccustom/';
+            self::$site->write($state . 'backup/templates/et_tennis/css/vendor.css/1.bak', "old\r\nbytes");
+            self::$site->write($state . 'state/.frozen/marker', 'frozen');
+            self::$site->write($state . 'state/events.log', "{\"event\":\"committed\"}\n");
+
+            $before = $this->hashesUnder(JPATH_ADMINISTRATOR . '/components/com_ecskccustom');
+            $app    = $this->application(self::$site->path('tmp'));
+
+            self::assertTrue($script->postflight('update', new InstallerAdapter()));
+            self::assertSame($before, $this->hashesUnder(JPATH_ADMINISTRATOR . '/components/com_ecskccustom'));
+            self::assertCount(1, $app->messages);
+
+            foreach (PackagePaths::ALL_FOLDERS as $folder) {
+                self::assertFileExists(
+                    JPATH_ADMINISTRATOR . '/components/com_ecskccustom/' . $folder . '/' . PackagePaths::HTACCESS
+                );
+            }
+        }
+
+        /**
+         * The shipped string asks for an apply and carries the link. A key present
+         * but without its %s would drop the link silently.
+         */
+        public function testTheInstallMessageAsksForAnApplyAndCarriesTheLink(): void
+        {
+            $file = \dirname(__DIR__, 3)
+                . '/extensions/com_ecskccustom/admin/language/en-GB/com_ecskccustom.sys.ini';
+            $contents = (string) \file_get_contents($file);
+
+            self::assertSame(
+                1,
+                \preg_match('/^COM_ECSKCCUSTOM_INSTALL_REVIEW_AND_APPLY="(.*)"$/m', $contents, $match)
+            );
+            self::assertStringContainsString('apply', $match[1]);
+            self::assertSame(1, \substr_count($match[1], '<a href=\\"%s\\">'));
+        }
+
+        /**
+         * The folders the package ships, which postflight protects but does not create.
+         */
+        private function shippedFolders(): void
+        {
+            foreach (\array_diff(PackagePaths::ALL_FOLDERS, PackagePaths::CREATED_FOLDERS) as $folder) {
+                \mkdir(JPATH_ADMINISTRATOR . '/components/com_ecskccustom/' . $folder, 0755, true);
+            }
+        }
+
+        /**
+         * @return array<string, string> sha256 of every file under $root, by relative path.
+         */
+        private function hashesUnder(string $root): array
+        {
+            $hashes = [];
+            $files  = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)
+            );
+
+            foreach ($files as $file) {
+                $hashes[\substr($file->getPathname(), \strlen($root) + 1)] = \hash_file('sha256', $file->getPathname());
+            }
+
+            \ksort($hashes);
+
+            return $hashes;
         }
 
         public function testABrokenTranslationDoesNotEscapeTheUninstallMessageHelper(): void
