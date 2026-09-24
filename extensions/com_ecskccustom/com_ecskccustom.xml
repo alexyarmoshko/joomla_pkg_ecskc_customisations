@@ -15,7 +15,11 @@
 
     <!-- Keep backup/, staging/, and state/ out of the manifest so updates preserve site state. -->
     <administration>
+        <!-- The label is read from the .sys language file, which is what the administrator menu loads. -->
+        <menu>COM_ECSKCCUSTOM</menu>
         <files folder="admin">
+            <filename>access.xml</filename>
+            <filename>config.xml</filename>
             <filename>script.php</filename>
             <folder>language</folder>
             <folder>payload</folder>

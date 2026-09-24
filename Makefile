@@ -10,6 +10,8 @@ MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 # Joomla looks there on install and under admin/ on uninstall.
 COMPONENT_FILES := \
 	com_ecskccustom.xml \
+	admin/access.xml \
+	admin/config.xml \
 	admin/script.php \
 	admin/language/en-GB/com_ecskccustom.ini \
 	admin/language/en-GB/com_ecskccustom.sys.ini \
@@ -17,6 +19,7 @@ COMPONENT_FILES := \
 	admin/rules/index.html \
 	admin/schema/patch.xsd \
 	admin/services/provider.php \
+	admin/src/Access/WritePermission.php \
 	admin/src/Core/Condition/ConditionEvaluator.php \
 	admin/src/Core/Condition/ConditionGroup.php \
 	admin/src/Core/Condition/ConditionOutcome.php \
@@ -148,7 +151,7 @@ LINT_CMD := set -e; \
 	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES))) $(JZIP) $(COPY) $(VALIDATE) tools/hash.php; do \
 		php -l "$$f" >/dev/null || exit 1; \
 	done; \
-	for f in $(MANIFEST) $(addprefix data/rules/,$(RULE_FILES)); do \
+	for f in $(MANIFEST) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(addprefix data/rules/,$(RULE_FILES)); do \
 		php -r 'libxml_use_internal_errors(true); if (simplexml_load_file($$argv[1]) === false) { fwrite(STDERR, "FAIL: malformed XML in $$argv[1]\n"); exit(1); }' "$$f" || exit 1; \
 	done; \
 	echo "lint: ok"

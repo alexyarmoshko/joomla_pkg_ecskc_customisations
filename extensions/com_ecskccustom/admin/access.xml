@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<access component="com_ecskccustom">
+    <section name="component">
+        <action name="core.admin" title="JACTION_ADMIN" />
+        <action name="core.options" title="JACTION_OPTIONS" />
+        <action name="core.manage" title="JACTION_MANAGE" />
+        <action
+            name="ecskccustom.write"
+            title="COM_ECSKCCUSTOM_ACTION_WRITE"
+            description="COM_ECSKCCUSTOM_ACTION_WRITE_DESC"
+        />
+    </section>
+</access>
