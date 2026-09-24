@@ -12,6 +12,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
     use DOMXPath;
     use Joomla\CMS\Language\Text;
     use PHPUnit\Framework\Attributes\CoversClass;
+    use PHPUnit\Framework\Attributes\DataProvider;
     use PHPUnit\Framework\TestCase;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\HashResult;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalCheck;
@@ -26,6 +27,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ProposedOperation;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetState;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Model\TargetFilter;
 
     /**
@@ -34,6 +36,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
      * the rows and the summary say.
      */
     #[CoversClass(TargetFilter::class)]
+    #[CoversClass(RunRequest::class)]
     final class TargetReportLayoutTest extends TestCase
     {
         private const EXPECTED = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -68,19 +71,25 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
         /**
          * @param list<TargetReport>|null $items The rows the filters let through; all of them if null.
          */
-        private static function render(string $sublayout, RunReport $report, ?array $items = null): string
+        private static function render(string $sublayout, RunReport $report, ?array $items = null, ?RunRequest $run = null): string
         {
-            $view = new class ($report, $items ?? $report->targets()) {
+            $view = new class ($report, $items ?? $report->targets(), $run ?? RunRequest::wholeSetCheck()) {
                 /**
                  * @param list<TargetReport> $items
                  */
-                public function __construct(public RunReport $report, public array $items)
+                public function __construct(public RunReport $report, public array $items, public RunRequest $run)
                 {
                 }
 
                 public function escape($var): string
                 {
                     return $var === null ? '' : \htmlspecialchars((string) $var, ENT_QUOTES, 'UTF-8');
+                }
+
+                // Route::_() on a non-SEF admin URL, as HtmlView::runUrl() calls it.
+                public function runUrl(string $run, ?string $path = null): string
+                {
+                    return \htmlspecialchars(RunRequest::displayUrl($run, $path), ENT_COMPAT, 'UTF-8');
                 }
             };
 
@@ -309,7 +318,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
             self::assertSame(
                 ['components/com_kunena/ok.php'],
-                self::texts(self::dom(self::render('targets', $report, $filtered)), '//tbody/tr/th')
+                self::texts(self::dom(self::render('targets', $report, $filtered)), '//tbody/tr/th/code')
             );
             self::assertCount(6, (new TargetFilter('', 'css'))->apply($report->targets()));
             self::assertCount(1, (new TargetFilter(TargetStatus::ACTIONABLE, 'css'))->apply($report->targets()));
@@ -417,6 +426,120 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             self::assertSame(
                 'The report gave neither a value nor a reason for this field.',
                 self::texts(self::dom(self::render('targets', $report)), '//dl/dd')[3]
+            );
+        }
+
+        /**
+         * @return iterable<string, array{RunRequest, string, string}>
+         */
+        public static function runs(): iterable
+        {
+            yield 'whole-set check' => [
+                RunRequest::fromInput('check', null),
+                'Check of every managed path.',
+                'This check wrote nothing to the site.',
+            ];
+            yield 'single-path check' => [
+                RunRequest::fromInput('check', 'templates/et_tennis/css/blocked.css'),
+                'Check of one path: templates/et_tennis/css/blocked.css',
+                'This check wrote nothing to the site.',
+            ];
+            yield 'whole-set dry run' => [
+                RunRequest::fromInput('dryrun', null),
+                'Dry run of every managed path.',
+                'This dry run wrote nothing to the site. No file, backup, or record was changed.',
+            ];
+            yield 'single-path dry run' => [
+                RunRequest::fromInput('dryrun', 'templates/et_tennis/css/blocked.css'),
+                'Dry run of one path: templates/et_tennis/css/blocked.css.',
+                'This dry run wrote nothing to the site. No file, backup, or record was changed.',
+            ];
+        }
+
+        #[DataProvider('runs')]
+        public function testTheRunLineNamesTheRunAndSaysNothingWasWritten(RunRequest $run, string $scope, string $written): void
+        {
+            $xpath = self::dom(self::render('summary', self::everyStatus(OperationalChecks::none()), null, $run));
+            $lines = self::texts($xpath, '//*[@id="ecskc-run"]/p');
+
+            self::assertStringStartsWith($scope, $lines[0]);
+            self::assertSame($written, \end($lines));
+            self::assertSame([], self::texts($xpath, '//*[@id="ecskc-run-notice"]'));
+
+            $all = self::texts($xpath, '//*[@id="ecskc-run"]//a/@href');
+
+            if ($run->path === null) {
+                self::assertSame([], $all);
+            } else {
+                self::assertSame([RunRequest::displayUrl($run->run)], $all);
+            }
+        }
+
+        public function testAPathInTheRunLineRendersEscaped(): void
+        {
+            $path = 'templates/et_tennis/css/vendor.css<script>alert(1)</script>';
+            $html = self::render('summary', self::everyStatus(OperationalChecks::none()), null, RunRequest::fromInput('check', $path));
+
+            self::assertStringNotContainsString('<script>', $html);
+            self::assertSame([$path], self::texts(self::dom($html), '//*[@id="ecskc-run"]/p/code'));
+        }
+
+        public function testANoticeSaysWhyTheRequestWasNotRunAsSent(): void
+        {
+            $report = self::everyStatus(OperationalChecks::none());
+
+            foreach (
+                [
+                    [RunRequest::fromInput('apply', null), 'The address asked for a run this page does not know.'],
+                    [RunRequest::fromInput('dryrun', ['x']), 'The address gave the path as something other than a single value.'],
+                ] as [$run, $notice]
+            ) {
+                $xpath = self::dom(self::render('summary', $report, null, $run));
+
+                self::assertStringStartsWith($notice, self::texts($xpath, '//*[@id="ecskc-run-notice"]')[0]);
+                self::assertSame('Check of every managed path.', self::texts($xpath, '//*[@id="ecskc-run"]/p')[0]);
+            }
+        }
+
+        public function testEveryRowLinksToItsOwnCheckAndDryRun(): void
+        {
+            $report = self::everyStatus(OperationalChecks::none());
+            $xpath  = self::dom(self::render('targets', $report));
+
+            foreach ($report->targets() as $target) {
+                $row = '//tbody/tr[th/code = "' . $target->targetPath() . '"]';
+
+                self::assertSame(
+                    [
+                        RunRequest::displayUrl(RunRequest::CHECK, $target->targetPath()),
+                        RunRequest::displayUrl(RunRequest::DRY_RUN, $target->targetPath()),
+                    ],
+                    self::texts($xpath, $row . '//p[contains(@class, "ecskc-row-runs")]/a/@href')
+                );
+            }
+        }
+
+        public function testARowLinkCarriesThePathEncoded(): void
+        {
+            self::assertSame(
+                'index.php?option=com_ecskccustom&view=targets&run=dryrun&path=a%20b%2F..%2Fc%26amp%3B%3Cscript%3E',
+                RunRequest::displayUrl(RunRequest::DRY_RUN, 'a b/../c&amp;<script>')
+            );
+        }
+
+        public function testADryRunOpensEveryPlanAndACheckLeavesThemClosed(): void
+        {
+            $report = self::everyStatus(OperationalChecks::none());
+
+            $dryRun = self::dom(self::render('targets', $report, null, RunRequest::fromInput('dryrun', null)));
+            $check  = self::dom(self::render('targets', $report, null, RunRequest::fromInput('check', null)));
+
+            self::assertNotSame([], self::texts($dryRun, '//details'));
+            self::assertSame([], self::texts($dryRun, '//details[not(@open)]'));
+            self::assertSame([], self::texts($check, '//details[@open]'));
+            self::assertStringContainsString(
+                'backup backup/' . self::ACTUAL,
+                self::texts($dryRun, '//ul[@class="ecskc-plan"]/li')[0]
             );
         }
     }

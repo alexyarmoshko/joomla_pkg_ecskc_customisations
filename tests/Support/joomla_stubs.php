@@ -87,6 +87,10 @@ namespace Joomla\CMS\MVC\Model {
         {
             return $this->state[$property] ?? $default;
         }
+
+        protected function populateState($ordering = null, $direction = null)
+        {
+        }
     }
 }
 

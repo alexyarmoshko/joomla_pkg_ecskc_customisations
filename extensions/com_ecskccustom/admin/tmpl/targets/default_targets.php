@@ -13,11 +13,13 @@
 use Joomla\CMS\Language\Text;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\TargetReport;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Model\RunRequest;
 
 /**
  * One row per target path the filters let through. A row that is not `ok` shows
  * the required fields in the report's order, each a value or the reason there is
- * none; this is a Phase 3 exit criterion.
+ * none; this is a Phase 3 exit criterion. Each row links to its own check and
+ * dry run, and a dry run opens every row's plan.
  *
  * @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Targets\HtmlView $this
  */
@@ -56,7 +58,13 @@ $field = fn (string $value): string => $value === ''
                 $plan     = $target->plan();
                 ?>
                 <tr data-status="<?php echo $this->escape($target->status()); ?>">
-                    <th scope="row" class="text-break"><code><?php echo $field($target->targetPath()); ?></code></th>
+                    <th scope="row" class="text-break">
+                        <code><?php echo $field($target->targetPath()); ?></code>
+                        <p class="ecskc-row-runs small mb-0">
+                            <a href="<?php echo $this->runUrl(RunRequest::CHECK, $target->targetPath()); ?>"><?php echo Text::_('COM_ECSKCCUSTOM_ROW_CHECK'); ?></a>
+                            <a href="<?php echo $this->runUrl(RunRequest::DRY_RUN, $target->targetPath()); ?>" class="ms-2"><?php echo Text::_('COM_ECSKCCUSTOM_ROW_DRY_RUN'); ?></a>
+                        </p>
+                    </th>
                     <td><?php echo $field($target->describe()); ?></td>
                     <td>
                         <p class="ecskc-reason"><?php echo $field($target->reason()); ?></p>
@@ -69,7 +77,7 @@ $field = fn (string $value): string => $value === ''
                             </dl>
                         <?php endif; ?>
                         <?php if ($outcomes !== [] || $plan !== [] || $target->outcome !== null) : ?>
-                            <details class="mt-2">
+                            <details class="mt-2"<?php echo $this->run->isDryRun() ? ' open' : ''; ?>>
                                 <summary><?php echo Text::_('COM_ECSKCCUSTOM_DETAILS'); ?></summary>
                                 <?php if ($outcomes !== []) : ?>
                                     <p class="fw-bold mb-1"><?php echo Text::_('COM_ECSKCCUSTOM_DETAILS_OBJECTS'); ?></p>

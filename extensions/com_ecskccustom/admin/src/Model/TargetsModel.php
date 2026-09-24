@@ -27,17 +27,27 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomis
  *
  * ListModel supplies the stateful filters and the filter form. The rows come from
  * the report and not from a query, as com_checkin's come from its table scan.
+ *
+ * The report is the read-only run the display URL names in `run` and `path`. Both
+ * are request parameters and not user state: the same URL always runs the same thing.
  */
 class TargetsModel extends ListModel
 {
     private ?RunReport $report = null;
 
     /**
-     * The whole-set check, run once per request however often the view asks.
+     * The requested run, done once per request however often the view asks.
      */
     public function getReport(): RunReport
     {
-        return $this->report ??= $this->runner()->check();
+        return $this->report ??= $this->getRunRequest()->execute($this->runner());
+    }
+
+    public function getRunRequest(): RunRequest
+    {
+        $request = $this->getState('run.request');
+
+        return $request instanceof RunRequest ? $request : RunRequest::wholeSetCheck();
     }
 
     /**
@@ -59,6 +69,24 @@ class TargetsModel extends ListModel
     public function getTotal()
     {
         return \count($this->getItems());
+    }
+
+    /**
+     * @param string|null $ordering
+     * @param string|null $direction
+     */
+    protected function populateState($ordering = null, $direction = null)
+    {
+        parent::populateState($ordering, $direction);
+
+        $input = Factory::getApplication()->getInput();
+
+        // `raw`, because every other filter rewrites the value, and a rewritten
+        // undeclared path can come out as a declared one.
+        $this->setState(
+            'run.request',
+            RunRequest::fromInput($input->get('run', null, 'raw'), $input->get('path', null, 'raw'))
+        );
     }
 
     private function runner(): Runner

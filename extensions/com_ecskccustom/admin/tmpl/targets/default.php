@@ -12,11 +12,9 @@
 
 use Joomla\CMS\HTML\HTMLHelper;
 use Joomla\CMS\Layout\LayoutHelper;
-use Joomla\CMS\Router\Route;
-
 /** @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Targets\HtmlView $this */
 ?>
-<form action="<?php echo Route::_('index.php?option=com_ecskccustom&view=targets'); ?>" method="post" name="adminForm" id="adminForm">
+<form action="<?php echo $this->runUrl($this->run->run, $this->run->path); ?>" method="post" name="adminForm" id="adminForm">
     <div class="row">
         <div class="col-md-12">
             <div id="j-main-container" class="j-main-container">

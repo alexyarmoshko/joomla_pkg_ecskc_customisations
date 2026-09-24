@@ -54,6 +54,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Rule/RuleObject.php \
 	admin/src/Core/Rule/RuleSet.php \
 	admin/src/Core/Rule/SchemaValidator.php \
+	admin/src/Core/ReadOnlyRunnerInterface.php \
 	admin/src/Core/Runner.php \
 	admin/src/Core/State/BackupOutcome.php \
 	admin/src/Core/State/BackupStore.php \
@@ -94,6 +95,7 @@ COMPONENT_FILES := \
 	admin/src/Extension/ECSKCCustomisationComponent.php \
 	admin/src/Field/TargetStatusField.php \
 	admin/src/Model/DashboardModel.php \
+	admin/src/Model/RunRequest.php \
 	admin/src/Model/TargetFilter.php \
 	admin/src/Model/TargetsModel.php \
 	admin/src/View/Dashboard/HtmlView.php \
