@@ -161,6 +161,9 @@ return new class () implements ServiceProviderInterface {
                 );
 
                 $component->setMVCFactory($container->get(MVCFactoryInterface::class));
+                $component->setRunnerFactory(
+                    static fn (): Runner => $container->get(Runner::class)
+                );
 
                 return $component;
             }

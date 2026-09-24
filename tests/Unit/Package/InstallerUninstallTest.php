@@ -2,47 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Joomla\CMS {
-    final class Factory
-    {
-        public static mixed $application = null;
-
-        public static function getApplication(): object
-        {
-            if (self::$application === null) {
-                throw new \RuntimeException('No application');
-            }
-
-            return self::$application;
-        }
-    }
-}
-
-namespace Joomla\CMS\Language {
-    final class Text
-    {
-        public static bool $fail = false;
-
-        public static function sprintf(string $string, mixed ...$args): string
-        {
-            if (self::$fail) {
-                throw new \ValueError('Unknown format specifier');
-            }
-
-            return \sprintf($string, ...$args);
-        }
-
-        public static function _(string $string): string
-        {
-            if (self::$fail) {
-                throw new \ValueError('Unknown format specifier');
-            }
-
-            return $string;
-        }
-    }
-}
-
 namespace Joomla\CMS\Log {
     final class Log
     {
@@ -70,10 +29,7 @@ namespace Joomla\CMS\Installer {
 }
 
 namespace {
-    if (!\defined('_JEXEC')) {
-        \define('_JEXEC', 1);
-    }
-
+    require_once \dirname(__DIR__, 2) . '/Support/joomla_stubs.php';
     require_once \dirname(__DIR__, 3) . '/extensions/com_ecskccustom/admin/script.php';
 }
 

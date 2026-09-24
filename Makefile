@@ -13,6 +13,7 @@ COMPONENT_FILES := \
 	admin/access.xml \
 	admin/config.xml \
 	admin/script.php \
+	admin/forms/filter_targets.xml \
 	admin/language/en-GB/com_ecskccustom.ini \
 	admin/language/en-GB/com_ecskccustom.sys.ini \
 	admin/payload/index.html \
@@ -20,6 +21,7 @@ COMPONENT_FILES := \
 	admin/schema/patch.xsd \
 	admin/services/provider.php \
 	admin/src/Access/WritePermission.php \
+	admin/src/Controller/DisplayController.php \
 	admin/src/Core/Condition/ConditionEvaluator.php \
 	admin/src/Core/Condition/ConditionGroup.php \
 	admin/src/Core/Condition/ConditionOutcome.php \
@@ -89,7 +91,14 @@ COMPONENT_FILES := \
 	admin/src/Core/Write/WritePlanner.php \
 	admin/src/Core/Write/WriteRun.php \
 	admin/src/Environment/JoomlaEnvironmentProvider.php \
-	admin/src/Extension/ECSKCCustomisationComponent.php
+	admin/src/Extension/ECSKCCustomisationComponent.php \
+	admin/src/Field/TargetStatusField.php \
+	admin/src/Model/TargetFilter.php \
+	admin/src/Model/TargetsModel.php \
+	admin/src/View/Targets/HtmlView.php \
+	admin/tmpl/targets/default.php \
+	admin/tmpl/targets/default_summary.php \
+	admin/tmpl/targets/default_targets.php
 
 RULE_FILES := \
 	10-comprofiler.xml \
@@ -151,7 +160,7 @@ LINT_CMD := set -e; \
 	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES))) $(JZIP) $(COPY) $(VALIDATE) tools/hash.php; do \
 		php -l "$$f" >/dev/null || exit 1; \
 	done; \
-	for f in $(MANIFEST) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(addprefix data/rules/,$(RULE_FILES)); do \
+	for f in $(MANIFEST) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)); do \
 		php -r 'libxml_use_internal_errors(true); if (simplexml_load_file($$argv[1]) === false) { fwrite(STDERR, "FAIL: malformed XML in $$argv[1]\n"); exit(1); }' "$$f" || exit 1; \
 	done; \
 	echo "lint: ok"

@@ -21,12 +21,14 @@
             <filename>access.xml</filename>
             <filename>config.xml</filename>
             <filename>script.php</filename>
+            <folder>forms</folder>
             <folder>language</folder>
             <folder>payload</folder>
             <folder>rules</folder>
             <folder>schema</folder>
             <folder>services</folder>
             <folder>src</folder>
+            <folder>tmpl</folder>
         </files>
         <languages folder="admin">
             <language tag="en-GB">language/en-GB/com_ecskccustom.ini</language>

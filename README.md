@@ -64,8 +64,10 @@ installs into the administrator and adds nothing to the site front end.
 ## Status
 
 Pre-release, and there is no published release. The core can check, dry-run, apply, revert, redo,
-freeze and unfreeze managed customisations, but nothing in the administrator calls it yet; Phase 3
-adds that screen. Installing the component writes no managed file. Joomla deletes `backup/`
+freeze and unfreeze managed customisations. In the administrator, Components, ECSKC
+Customisations runs a whole-set check and lists every managed path with its state, reason, and
+hashes, filtered by state or path. That screen is read-only: the dry-run and write actions come
+later in Phase 3. Installing the component writes no managed file. Joomla deletes `backup/`
 and `state/` with the component on uninstall. So, when those folders hold any history,
 uninstalling first copies them to a guarded archive under the site's temporary folder —
 decision 26 of [`docs/execution_plan.md`](docs/execution_plan.md). If a write run holds the run

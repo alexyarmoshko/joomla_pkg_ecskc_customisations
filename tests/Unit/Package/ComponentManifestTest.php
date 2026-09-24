@@ -96,6 +96,46 @@ final class ComponentManifestTest extends TestCase
         self::assertContains('admin/src/Access/WritePermission.php', self::componentFiles());
     }
 
+    public function testTheManifestShipsTheFormAndLayoutFolders(): void
+    {
+        $folders = [];
+
+        foreach (self::xml('com_ecskccustom.xml')->administration->files->folder as $folder) {
+            $folders[] = (string) $folder;
+        }
+
+        self::assertContains('forms', $folders);
+        self::assertContains('tmpl', $folders);
+    }
+
+    /**
+     * The build packages from COMPONENT_FILES alone, so a class, layout, or form
+     * missing from it installs as a component that cannot open its own view.
+     * src/Core is left out: tools/ runs part of it at build time and never ships it.
+     */
+    public function testTheBuildShipsEveryAdapterClassLayoutAndForm(): void
+    {
+        $admin = self::component() . '/admin';
+        $files = [];
+
+        foreach (['src', 'tmpl', 'forms'] as $folder) {
+            $tree = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($admin . '/' . $folder, \FilesystemIterator::SKIP_DOTS)
+            );
+
+            foreach ($tree as $file) {
+                $relative = 'admin/' . \substr($file->getPathname(), \strlen($admin) + 1);
+
+                if (!\str_starts_with($relative, 'admin/src/Core/')) {
+                    $files[] = $relative;
+                }
+            }
+        }
+
+        self::assertContains('admin/tmpl/targets/default.php', $files);
+        self::assertSame([], \array_values(\array_diff($files, self::componentFiles())));
+    }
+
     public function testStateFoldersStayOutOfTheManifest(): void
     {
         $folders = [];
@@ -149,6 +189,8 @@ final class ComponentManifestTest extends TestCase
             'com_ecskccustom.xml' => ['//administration/menu', 'com_ecskccustom.sys.ini'],
             'admin/access.xml'    => ['//action/@title | //action/@description', 'com_ecskccustom.ini'],
             'admin/config.xml'    => ['//@label | //@description', 'com_ecskccustom.ini'],
+            // The filter form renders in the component's own view, which loads the .ini.
+            'admin/forms/filter_targets.xml' => ['//@label | //@description | //@hint | //option', 'com_ecskccustom.ini'],
         ];
 
         foreach ($sources as $file => [$xpath, $language]) {
@@ -165,6 +207,21 @@ final class ComponentManifestTest extends TestCase
         }
 
         $cases['Options title'] = ['COM_ECSKCCUSTOM_CONFIGURATION', 'com_ecskccustom.ini'];
+
+        // Keys the layouts and view classes pass to Text. The view runs in the
+        // component, so it reads the .ini.
+        $code = \array_merge(
+            \glob($root . '/admin/tmpl/*/*.php') ?: [],
+            \glob($root . '/admin/src/View/*/*.php') ?: []
+        );
+
+        foreach ($code as $file) {
+            \preg_match_all("/'(COM_ECSKCCUSTOM(?:_[A-Z0-9]+)*)'/", (string) \file_get_contents($file), $matches);
+
+            foreach ($matches[1] as $key) {
+                $cases[\basename($file) . ' ' . $key] = [$key, 'com_ecskccustom.ini'];
+            }
+        }
 
         return $cases;
     }
@@ -190,5 +247,8 @@ final class ComponentManifestTest extends TestCase
         self::assertContains('COM_ECSKCCUSTOM', $keys);
         self::assertContains('COM_ECSKCCUSTOM_ACTION_WRITE', $keys);
         self::assertContains('COM_ECSKCCUSTOM_ACTION_WRITE_DESC', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_FILTER_STATUS_SELECT', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_FIELD_LAST_PACKAGE_WRITE', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_CHECKS_NONE', $keys);
     }
 }

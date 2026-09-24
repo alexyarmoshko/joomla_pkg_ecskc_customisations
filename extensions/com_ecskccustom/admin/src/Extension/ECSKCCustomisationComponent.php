@@ -12,13 +12,40 @@ declare(strict_types=1);
 
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\Extension;
 
+use Closure;
 use Joomla\CMS\Extension\MVCComponent;
+use LogicException;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
 
 \defined('_JEXEC') or die;
 
 /**
- * The component itself.
+ * The component itself, and the only way MVC code reaches the runner.
+ *
+ * The runner lives in the component's child container, which neither this class
+ * nor the MVC factory exposes. The service provider hands over a closure that
+ * resolves it there, so a model asks the booted component and constructs nothing
+ * of the core itself (plan decision 5).
  */
 class ECSKCCustomisationComponent extends MVCComponent
 {
+    /** @var (Closure(): Runner)|null */
+    private ?Closure $runnerFactory = null;
+
+    /**
+     * @param Closure(): Runner $factory
+     */
+    public function setRunnerFactory(Closure $factory): void
+    {
+        $this->runnerFactory = $factory;
+    }
+
+    public function runner(): Runner
+    {
+        if ($this->runnerFactory === null) {
+            throw new LogicException('The service provider set no runner factory on the component.');
+        }
+
+        return ($this->runnerFactory)();
+    }
 }

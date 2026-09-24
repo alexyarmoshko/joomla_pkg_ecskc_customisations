@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form addfieldprefix="YakShaver\Component\ECSKCCustomisation\Administrator\Field">
+    <fields name="filter">
+        <field
+            name="search"
+            type="text"
+            inputmode="search"
+            label="COM_ECSKCCUSTOM_FILTER_PATH_LABEL"
+            description="COM_ECSKCCUSTOM_FILTER_PATH_DESC"
+            hint="COM_ECSKCCUSTOM_FILTER_PATH_HINT"
+        />
+        <field
+            name="status"
+            type="TargetStatus"
+            label="COM_ECSKCCUSTOM_FILTER_STATUS_LABEL"
+            class="js-select-submit-on-change"
+            >
+            <option value="">COM_ECSKCCUSTOM_FILTER_STATUS_SELECT</option>
+        </field>
+    </fields>
+</form>
