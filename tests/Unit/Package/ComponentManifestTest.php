@@ -77,6 +77,27 @@ final class ComponentManifestTest extends TestCase
         self::assertSame('COM_ECSKCCUSTOM', (string) $menu);
     }
 
+    /**
+     * The top-level entry opens the controller's default view, so the dashboard
+     * entry and the controller have to agree on which view that is.
+     */
+    public function testTheSubmenuOpensTheDashboardAndTheTargetReport(): void
+    {
+        $entries = [];
+
+        foreach (self::xml('com_ecskccustom.xml')->administration->submenu->menu as $menu) {
+            $entries[(string) $menu] = (string) $menu['view'];
+        }
+
+        self::assertSame([
+            'COM_ECSKCCUSTOM_SUBMENU_DASHBOARD' => 'dashboard',
+            'COM_ECSKCCUSTOM_SUBMENU_TARGETS'   => 'targets',
+        ], $entries);
+
+        $controller = (string) \file_get_contents(self::component() . '/admin/src/Controller/DisplayController.php');
+        self::assertStringContainsString("protected \$default_view = 'dashboard';", $controller);
+    }
+
     public function testTheManifestAndTheBuildShipTheAclFiles(): void
     {
         $shipped = [];
@@ -133,6 +154,7 @@ final class ComponentManifestTest extends TestCase
         }
 
         self::assertContains('admin/tmpl/targets/default.php', $files);
+        self::assertContains('admin/tmpl/dashboard/default.php', $files);
         self::assertSame([], \array_values(\array_diff($files, self::componentFiles())));
     }
 
@@ -186,7 +208,7 @@ final class ComponentManifestTest extends TestCase
         $root  = self::component();
 
         $sources = [
-            'com_ecskccustom.xml' => ['//administration/menu', 'com_ecskccustom.sys.ini'],
+            'com_ecskccustom.xml' => ['//administration/menu | //administration/submenu/menu', 'com_ecskccustom.sys.ini'],
             'admin/access.xml'    => ['//action/@title | //action/@description', 'com_ecskccustom.ini'],
             'admin/config.xml'    => ['//@label | //@description', 'com_ecskccustom.ini'],
             // The filter form renders in the component's own view, which loads the .ini.
@@ -250,5 +272,7 @@ final class ComponentManifestTest extends TestCase
         self::assertContains('COM_ECSKCCUSTOM_FILTER_STATUS_SELECT', $keys);
         self::assertContains('COM_ECSKCCUSTOM_FIELD_LAST_PACKAGE_WRITE', $keys);
         self::assertContains('COM_ECSKCCUSTOM_CHECKS_NONE', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_SUBMENU_TARGETS', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_DASHBOARD_TITLE', $keys);
     }
 }

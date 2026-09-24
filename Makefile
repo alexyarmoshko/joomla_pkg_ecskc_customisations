@@ -93,9 +93,12 @@ COMPONENT_FILES := \
 	admin/src/Environment/JoomlaEnvironmentProvider.php \
 	admin/src/Extension/ECSKCCustomisationComponent.php \
 	admin/src/Field/TargetStatusField.php \
+	admin/src/Model/DashboardModel.php \
 	admin/src/Model/TargetFilter.php \
 	admin/src/Model/TargetsModel.php \
+	admin/src/View/Dashboard/HtmlView.php \
 	admin/src/View/Targets/HtmlView.php \
+	admin/tmpl/dashboard/default.php \
 	admin/tmpl/targets/default.php \
 	admin/tmpl/targets/default_summary.php \
 	admin/tmpl/targets/default_targets.php

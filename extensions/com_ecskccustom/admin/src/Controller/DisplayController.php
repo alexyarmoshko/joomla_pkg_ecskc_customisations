@@ -17,12 +17,12 @@ use Joomla\CMS\MVC\Controller\BaseController;
 \defined('_JEXEC') or die;
 
 /**
- * Opening the component shows the target report.
+ * Opening the component shows the dashboard. The target report is the targets view.
  */
 class DisplayController extends BaseController
 {
     /**
      * @var string
      */
-    protected $default_view = 'targets';
+    protected $default_view = 'dashboard';
 }
