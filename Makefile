@@ -5,6 +5,7 @@ SHELL := /bin/sh
 EXT_NAME := com_ecskccustom
 COM_ROOT := extensions/com_ecskccustom
 MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
+SYSTEM_PLUGIN_ROOT := extensions/plg_system_ecskccustom
 
 # Explicit package inventory. script.php also ships at the archive root because
 # Joomla looks there on install and under admin/ on uninstall.
@@ -113,6 +114,14 @@ COMPONENT_FILES := \
 	admin/tmpl/targets/default_writeform.php \
 	admin/tmpl/targets/result.php
 
+# The system plugin's files, relative to $(SYSTEM_PLUGIN_ROOT). Linted here;
+# the build does not package the plugin yet (ticket 49).
+SYSTEM_PLUGIN_FILES := \
+	ecskccustom.xml \
+	language/en-GB/plg_system_ecskccustom.sys.ini \
+	services/provider.php \
+	src/Extension/ECSKCCustomisationPlugin.php
+
 RULE_FILES := \
 	10-comprofiler.xml \
 	20-helix-ultimate.xml \
@@ -170,10 +179,10 @@ DEV_ZIP := $(INSTALL_DIR)/dev/$(ZIP_NAME)
 # $(JZIP) is linted although it does not ship: it is the packager.
 LINT_CMD := set -e; \
 	cmp -s "$(JZIP)" "$(JZIP_MASTER)" || { echo "FAIL: $(JZIP) has drifted from $(JZIP_MASTER) - fix jzip in ys_toolbox, never in the copy"; exit 1; }; \
-	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES))) $(JZIP) $(COPY) $(VALIDATE) tools/hash.php; do \
+	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES)) $(addprefix $(SYSTEM_PLUGIN_ROOT)/,$(SYSTEM_PLUGIN_FILES))) $(JZIP) $(COPY) $(VALIDATE) tools/hash.php; do \
 		php -l "$$f" >/dev/null || exit 1; \
 	done; \
-	for f in $(MANIFEST) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)); do \
+	for f in $(MANIFEST) $(SYSTEM_PLUGIN_ROOT)/ecskccustom.xml $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)); do \
 		php -r 'libxml_use_internal_errors(true); if (simplexml_load_file($$argv[1]) === false) { fwrite(STDERR, "FAIL: malformed XML in $$argv[1]\n"); exit(1); }' "$$f" || exit 1; \
 	done; \
 	echo "lint: ok"

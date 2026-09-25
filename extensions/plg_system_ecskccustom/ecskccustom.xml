@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="plugin" group="system" method="upgrade">
+    <name>plg_system_ecskccustom</name>
+    <author>Yak Shaver</author>
+    <creationDate>2026-09</creationDate>
+    <copyright>(C) 2026 Yak Shaver https://www.kayakshaver.com</copyright>
+    <license>GNU General Public License version 2 or later; see LICENSE</license>
+    <authorEmail>me@kayakshaver.com</authorEmail>
+    <authorUrl>https://www.kayakshaver.com</authorUrl>
+    <!-- Always the component's version. The package build refuses a mismatch. -->
+    <version>0.1.0</version>
+    <description>PLG_SYSTEM_ECSKCCUSTOM_XML_DESCRIPTION</description>
+    <namespace path="src">YakShaver\Plugin\System\ECSKCCustomisation</namespace>
+    <files>
+        <folder plugin="ecskccustom">services</folder>
+        <folder>language</folder>
+        <folder>src</folder>
+    </files>
+</extension>
