@@ -34,7 +34,8 @@ $labels = [
 ];
 
 // Each button posts the row's path to one task through the write form. A frozen
-// row offers unfreeze instead of freeze.
+// row offers unfreeze instead of freeze. Trusted HTML: every attribute value is
+// escaped, and the label is a language string.
 $writeButton = fn (string $operation, string $path): string => \sprintf(
     '<button type="submit" form="ecskc-write" formaction="%s" name="path" value="%s" data-ecskc-confirm="%s" class="btn btn-sm btn-outline-secondary me-1 mt-1">%s</button>',
     $this->taskUrl($operation),

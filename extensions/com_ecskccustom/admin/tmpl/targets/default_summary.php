@@ -28,6 +28,7 @@ $run    = $this->run;
 if ($run->path === null) {
     $scope = Text::_($run->isDryRun() ? 'COM_ECSKCCUSTOM_RUN_DRY_RUN_ALL' : 'COM_ECSKCCUSTOM_RUN_CHECK_ALL');
 } else {
+    // Trusted HTML: the language string plus a <code> element around the escaped path.
     $scope = Text::sprintf(
         $run->isDryRun() ? 'COM_ECSKCCUSTOM_RUN_DRY_RUN_PATH' : 'COM_ECSKCCUSTOM_RUN_CHECK_PATH',
         '<code>' . $this->escape($run->path) . '</code>'

@@ -65,7 +65,8 @@ installs into the administrator and adds nothing to the site front end.
 
 Pre-release, and there is no published release. The core can check, dry-run, apply, revert, redo,
 freeze and unfreeze managed customisations. In the administrator, Components, ECSKC
-Customisations runs a whole-set check and lists every managed path with its state, reason, and
+Customisations opens a Dashboard with the installed version. Its Customisations entry runs a
+whole-set check and lists every managed path with its state, reason, and
 hashes, filtered by state or path. The same screen runs a check or a dry run of the whole set or
 of one path, and each row links to its own. A dry run shows the operations, backups, and refusals
 an apply would produce. A user with the Change Managed Files permission also gets apply, revert,

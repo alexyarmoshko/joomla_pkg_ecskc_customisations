@@ -154,7 +154,11 @@ class TargetsController extends BaseController
         // A GET is refused like a missing token. checkToken() alone would accept a
         // GET that carries the token in the X-CSRF-Token header.
         if ($this->input->getMethod() !== 'POST' || !$this->checkToken('post', false)) {
-            $this->setRedirect(Route::_(self::VIEW_URL, false), Text::_('COM_ECSKCCUSTOM_WRITE_REFUSED_TOKEN'), 'error');
+            $this->setRedirect(
+                Route::_(self::VIEW_URL, false),
+                Text::_('COM_ECSKCCUSTOM_WRITE_REFUSED_TOKEN'),
+                'error'
+            );
 
             return false;
         }
@@ -162,7 +166,11 @@ class TargetsController extends BaseController
         $user = $this->app->getIdentity();
 
         if (!$user instanceof User || !WritePermission::allows($user)) {
-            $this->setRedirect(Route::_(self::VIEW_URL, false), Text::_('COM_ECSKCCUSTOM_WRITE_REFUSED_PERMISSION'), 'error');
+            $this->setRedirect(
+                Route::_(self::VIEW_URL, false),
+                Text::_('COM_ECSKCCUSTOM_WRITE_REFUSED_PERMISSION'),
+                'error'
+            );
 
             return false;
         }
@@ -172,7 +180,10 @@ class TargetsController extends BaseController
 
     private function finish(string $operation, ?string $path, RunReport $report): void
     {
-        $this->app->setUserState(WriteResult::STATE_KEY, WriteResult::fromReport($operation, $path, $report)->toArray());
+        $this->app->setUserState(
+            WriteResult::STATE_KEY,
+            WriteResult::fromReport($operation, $path, $report)->toArray()
+        );
         $this->setRedirect(Route::_(self::VIEW_URL, false));
     }
 }
