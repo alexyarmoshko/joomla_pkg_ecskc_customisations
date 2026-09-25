@@ -388,6 +388,38 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             self::assertSame('7', self::texts($xpath, '//table[@id="ecskc-counts"]//td')[7]);
         }
 
+        public function testANotifiableCheckIsStyledAsAWarningAndAHealthyOneIsNot(): void
+        {
+            $checks = OperationalChecks::of(
+                new OperationalCheck('system_plugin_enabled', 'enabled', false, 'the plugin is enabled'),
+                new OperationalCheck('system_plugin_enabled', 'disabled', true, 'the plugin is disabled'),
+                new OperationalCheck('system_plugin_enabled', 'unknown', true, 'no extension record <b>exists</b>')
+            );
+            $xpath  = self::dom(self::render('summary', self::everyStatus($checks)));
+
+            self::assertSame(
+                [
+                    'system_plugin_enabled: enabled, the plugin is enabled',
+                    'system_plugin_enabled: disabled, the plugin is disabled',
+                    'system_plugin_enabled: unknown, no extension record <b>exists</b>',
+                ],
+                self::texts($xpath, '//*[@id="ecskc-checks"]//li')
+            );
+            self::assertSame(
+                ['', 'text-warning-emphasis fw-bold', 'text-warning-emphasis fw-bold'],
+                \array_map(
+                    static fn (\DOMElement $li): string => $li->getAttribute('class'),
+                    \iterator_to_array($xpath->query('//*[@id="ecskc-checks"]//li'))
+                )
+            );
+            self::assertSame([], self::texts($xpath, '//*[@id="ecskc-checks"]//b'));
+            // Three checks, two of them notifiable, leave the target counts as they were.
+            self::assertSame(
+                self::texts(self::dom(self::render('summary', self::everyStatus(OperationalChecks::none()))), '//table[@id="ecskc-counts"]//td'),
+                self::texts($xpath, '//table[@id="ecskc-counts"]//td')
+            );
+        }
+
         public function testNoOperationalChecksSaysSoAndClaimsNothingAboutThePlugin(): void
         {
             $xpath = self::dom(self::render('summary', self::everyStatus(OperationalChecks::none())));

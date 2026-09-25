@@ -96,7 +96,7 @@ if ($run->path === null) {
         <p><?php echo Text::sprintf('COM_ECSKCCUSTOM_CHECKS_SUMMARY', $report->counts->checks, $report->counts->notifiableChecks); ?></p>
         <ul>
             <?php foreach ($report->checks->all() as $check) : ?>
-                <li><?php echo $this->escape($check->describe()); ?></li>
+                <li<?php echo $check->notifiable ? ' class="text-warning-emphasis fw-bold"' : ''; ?>><?php echo $this->escape($check->describe()); ?></li>
             <?php endforeach; ?>
         </ul>
     <?php endif; ?>

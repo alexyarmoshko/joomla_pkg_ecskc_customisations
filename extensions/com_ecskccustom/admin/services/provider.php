@@ -28,7 +28,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\Conditio
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentResolver;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\ExtensionRecordRead;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\OperationalCheckProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
@@ -42,6 +41,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteHistory
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Environment\JoomlaEnvironmentProvider;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomisationComponent;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Operational\JoomlaOperationalCheckProvider;
 
 return new class () implements ServiceProviderInterface {
     /**
@@ -73,17 +73,11 @@ return new class () implements ServiceProviderInterface {
             static fn (): EnvironmentProviderInterface => new JoomlaEnvironmentProvider()
         );
 
-        // Ticket 47 replaces this with the reader of the plugin's #__extensions row.
-        // Until then the check reports unknown, which is notifiable, rather than a
-        // guess.
+        // Ticket 48's installer plugin will take the runner from here, and with it this
+        // provider.
         $container->set(
             OperationalCheckProviderInterface::class,
-            static fn (): OperationalCheckProviderInterface => new class () implements OperationalCheckProviderInterface {
-                public function systemPluginEnabled(): ExtensionRecordRead
-                {
-                    return ExtensionRecordRead::failure('the Joomla extension-record reader is not wired in yet');
-                }
-            }
+            static fn (): OperationalCheckProviderInterface => new JoomlaOperationalCheckProvider()
         );
 
         $container->set(

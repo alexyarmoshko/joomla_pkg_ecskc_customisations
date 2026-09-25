@@ -105,6 +105,7 @@ COMPONENT_FILES := \
 	admin/src/Model/TargetFilter.php \
 	admin/src/Model/TargetsModel.php \
 	admin/src/Model/WriteResult.php \
+	admin/src/Operational/JoomlaOperationalCheckProvider.php \
 	admin/src/View/Dashboard/HtmlView.php \
 	admin/src/View/Targets/HtmlView.php \
 	admin/tmpl/dashboard/default.php \

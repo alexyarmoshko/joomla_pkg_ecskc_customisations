@@ -24,6 +24,18 @@ namespace Joomla\CMS {
 
             return self::$application;
         }
+
+        /** Anything with `get(string $id)`; Joomla returns its DI container. */
+        public static mixed $container = null;
+
+        public static function getContainer(): object
+        {
+            if (self::$container === null) {
+                throw new \LogicException('No container');
+            }
+
+            return self::$container;
+        }
     }
 }
 
