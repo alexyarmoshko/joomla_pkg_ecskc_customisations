@@ -21,6 +21,17 @@ use SimpleXMLElement;
 #[CoversNothing]
 final class ComponentManifestTest extends TestCase
 {
+    /**
+     * Source under src/ that never ships, each for a stated reason. Nothing else may be
+     * left out of COMPONENT_FILES.
+     */
+    private const UNSHIPPED = [
+        // tools/validate.php runs these at build time. The installed component never does.
+        'admin/src/Core/Build/',
+        // Only the tests build a runner with it. The component uses EventLogHistory.
+        'admin/src/Core/State/ReportOnlyHistory.php',
+    ];
+
     private static function component(): string
     {
         return \dirname(__DIR__, 3) . '/extensions/com_ecskccustom';
@@ -131,10 +142,10 @@ final class ComponentManifestTest extends TestCase
 
     /**
      * The build packages from COMPONENT_FILES alone, so a class, layout, or form
-     * missing from it installs as a component that cannot open its own view.
-     * src/Core is left out: tools/ runs part of it at build time and never ships it.
+     * missing from it installs as a component that cannot open its own view, or
+     * fails on the first check when the missing class is in the core.
      */
-    public function testTheBuildShipsEveryAdapterClassLayoutAndForm(): void
+    public function testTheBuildShipsEveryClassLayoutAndForm(): void
     {
         $admin = self::component() . '/admin';
         $files = [];
@@ -147,7 +158,7 @@ final class ComponentManifestTest extends TestCase
             foreach ($tree as $file) {
                 $relative = 'admin/' . \substr($file->getPathname(), \strlen($admin) + 1);
 
-                if (!\str_starts_with($relative, 'admin/src/Core/')) {
+                if (!self::isUnshipped($relative)) {
                     $files[] = $relative;
                 }
             }
@@ -155,7 +166,37 @@ final class ComponentManifestTest extends TestCase
 
         self::assertContains('admin/tmpl/targets/default.php', $files);
         self::assertContains('admin/tmpl/dashboard/default.php', $files);
+        self::assertContains('admin/src/Core/Runner.php', $files);
         self::assertSame([], \array_values(\array_diff($files, self::componentFiles())));
+    }
+
+    /**
+     * An exclusion that matches nothing would hide a renamed file. Each one must
+     * still name source that exists and is not shipped.
+     */
+    public function testEveryUnshippedEntryNamesSourceThatExistsAndDoesNotShip(): void
+    {
+        foreach (self::UNSHIPPED as $entry) {
+            self::assertFileExists(self::component() . '/' . $entry);
+
+            foreach (self::componentFiles() as $shipped) {
+                self::assertFalse(
+                    \str_starts_with($shipped, $entry),
+                    $shipped . ' is in COMPONENT_FILES, but ' . $entry . ' is listed as unshipped.'
+                );
+            }
+        }
+    }
+
+    private static function isUnshipped(string $relative): bool
+    {
+        foreach (self::UNSHIPPED as $entry) {
+            if (\str_ends_with($entry, '/') ? \str_starts_with($relative, $entry) : $relative === $entry) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function testStateFoldersStayOutOfTheManifest(): void

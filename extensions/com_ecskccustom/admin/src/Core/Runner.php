@@ -18,6 +18,8 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\Enviro
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentValues;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\HashResult;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\OperationalCheckProviderInterface;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\SystemPluginCheck;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalChecks;
@@ -93,6 +95,8 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
 
     private readonly Hasher $hasher;
 
+    private readonly SystemPluginCheck $systemPlugin;
+
     /**
      * @param Closure(string, string|null): void|null $checkpoint A test seam, passed
      *                                                            to the write layer so
@@ -105,6 +109,7 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
         private readonly RuleLoader $loader,
         private readonly MergedSetValidator $validator,
         private readonly EnvironmentProviderInterface $environment,
+        private readonly OperationalCheckProviderInterface $operational,
         private readonly EnvironmentResolver $resolver,
         private readonly ObjectWalker $walker,
         private readonly WriteHistoryInterface $history,
@@ -123,6 +128,8 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
             $this->recovery
         );
         $this->reverter = new Reverter($paths, $policy, $walker, $this->checkpoint, $this->recovery);
+
+        $this->systemPlugin = new SystemPluginCheck();
     }
 
     /**
@@ -132,8 +139,9 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
      */
     public function check(?string $targetPath = null): RunReport
     {
+        $checks  = $this->operationalChecks();
         $faulted = null;
-        $walk    = $this->walk($targetPath, $faulted);
+        $walk    = $this->walk($targetPath, $faulted, $checks);
 
         if ($walk === null) {
             return $faulted;
@@ -154,7 +162,7 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
         // return above does not ask: that run never reached the log.
         return RunReport::of(
             $targets,
-            OperationalChecks::none(),
+            $checks,
             $this->history->interruption(),
             $this->history->recordFaults()
         );
@@ -173,8 +181,9 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
      */
     public function dryRun(?string $targetPath = null): RunReport
     {
+        $checks  = $this->operationalChecks();
         $faulted = null;
-        $walk    = $this->walk($targetPath, $faulted);
+        $walk    = $this->walk($targetPath, $faulted, $checks);
 
         if ($walk === null) {
             return $faulted;
@@ -188,7 +197,7 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
 
         return RunReport::of(
             $targets,
-            OperationalChecks::none(),
+            $checks,
             $this->history->interruption(),
             $this->history->recordFaults()
         );
@@ -827,15 +836,30 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
     }
 
     /**
+     * The operational-checks section a check or a dry run reports.
+     *
+     * It is read before the rule set is loaded and does not depend on it, so a run
+     * that faults on its rules still says whether the site is loading override.css.
+     * A write run leaves the section empty.
+     */
+    private function operationalChecks(): OperationalChecks
+    {
+        return OperationalChecks::of($this->systemPlugin->derive($this->operational->systemPluginEnabled()));
+    }
+
+    /**
      * Load, validate and walk, or hand back the faulted report that stopped it.
      *
-     * @param RunReport|null $faulted Set when this returns null.
+     * @param RunReport|null         $faulted Set when this returns null.
+     * @param OperationalChecks|null $checks  The section a faulted report carries.
+     *                                        Empty when not given.
      *
      * @return array{ruleSet: RuleSet, values: EnvironmentValues, states: list<TargetState>}|null
      */
-    private function walk(?string $targetPath, ?RunReport &$faulted): ?array
+    private function walk(?string $targetPath, ?RunReport &$faulted, ?OperationalChecks $checks = null): ?array
     {
-        $checks       = OperationalChecks::none();
+        $checks ??= OperationalChecks::none();
+
         $interruption = $this->history->interruption();
         $loaded       = $this->loader->load($this->paths->rules());
 

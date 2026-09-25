@@ -24,6 +24,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarker
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 use YakShaver\ECSKCCustomisation\Tests\Support\RunLockProbe;
+use YakShaver\ECSKCCustomisation\Tests\Support\StubOperationalChecks;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
@@ -46,9 +47,12 @@ abstract class RunnerHarness extends TestCase
 
     protected TempTree $tree;
 
+    protected StubOperationalChecks $operational;
+
     protected function setUp(): void
     {
-        $this->tree = TempTree::create('ecskc-run-');
+        $this->tree        = TempTree::create('ecskc-run-');
+        $this->operational = new StubOperationalChecks();
 
         foreach (PackagePaths::ALL_FOLDERS as $folder) {
             \mkdir($this->tree->path(self::PACKAGE . '/' . $folder), 0755, true);
@@ -114,6 +118,7 @@ abstract class RunnerHarness extends TestCase
                     return new RawEnvironment('https://ecskc.eu/', '5.1.2', 'et_tennis', '8.3.6');
                 }
             },
+            $this->operational,
             new EnvironmentResolver(),
             new ObjectWalker($policy, new Hasher(), new ConditionEvaluator(), new FreezeMarkers($paths)),
             new EventLogHistory($paths),

@@ -12,6 +12,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\Enviro
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentResolver;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\RawEnvironment;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\SystemPluginCheck;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalCheck;
@@ -30,13 +31,14 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteHistory
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
+use YakShaver\ECSKCCustomisation\Tests\Support\StubOperationalChecks;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
  * The runner assembled as the service provider assembles it, over a real temporary
- * site tree, with the environment provider replaced.
+ * site tree, with the environment and operational-check providers replaced.
  *
- * Only the provider is replaced, because it is the one collaborator that reads
+ * Only the providers are replaced, because they are the collaborators that read
  * Joomla rather than the filesystem. Everything else is the production object: the
  * rule set is loaded from files an author could have written, the hashes come from
  * bytes on disk, and the report is built from what the walk actually found. A
@@ -54,9 +56,12 @@ final class RunnerTest extends TestCase
 
     private TempTree $tree;
 
+    private StubOperationalChecks $operational;
+
     protected function setUp(): void
     {
-        $this->tree = TempTree::create('ecskc-runner-');
+        $this->tree        = TempTree::create('ecskc-runner-');
+        $this->operational = new StubOperationalChecks();
         $this->tree->write(self::PACKAGE . '/rules/index.html', '');
         $this->tree->write(self::PACKAGE . '/payload/index.html', '');
     }
@@ -146,13 +151,14 @@ final class RunnerTest extends TestCase
         self::assertStringContainsString('nothing is displaced', $target->backup->describe());
     }
 
-    public function testTheOperationalChecksSectionIsPresentAndEmpty(): void
+    public function testTheOperationalChecksSectionHoldsTheSystemPluginCheck(): void
     {
         $report = $this->report();
 
-        self::assertTrue($report->checks->isEmpty());
-        self::assertSame([], $report->checks->all());
-        self::assertSame(0, $report->counts->checks);
+        self::assertSame(1, $report->checks->count());
+        self::assertSame(SystemPluginCheck::NAME, $report->checks->all()[0]->name);
+        self::assertSame(SystemPluginCheck::ENABLED, $report->checks->all()[0]->outcome);
+        self::assertSame(1, $report->counts->checks);
         self::assertSame(0, $report->counts->notifiableChecks);
     }
 
@@ -205,7 +211,7 @@ final class RunnerTest extends TestCase
         self::assertSame([], $report->targets());
         self::assertSame(0, $report->counts->targets);
         self::assertNotSame([], $report->faults());
-        self::assertTrue($report->checks->isEmpty());
+        self::assertSame(1, $report->checks->count(), 'the plugin check does not depend on the rule set');
     }
 
     /**
@@ -398,6 +404,7 @@ final class RunnerTest extends TestCase
                     return new RawEnvironment('https://ecskc.eu/', null, null, '8.3.6');
                 }
             },
+            $this->operational,
             new EnvironmentResolver(),
             new ObjectWalker(
                 $policy,

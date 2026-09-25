@@ -34,6 +34,9 @@ COMPONENT_FILES := \
 	admin/src/Core/Hash/HashAlgorithm.php \
 	admin/src/Core/Hash/Hasher.php \
 	admin/src/Core/Hash/HashResult.php \
+	admin/src/Core/Operational/ExtensionRecordRead.php \
+	admin/src/Core/Operational/OperationalCheckProviderInterface.php \
+	admin/src/Core/Operational/SystemPluginCheck.php \
 	admin/src/Core/Package/ExclusiveCopy.php \
 	admin/src/Core/Package/PackagePaths.php \
 	admin/src/Core/Package/ProcDescriptor.php \
