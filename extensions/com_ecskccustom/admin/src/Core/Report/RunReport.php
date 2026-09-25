@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report;
 
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
+
 /**
  * What one run of the runner returns. Everything the operator is shown comes from here.
  */
@@ -81,6 +83,33 @@ final class RunReport
     public function isFaulted(): bool
     {
         return $this->faults !== [];
+    }
+
+    /**
+     * The targets in a notifiable status, in report order.
+     *
+     * @return list<TargetReport>
+     */
+    public function notifiableTargets(): array
+    {
+        return \array_values(\array_filter(
+            $this->targets,
+            static fn (TargetReport $target): bool => \in_array($target->status(), TargetStatus::NOTIFIABLE, true)
+        ));
+    }
+
+    /**
+     * Whether the installer plugin tells the operator about this report.
+     *
+     * A notifiable target, a notifiable operational check, or a run-level fault each
+     * decide it alone, decisions 7, 22 and 51. The component and the installer plugin
+     * both ask here, so they cannot disagree.
+     */
+    public function needsAttention(): bool
+    {
+        return $this->notifiableTargets() !== []
+            || $this->checks->notifiable() !== []
+            || $this->isFaulted();
     }
 
     public function wasInterrupted(): bool

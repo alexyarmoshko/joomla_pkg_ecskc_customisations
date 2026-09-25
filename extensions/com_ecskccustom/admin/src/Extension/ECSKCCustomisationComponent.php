@@ -15,6 +15,7 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Extension;
 use Closure;
 use Joomla\CMS\Extension\MVCComponent;
 use LogicException;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\ReadOnlyRunnerInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
 
 \defined('_JEXEC') or die;
@@ -47,5 +48,16 @@ class ECSKCCustomisationComponent extends MVCComponent
         }
 
         return ($this->runnerFactory)();
+    }
+
+    /**
+     * The same runner, typed so a caller can reach only the reads.
+     *
+     * The installer plugin takes this one, so no change to the plugin can start a write
+     * run without first changing its type.
+     */
+    public function readOnlyRunner(): ReadOnlyRunnerInterface
+    {
+        return $this->runner();
     }
 }

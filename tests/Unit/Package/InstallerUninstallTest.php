@@ -2,26 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Joomla\CMS\Log {
-    final class Log
-    {
-        public const ALL = 30719;
-        public const ERROR = 8;
-
-        /** @var list<string> */
-        public static array $messages = [];
-
-        public static function addLogger(array $options, int $level, array $categories): void
-        {
-        }
-
-        public static function add(string $entry, int $level, string $category): void
-        {
-            self::$messages[] = $entry;
-        }
-    }
-}
-
 namespace Joomla\CMS\Installer {
     class InstallerAdapter
     {

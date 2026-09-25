@@ -137,6 +137,18 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Model {
         }
 
         /**
+         * The installer plugin's way in: the same runner, typed down to its reads.
+         */
+        public function testTheReadOnlyRunnerIsTheFactorysRunner(): void
+        {
+            $runner    = $this->runner();
+            $component = new ECSKCCustomisationComponent(null);
+            $component->setRunnerFactory(static fn (): Runner => $runner);
+
+            self::assertSame($runner, $component->readOnlyRunner());
+        }
+
+        /**
          * @return iterable<string, array{mixed, mixed, string, string|null}>
          */
         public static function readOnlyRuns(): iterable

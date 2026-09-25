@@ -142,6 +142,63 @@ namespace Joomla\CMS\MVC\Model {
     }
 }
 
+namespace Joomla\CMS\Log {
+    final class Log
+    {
+        public const ALL = 30719;
+        public const ERROR = 8;
+        public const WARNING = 16;
+
+        /** @var list<string> */
+        public static array $messages = [];
+
+        public static function addLogger(array $options, int $level, array $categories): void
+        {
+        }
+
+        public static function add(string $entry, int $level, string $category): void
+        {
+            self::$messages[] = $entry;
+        }
+    }
+}
+
+namespace Joomla\CMS\Plugin {
+    class CMSPlugin
+    {
+        /** @var array<string, mixed> */
+        public array $config;
+
+        private ?object $application = null;
+
+        public function __construct($config = [])
+        {
+            $this->config = $config;
+        }
+
+        public function setApplication(object $application): void
+        {
+            $this->application = $application;
+        }
+
+        public function getApplication(): object
+        {
+            if ($this->application === null) {
+                throw new \RuntimeException('No application');
+            }
+
+            return $this->application;
+        }
+    }
+}
+
+namespace Joomla\Event {
+    interface SubscriberInterface
+    {
+        public static function getSubscribedEvents(): array;
+    }
+}
+
 namespace {
     if (!\defined('_JEXEC')) {
         \define('_JEXEC', 1);

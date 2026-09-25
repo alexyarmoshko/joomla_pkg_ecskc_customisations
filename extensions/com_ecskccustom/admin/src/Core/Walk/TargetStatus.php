@@ -39,6 +39,19 @@ final class TargetStatus
         self::FAULTED,
     ];
 
+    /**
+     * The statuses that need an operator after extension work, decisions 7 and 8.
+     *
+     * `frozen` is not here whatever the path would otherwise be: a frozen path reports
+     * `frozen` as its status, and the operator froze it on purpose.
+     */
+    public const NOTIFIABLE = [
+        self::ACTIONABLE,
+        self::INCOMPLETE,
+        self::BLOCKED,
+        self::FAULTED,
+    ];
+
     private function __construct()
     {
     }

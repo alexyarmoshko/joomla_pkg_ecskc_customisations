@@ -12,6 +12,7 @@
     "autoload": {
         "psr-4": {
             "YakShaver\\Component\\ECSKCCustomisation\\Administrator\\": "extensions/com_ecskccustom/admin/src/",
+            "YakShaver\\Plugin\\Installer\\ECSKCCustomisation\\": "extensions/plg_installer_ecskccustom/src/",
             "YakShaver\\Plugin\\System\\ECSKCCustomisation\\": "extensions/plg_system_ecskccustom/src/"
         }
     },

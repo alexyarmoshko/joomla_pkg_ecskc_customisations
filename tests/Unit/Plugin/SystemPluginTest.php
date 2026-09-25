@@ -2,26 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Joomla\CMS\Plugin {
-    class CMSPlugin
-    {
-        /** @var array<string, mixed> */
-        public array $config;
-
-        public function __construct($config = [])
-        {
-            $this->config = $config;
-        }
-    }
-}
-
-namespace Joomla\Event {
-    interface SubscriberInterface
-    {
-        public static function getSubscribedEvents(): array;
-    }
-}
-
 namespace Joomla\CMS\Uri {
     final class Uri
     {

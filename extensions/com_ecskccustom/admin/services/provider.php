@@ -73,8 +73,7 @@ return new class () implements ServiceProviderInterface {
             static fn (): EnvironmentProviderInterface => new JoomlaEnvironmentProvider()
         );
 
-        // Ticket 48's installer plugin will take the runner from here, and with it this
-        // provider.
+        // The installer plugin takes the runner from here, and with it this provider.
         $container->set(
             OperationalCheckProviderInterface::class,
             static fn (): OperationalCheckProviderInterface => new JoomlaOperationalCheckProvider()
