@@ -9,13 +9,22 @@ COM_ROOT := extensions/com_ecskccustom
 COM_MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 SYSTEM_PLUGIN_ROOT := extensions/plg_system_ecskccustom
 INSTALLER_PLUGIN_ROOT := extensions/plg_installer_ecskccustom
+GITHUB_OWNER := alexyarmoshko
+GITHUB_REPO := joomla_pkg_ecskc_customisations
 
-# Every manifest whose <version> must equal the package's, decision 13.
+# The tracked update descriptor template, decision 52. It never ships in an
+# archive; dist_release writes the publishable copy beside the package ZIP.
+UPDATE_TEMPLATE := $(PKG_NAME).update.xml
+SHA256_PLACEHOLDER := 0000000000000000000000000000000000000000000000000000000000000000
+
+# Every file whose <version> must equal the package's, decision 13, and the
+# update descriptor template, decision 52.
 VERSIONED_MANIFESTS := \
 	$(MANIFEST) \
 	$(COM_MANIFEST) \
 	$(SYSTEM_PLUGIN_ROOT)/ecskccustom.xml \
-	$(INSTALLER_PLUGIN_ROOT)/ecskccustom.xml
+	$(INSTALLER_PLUGIN_ROOT)/ecskccustom.xml \
+	$(UPDATE_TEMPLATE)
 
 # The component's files, relative to $(COM_ROOT). script.php also ships at the
 # archive root because Joomla looks there on install and under admin/ on uninstall.
@@ -208,6 +217,8 @@ RELEASE_STAGE := $(BUILD_DIR)/release
 DEV_STAGE := $(BUILD_DIR)/dev
 RELEASE_ZIP := $(INSTALL_DIR)/release/$(ZIP_NAME)
 DEV_ZIP := $(INSTALL_DIR)/dev/$(ZIP_NAME)
+UPDATE_ARTIFACT := $(INSTALL_DIR)/release/$(UPDATE_TEMPLATE)
+DOWNLOAD_URL := https://github.com/$(GITHUB_OWNER)/$(GITHUB_REPO)/releases/download/$(VERSION)/$(ZIP_NAME)
 
 # $(JZIP) is linted although it does not ship: it is the packager.
 LINT_CMD := set -e; \
@@ -272,14 +283,15 @@ define check_versions
 		declared="$$(awk -F'[<>]' '/<version>/{print $$3; exit}' "$(1)/$$m")"; \
 		if [ "$$declared" != "$(VERSION)" ]; then \
 			echo "FAIL: $(1)/$$m declares version '$$declared', but the package is $(VERSION) from $(MANIFEST)"; \
-			echo "      every manifest in the package must declare the package manifest's version (decision 13)"; \
+			echo "      every manifest in the package and the update descriptor template must declare"; \
+			echo "      the package manifest's version (decisions 13 and 52)"; \
 			exit 1; \
 		fi; \
 	done
 endef
 
 # Delete <updateservers> from staged manifest $(1), and fail if any survives.
-# Decision 12: version 1 ships no update server.
+# Decision 52: a dev package must not register the release update site.
 define strip_updateservers
 	@set -e; \
 	sed '/<updateservers>/,/<\/updateservers>/d' "$(1)" > "$(1).tmp"; \
@@ -315,7 +327,20 @@ override define refuse_release_overrides
 	fi
 endef
 
-.PHONY: info deps test lint validate versions release dist_release dist_dev clean
+# Refuse unless $(UPDATE_TEMPLATE) is still a template: exactly one <sha256>,
+# and that one the placeholder. A real checksum committed there would describe
+# one old ZIP and be published against every later one.
+define check_update_template
+	@set -e; \
+	placeholders="$$(grep -oF "<sha256>$(SHA256_PLACEHOLDER)</sha256>" "$(UPDATE_TEMPLATE)" | wc -l)"; \
+	sums="$$(grep -oF "<sha256>" "$(UPDATE_TEMPLATE)" | wc -l)"; \
+	if [ "$$placeholders" -ne 1 ] || [ "$$sums" -ne 1 ]; then \
+		echo "FAIL: $(UPDATE_TEMPLATE) is not a template - it must hold exactly one <sha256>, the $(SHA256_PLACEHOLDER) placeholder"; \
+		exit 1; \
+	fi
+endef
+
+.PHONY: info deps test lint validate versions release dist_release dist_dev update_manifest clean
 
 info:
 	@echo "Package:         $(PKG_NAME)"
@@ -323,6 +348,9 @@ info:
 	@echo "Child archives:  $(CHILD_ARCHIVES)"
 	@echo "Release package: $(RELEASE_ZIP)"
 	@echo "Dev package:     $(DEV_ZIP)"
+	@echo "Update template: $(UPDATE_TEMPLATE)"
+	@echo "Update artifact: $(UPDATE_ARTIFACT)"
+	@echo "Download URL:    $(DOWNLOAD_URL)"
 	@echo "Packager:        $(JZIP) (level $(ZIP_LEVEL))"
 
 deps:
@@ -407,6 +435,7 @@ release:
 		exit 1; \
 	fi
 	$(call check_versions,.)
+	$(check_update_template)
 	$(MAKE) test
 	$(MAKE) lint
 	git tag "$(VERSION)"
@@ -440,7 +469,7 @@ dist_release:
 		echo "      packager, never the zip fallback. Restore it before building."; \
 		exit 1; \
 	fi
-	@rm -f "$(RELEASE_ZIP)"
+	@rm -f "$(RELEASE_ZIP)" "$(UPDATE_ARTIFACT)"
 	@rm -rf "$(RELEASE_STAGE)"
 	@mkdir -p "$(RELEASE_STAGE)"
 	@git -c core.autocrlf=false archive "$(VERSION)" | tar -x -C "$(RELEASE_STAGE)"
@@ -451,6 +480,68 @@ dist_release:
 	$(call stage_package,$(RELEASE_STAGE)/.stage,$(RELEASE_STAGE))
 	$(call build_package,$(RELEASE_STAGE)/.stage,$(RELEASE_ZIP),$$(git log -1 --format=%ct "$(VERSION)"))
 	@rm -rf "$(RELEASE_STAGE)"
+	$(MAKE) update_manifest
+
+# Write $(UPDATE_ARTIFACT) from $(UPDATE_TEMPLATE) for the ZIP at $(RELEASE_ZIP),
+# decision 52. dist_release runs this last. The template is read from the
+# checkout, which dist_release has already proved is the clean tag.
+update_manifest:
+	$(refuse_release_overrides)
+	$(check_update_template)
+	@set -e; \
+	if [ ! -f "$(RELEASE_ZIP)" ]; then \
+		echo "FAIL: $(RELEASE_ZIP) is missing - the descriptor must describe a built package"; \
+		exit 1; \
+	fi; \
+	SHA256="$(call sha256,$(RELEASE_ZIP))"; \
+	if [ -z "$$SHA256" ]; then \
+		echo "FAIL: cannot compute the sha256 of $(RELEASE_ZIP)"; \
+		exit 1; \
+	fi; \
+	mkdir -p "$(dir $(UPDATE_ARTIFACT))"; \
+	awk -v url="$(DOWNLOAD_URL)" -v sha="$$SHA256" '{ \
+		if ($$0 ~ /<downloadurl[^>]*>[^<]+<\/downloadurl>/) { \
+			sub(/<downloadurl[^>]*>[^<]+<\/downloadurl>/, "<downloadurl type=\"full\" format=\"zip\">" url "</downloadurl>"); \
+		} else if ($$0 ~ /<sha256>[^<]+<\/sha256>/) { \
+			sub(/<sha256>[^<]+<\/sha256>/, "<sha256>" sha "</sha256>"); \
+		} \
+		print; \
+	}' "$(UPDATE_TEMPLATE)" > "$(UPDATE_ARTIFACT).part"; \
+	if [ "$$(grep -oF "<sha256>" "$(UPDATE_ARTIFACT).part" | wc -l)" -ne 1 ] \
+		|| [ "$$(grep -oF "<downloadurl" "$(UPDATE_ARTIFACT).part" | wc -l)" -ne 1 ]; then \
+		echo "FAIL: $(UPDATE_ARTIFACT) must carry exactly one <sha256> and one <downloadurl>"; \
+		rm -f "$(UPDATE_ARTIFACT).part"; \
+		exit 1; \
+	fi; \
+	if [ "$$(grep -oF "<sha256>$$SHA256</sha256>" "$(UPDATE_ARTIFACT).part" | wc -l)" -ne 1 ]; then \
+		echo "FAIL: $(UPDATE_ARTIFACT) does not carry the sha256 of $(RELEASE_ZIP)"; \
+		rm -f "$(UPDATE_ARTIFACT).part"; \
+		exit 1; \
+	fi; \
+	if [ "$$(grep -oF '<downloadurl type="full" format="zip">$(DOWNLOAD_URL)</downloadurl>' "$(UPDATE_ARTIFACT).part" | wc -l)" -ne 1 ]; then \
+		echo "FAIL: $(UPDATE_ARTIFACT) does not carry the download URL for $(VERSION)"; \
+		rm -f "$(UPDATE_ARTIFACT).part"; \
+		exit 1; \
+	fi; \
+	if [ "$$(awk -F'[<>]' '/<version>/{print $$3; exit}' "$(UPDATE_ARTIFACT).part")" != "$(VERSION)" ]; then \
+		echo "FAIL: $(UPDATE_ARTIFACT) declares a version other than $(VERSION)"; \
+		rm -f "$(UPDATE_ARTIFACT).part"; \
+		exit 1; \
+	fi; \
+	if [ "$$(grep -oF '<element>$(PKG_NAME)</element>' "$(UPDATE_ARTIFACT).part" | wc -l)" -ne 1 ] \
+		|| [ "$$(grep -oF '<type>package</type>' "$(UPDATE_ARTIFACT).part" | wc -l)" -ne 1 ] \
+		|| [ "$$(grep -oF '<client>site</client>' "$(UPDATE_ARTIFACT).part" | wc -l)" -ne 1 ]; then \
+		echo "FAIL: $(UPDATE_ARTIFACT) must describe element $(PKG_NAME), type package, client site"; \
+		rm -f "$(UPDATE_ARTIFACT).part"; \
+		exit 1; \
+	fi; \
+	mv "$(UPDATE_ARTIFACT).part" "$(UPDATE_ARTIFACT)"; \
+	if [ "$(call sha256,$(RELEASE_ZIP))" != "$$SHA256" ]; then \
+		echo "FAIL: $(RELEASE_ZIP) changed while $(UPDATE_ARTIFACT) was written"; \
+		rm -f "$(UPDATE_ARTIFACT)"; \
+		exit 1; \
+	fi; \
+	echo "Wrote $(UPDATE_ARTIFACT): $(DOWNLOAD_URL), sha256 $$SHA256"
 
 dist_dev:
 	@rm -f "$(DEV_ZIP)"

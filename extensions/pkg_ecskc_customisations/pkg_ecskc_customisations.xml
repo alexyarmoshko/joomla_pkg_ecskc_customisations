@@ -26,4 +26,12 @@
         <file type="plugin" group="system" id="ecskccustom">plg_system_ecskccustom.zip</file>
         <file type="plugin" group="installer" id="ecskccustom">plg_installer_ecskccustom.zip</file>
     </files>
+
+    <!--
+        Decision 52: only this manifest registers an update server, so Joomla updates the
+        bundle as one package. make dist_dev strips this element from its staged copy.
+    -->
+    <updateservers>
+        <server type="extension" name="ECSKC Customisations Updates">https://raw.githubusercontent.com/alexyarmoshko/joomla_update_system/refs/heads/main/manifests/pkg_ecskc_customisations.update.xml</server>
+    </updateservers>
 </extension>

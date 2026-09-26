@@ -24,6 +24,8 @@ final class PackageBytesTest extends TestCase
 
     private static TempTree $scratch;
 
+    private const UPDATE_URL = 'https://raw.githubusercontent.com/alexyarmoshko/joomla_update_system/refs/heads/main/manifests/pkg_ecskc_customisations.update.xml';
+
     /** Each archive in the package, with the Makefile list that decides its entries. */
     private const ARCHIVE_LISTS = [
         'packages/com_ecskccustom.zip'           => 'COMPONENT_ARCHIVE_FILES',
@@ -120,7 +122,7 @@ final class PackageBytesTest extends TestCase
     }
 
     /**
-     * Decision 12: no staged manifest keeps an update server.
+     * Decision 52: the release registers an update server, a dev package does not.
      */
     public function testNoManifestInTheDevPackageNamesAnUpdateServer(): void
     {
@@ -158,6 +160,157 @@ final class PackageBytesTest extends TestCase
     }
 
     /**
+     * Decision 52: the outer package registers the update-system URL, and no child
+     * registers one, so Joomla offers one update for the bundle.
+     */
+    public function testOnlyThePackageManifestRegistersTheUpdateServer(): void
+    {
+        $manifest = \simplexml_load_file(self::$repo . '/extensions/pkg_ecskc_customisations/pkg_ecskc_customisations.xml');
+        self::assertNotFalse($manifest);
+
+        $servers = $manifest->xpath('/extension/updateservers/server');
+        self::assertIsArray($servers);
+        self::assertCount(1, $servers);
+        self::assertSame('extension', (string) $servers[0]['type']);
+        self::assertSame(self::UPDATE_URL, \trim((string) $servers[0]));
+
+        foreach ([
+            'extensions/com_ecskccustom/com_ecskccustom.xml',
+            'extensions/plg_system_ecskccustom/ecskccustom.xml',
+            'extensions/plg_installer_ecskccustom/ecskccustom.xml',
+        ] as $child) {
+            self::assertStringNotContainsString(
+                'updateservers',
+                (string) \file_get_contents(self::$repo . '/' . $child),
+                $child . ' must not register its own update server'
+            );
+        }
+    }
+
+    public function testNoArchiveCarriesAnUpdateDescriptor(): void
+    {
+        $this->requireMake();
+        $this->runMake(['dist_dev']);
+
+        $package = new ZipArchive();
+        self::assertTrue($package->open(self::$zip, ZipArchive::RDONLY));
+
+        try {
+            $entries = self::entries($package);
+        } finally {
+            $package->close();
+        }
+
+        foreach (\array_keys(self::ARCHIVE_LISTS) as $child) {
+            $archive = $this->openChild($child);
+
+            try {
+                $entries = \array_merge($entries, self::entries($archive));
+            } finally {
+                $archive->close();
+            }
+        }
+
+        self::assertSame([], \preg_grep('/\\.update\\.xml$/', $entries));
+    }
+
+    /**
+     * update_manifest fills the release URL and the exact ZIP's checksum into a copy
+     * of the template, and leaves the template itself alone.
+     */
+    public function testTheDescriptorDescribesTheBuiltPackage(): void
+    {
+        $this->requireMake();
+
+        $template = self::$repo . '/pkg_ecskc_customisations.update.xml';
+        $before   = \hash_file('sha256', $template);
+        $install  = self::$scratch->path('descriptor');
+        $zip      = $install . '/release/pkg_ecskc_customisations-v0-1-0.zip';
+
+        \mkdir(\dirname($zip), 0755, true);
+        \file_put_contents($zip, 'fixture archive bytes');
+
+        [$status, $output] = $this->make(['update_manifest', 'INSTALL_DIR=' . $install]);
+        self::assertSame(0, $status, $output);
+
+        $descriptor = \simplexml_load_file($install . '/release/pkg_ecskc_customisations.update.xml');
+        self::assertNotFalse($descriptor);
+
+        $update = $descriptor->update;
+        self::assertSame('pkg_ecskc_customisations', (string) $update->element);
+        self::assertSame('package', (string) $update->type);
+        self::assertSame('site', (string) $update->client, 'a package is client 0; Joomla assumes administrator without it');
+        self::assertSame('0.1.0', (string) $update->version);
+        self::assertSame(
+            'https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/download/0.1.0/pkg_ecskc_customisations-v0-1-0.zip',
+            (string) $update->downloads->downloadurl
+        );
+        self::assertSame(\hash_file('sha256', $zip), (string) $update->sha256);
+        self::assertSame($before, \hash_file('sha256', $template), 'the tracked template must not change');
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function brokenTemplates(): iterable
+    {
+        $placeholder = '<sha256>' . \str_repeat('0', 64) . '</sha256>';
+        $real        = '<sha256>' . \str_repeat('a', 64) . '</sha256>';
+        $url         = '<downloadurl type="full" format="zip">https://example.invalid/a.zip</downloadurl>';
+
+        yield 'a committed checksum' => [\str_replace($placeholder, $real, self::template()), 'is not a template'];
+        yield 'no checksum' => [\str_replace($placeholder, '', self::template()), 'is not a template'];
+        yield 'a second checksum' => [\str_replace($placeholder, $placeholder . $real, self::template()), 'is not a template'];
+        yield 'no download URL' => [
+            (string) \preg_replace('#<downloadurl[^>]*>[^<]*</downloadurl>#', '', self::template()),
+            'exactly one <sha256> and one <downloadurl>',
+        ];
+        yield 'a second download URL' => [
+            (string) \preg_replace('#(<downloadurl[^>]*>[^<]*</downloadurl>)#', '$1' . "\n" . $url, self::template()),
+            'exactly one <sha256> and one <downloadurl>',
+        ];
+        yield 'another element' => [
+            \str_replace('<element>pkg_ecskc_customisations</element>', '<element>com_ecskccustom</element>', self::template()),
+            'must describe element pkg_ecskc_customisations, type package, client site',
+        ];
+        yield 'no client' => [
+            \str_replace('<client>site</client>', '', self::template()),
+            'must describe element pkg_ecskc_customisations, type package, client site',
+        ];
+    }
+
+    /**
+     * The gates run against a copy of the Makefile in a scratch tree, because the
+     * release targets refuse a command-line template path.
+     */
+    #[DataProvider('brokenTemplates')]
+    public function testTheDescriptorBuildRefusesABrokenTemplate(string $template, string $failure): void
+    {
+        $this->requireMake();
+
+        $root = self::$scratch->path('broken-' . \md5($template));
+        $zip  = $root . '/installation/release/pkg_ecskc_customisations-v0-1-0.zip';
+
+        \mkdir(\dirname($zip), 0755, true);
+        \mkdir($root . '/extensions/pkg_ecskc_customisations', 0755, true);
+        \copy(self::$repo . '/Makefile', $root . '/Makefile');
+        \copy(
+            self::$repo . '/extensions/pkg_ecskc_customisations/pkg_ecskc_customisations.xml',
+            $root . '/extensions/pkg_ecskc_customisations/pkg_ecskc_customisations.xml'
+        );
+        \file_put_contents($root . '/pkg_ecskc_customisations.update.xml', $template);
+        \file_put_contents($zip, 'fixture archive bytes');
+
+        [$status, $output] = $this->make(['update_manifest'], $root);
+
+        self::assertNotSame(0, $status, $output);
+        self::assertStringContainsString('FAIL: ', $output);
+        self::assertStringContainsString($failure, $output);
+        self::assertFileDoesNotExist($root . '/installation/release/pkg_ecskc_customisations.update.xml');
+        self::assertFileDoesNotExist($root . '/installation/release/pkg_ecskc_customisations.update.xml.part');
+    }
+
+    /**
      * All four archives take the commit date and jzip writes every header field,
      * so a rebuild of the same commit is the same bytes.
      */
@@ -182,6 +335,7 @@ final class PackageBytesTest extends TestCase
             'extensions/com_ecskccustom/com_ecskccustom.xml',
             'extensions/plg_system_ecskccustom/ecskccustom.xml',
             'extensions/plg_installer_ecskccustom/ecskccustom.xml',
+            'pkg_ecskc_customisations.update.xml',
         ] as $manifest) {
             yield $manifest => [$manifest];
         }
@@ -205,7 +359,10 @@ final class PackageBytesTest extends TestCase
                 $bytes = (string) \preg_replace('#<version>[^<]*</version>#', '<version>9.9.9</version>', $bytes, 1);
             }
 
-            \mkdir(\dirname($root . '/' . $manifest), 0755, true);
+            if (!\is_dir(\dirname($root . '/' . $manifest))) {
+                \mkdir(\dirname($root . '/' . $manifest), 0755, true);
+            }
+
             \file_put_contents($root . '/' . $manifest, $bytes);
         }
 
@@ -386,11 +543,11 @@ final class PackageBytesTest extends TestCase
      *
      * @return array{int, string} The exit status, and stderr when there is any, else stdout.
      */
-    private function make(array $args): array
+    private function make(array $args, ?string $dir = null): array
     {
         $pipes   = [];
         $process = \proc_open(
-            \array_merge(['make', '-s', '-C', self::$repo], $args),
+            \array_merge(['make', '-s', '-C', $dir ?? self::$repo], $args),
             [
                 0 => ['pipe', 'r'],
                 1 => ['pipe', 'w'],
@@ -455,6 +612,11 @@ final class PackageBytesTest extends TestCase
         self::assertTrue($child->open($path, ZipArchive::RDONLY), $entry . ' must open as a ZIP');
 
         return $child;
+    }
+
+    private static function template(): string
+    {
+        return (string) \file_get_contents(\dirname(__DIR__, 2) . '/pkg_ecskc_customisations.update.xml');
     }
 
     /**

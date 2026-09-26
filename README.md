@@ -36,6 +36,7 @@ Out of scope is what the site says, along with server and SEO configuration. Sit
 | `tests/` | PHPUnit suites |
 | `tools/` | Build helpers: deterministic packager, validator, hashing |
 | `Makefile` | Build and release entry points |
+| `pkg_ecskc_customisations.update.xml` | Update descriptor template; the release build fills in its URL and checksum |
 
 A payload's bytes are its identity, line endings and final newline included, and `data/payload/`
 is pinned `-text` in `.gitattributes`. Never reformat a payload file. A normalised copy still
@@ -62,12 +63,30 @@ checkout. Both builds package the component and each plugin from its own file li
 those three archives in the package, and refuse to run when a child manifest declares a version
 other than the package's.
 
+`make dist_release` also writes `installation/release/pkg_ecskc_customisations.update.xml`. It is a
+copy of the tracked template `pkg_ecskc_customisations.update.xml` with the GitHub release URL and
+the ZIP's SHA-256 filled in. The template keeps its 64-zero `<sha256>` placeholder, and
+`make release` refuses to tag when it holds anything else. Only the package manifest registers the
+update server; `make dist_dev` strips it, so a test install registers no update site.
+
+To publish a release, in this order:
+
+1. Upload the exact ZIP from `installation/release/` as an asset of the GitHub release for the
+   version tag in `alexyarmoshko/joomla_pkg_ecskc_customisations`.
+2. Copy the generated descriptor over `manifests/pkg_ecskc_customisations.update.xml` in
+   `alexyarmoshko/joomla_update_system`, then commit, tag and push there.
+3. Record the ZIP's SHA-256 and the `joomla_update_system` commit and tag with the release.
+
+Joomla rejects a download whose hash differs from the descriptor's, so never rebuild or replace
+an asset after its descriptor is published.
+
 ## Install
 
 In the Joomla administrator, go to System, Install, Extensions, and upload the package ZIP. It
 installs the component and both plugins, and enables the plugins on the first install only. An
 update leaves each plugin enabled or disabled as the site had it. The children cannot be
-uninstalled on their own; uninstall the package.
+uninstalled on their own; uninstall the package. A release package registers its update site, so
+later versions appear under System, Update, Extensions as one package update.
 
 ## Status
 

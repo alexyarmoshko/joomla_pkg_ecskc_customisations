@@ -216,7 +216,8 @@ final class PackageManifestTest extends TestCase
 
     /**
      * Decision 13: the Makefile reads VERSION from the package manifest, and both
-     * builds check every manifest against it before packaging.
+     * builds check every manifest against it before packaging. Decision 52 adds
+     * the update descriptor template to that check.
      */
     public function testBothBuildsCheckTheVersionsBeforePackaging(): void
     {
@@ -230,6 +231,7 @@ final class PackageManifestTest extends TestCase
                 '$(COM_MANIFEST)',
                 '$(SYSTEM_PLUGIN_ROOT)/ecskccustom.xml',
                 '$(INSTALLER_PLUGIN_ROOT)/ecskccustom.xml',
+                '$(UPDATE_TEMPLATE)',
             ],
             self::makefileList('VERSIONED_MANIFESTS')
         );
@@ -263,6 +265,7 @@ final class PackageManifestTest extends TestCase
         self::assertStringContainsString("override define refuse_release_overrides\n\t@if [ -n \"$(release_overrides)\" ]; then \\\n", $makefile);
         self::assertStringContainsString("\nrelease:\n\t$(refuse_release_overrides)\n", $makefile);
         self::assertStringContainsString("\ndist_release:\n\t$(refuse_release_overrides)\n", $makefile);
+        self::assertStringContainsString("\nupdate_manifest:\n\t$(refuse_release_overrides)\n", $makefile);
 
         \preg_match_all('/^(\w+) \?=/m', $makefile, $defaults);
         self::assertSame(
@@ -273,14 +276,14 @@ final class PackageManifestTest extends TestCase
     }
 
     /**
-     * Decision 12: version 1 ships no update server, and state folders never
-     * appear in any manifest.
+     * Decision 52: the package manifest registers one update server. State folders
+     * never appear in any manifest.
      */
-    public function testTheManifestNamesNoUpdateServerAndNoStateFolder(): void
+    public function testTheManifestNamesOneUpdateServerAndNoStateFolder(): void
     {
         $manifest = self::manifest();
 
-        self::assertCount(0, $manifest->updateservers);
+        self::assertCount(1, $manifest->updateservers->server);
 
         $text = (string) \file_get_contents(self::package() . '/pkg_ecskc_customisations.xml');
 
