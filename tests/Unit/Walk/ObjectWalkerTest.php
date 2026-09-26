@@ -482,6 +482,80 @@ final class ObjectWalkerTest extends TestCase
     }
 
     /**
+     * A digest two objects write counts from the first of them. Version 3 expects
+     * what version 2 writes, and version 4 writes the same bytes again later, so
+     * version 3 is a chain step the walk cannot reach rather than an alternative.
+     */
+    public function testARepeatedPayloadCountsAsWrittenFromItsFirstPosition(): void
+    {
+        $this->tree->write('templates/et_tennis/css/vendor.css', self::FIRST);
+
+        $state = $this->walkOne(RuleXml::patch(
+            RuleXml::object(
+                version: 1,
+                dest: 'templates/et_tennis/css/vendor.css',
+                source: 'vendor.css.v1',
+                sourceHash: self::digest(self::FIRST),
+                expectedHash: self::digest(self::ORIGINAL)
+            )
+            . RuleXml::object(
+                version: 2,
+                dest: 'templates/et_tennis/css/vendor.css',
+                source: 'vendor.css.v2',
+                sourceHash: self::digest(self::SECOND),
+                expectedHash: self::digest(self::FOREIGN)
+            )
+            . RuleXml::object(
+                version: 3,
+                dest: 'templates/et_tennis/css/vendor.css',
+                source: 'vendor.css.v3',
+                sourceHash: self::digest('version 3'),
+                expectedHash: self::digest(self::SECOND)
+            )
+            . RuleXml::object(
+                version: 4,
+                dest: 'templates/et_tennis/css/vendor.css',
+                source: 'vendor.css.v4',
+                sourceHash: self::digest(self::SECOND),
+                expectedHash: self::digest(self::FOREIGN)
+            )
+        ));
+
+        self::assertSame(TargetStatus::INCOMPLETE, $state->status);
+        self::assertStringContainsString('reached version 1 and stopped there', $state->reason);
+    }
+
+    /**
+     * An object is never its own predecessor. Version 2 expects the bytes it writes
+     * itself, and nothing before it writes them, so it is an alternative the walk
+     * passes over, not a step that leaves the head out of reach.
+     */
+    public function testAnObjectsOwnPayloadDoesNotCountAsWrittenBeforeIt(): void
+    {
+        $this->tree->write('templates/et_tennis/css/vendor.css', self::FIRST);
+
+        $state = $this->walkOne(RuleXml::patch(
+            RuleXml::object(
+                version: 1,
+                dest: 'templates/et_tennis/css/vendor.css',
+                source: 'vendor.css.v1',
+                sourceHash: self::digest(self::FIRST),
+                expectedHash: self::digest(self::ORIGINAL)
+            )
+            . RuleXml::object(
+                version: 2,
+                dest: 'templates/et_tennis/css/vendor.css',
+                source: 'vendor.css.v2',
+                sourceHash: self::digest(self::SECOND),
+                expectedHash: self::digest(self::SECOND)
+            )
+        ));
+
+        self::assertSame(ObjectOutcome::NOT_MATCHED, $state->objectOutcomes()[1]->result);
+        self::assertSame(TargetStatus::OK, $state->status);
+    }
+
+    /**
      * A disabled vendor alternative is not a gap in a chain. Nothing expects what it
      * writes, so the target is simply not customised on this vendor build. Review
      * s1.v24, spec finding 3.

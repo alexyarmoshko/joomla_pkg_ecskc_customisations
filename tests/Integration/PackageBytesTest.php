@@ -7,6 +7,8 @@ namespace YakShaver\ECSKCCustomisation\Tests\Integration;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use YakShaver\ECSKCCustomisation\Tests\Support\ChildProcess;
+use YakShaver\ECSKCCustomisation\Tests\Support\MakefileList;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use ZipArchive;
 
@@ -20,7 +22,14 @@ final class PackageBytesTest extends TestCase
 {
     private static string $repo;
 
-    private static string $zip;
+    /** The package the content tests read, built on first use and then shared. */
+    private static ?string $zip = null;
+
+    /** The package manifest's version, which the Makefile names the ZIP and the release after. */
+    private static string $version;
+
+    /** The ZIP's file name, as the Makefile derives it from the version. */
+    private static string $zipName;
 
     private static TempTree $scratch;
 
@@ -35,22 +44,25 @@ final class PackageBytesTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        self::$repo    = \dirname(__DIR__, 2);
-        self::$zip     = self::$repo . '/installation/dev/pkg_ecskc_customisations-v0-1-0.zip';
+        self::$repo = \dirname(__DIR__, 2);
+
+        $manifest = \simplexml_load_file(self::$repo . '/extensions/pkg_ecskc_customisations/pkg_ecskc_customisations.xml');
+        self::assertNotFalse($manifest);
+
+        self::$version = (string) $manifest->version;
+        self::$zipName = 'pkg_ecskc_customisations-v' . \str_replace('.', '-', self::$version) . '.zip';
         self::$scratch = TempTree::create('ecskc-package-bytes-');
     }
 
     public static function tearDownAfterClass(): void
     {
         self::$scratch->remove();
+        self::$zip = null;
     }
 
     public function testDistDevProducesAPackageWhoseComponentCarriesTheAuthoredBytes(): void
     {
-        $this->requireMake();
-        $this->runMake(['dist_dev']);
-
-        self::assertFileExists(self::$zip);
+        self::assertFileExists($this->package());
 
         $archive = $this->openChild('packages/com_ecskccustom.zip');
 
@@ -98,14 +110,11 @@ final class PackageBytesTest extends TestCase
      */
     public function testEveryArchiveHoldsExactlyItsFileListInOrder(): void
     {
-        $this->requireMake();
-        $this->runMake(['dist_dev']);
-
         $package = new ZipArchive();
-        self::assertTrue($package->open(self::$zip, ZipArchive::RDONLY));
+        self::assertTrue($package->open($this->package(), ZipArchive::RDONLY));
 
         try {
-            self::assertSame($this->makeList('PKG_ARCHIVE_FILES'), self::entries($package), 'the package');
+            self::assertSame(MakefileList::read('PKG_ARCHIVE_FILES'), self::entries($package), 'the package');
         } finally {
             $package->close();
         }
@@ -114,7 +123,7 @@ final class PackageBytesTest extends TestCase
             $archive = $this->openChild($child);
 
             try {
-                self::assertSame($this->makeList($list), self::entries($archive), $child);
+                self::assertSame(MakefileList::read($list), self::entries($archive), $child);
             } finally {
                 $archive->close();
             }
@@ -126,9 +135,6 @@ final class PackageBytesTest extends TestCase
      */
     public function testNoManifestInTheDevPackageNamesAnUpdateServer(): void
     {
-        $this->requireMake();
-        $this->runMake(['dist_dev']);
-
         $manifests = [
             'packages/com_ecskccustom.zip'           => 'com_ecskccustom.xml',
             'packages/plg_system_ecskccustom.zip'    => 'ecskccustom.xml',
@@ -136,7 +142,7 @@ final class PackageBytesTest extends TestCase
         ];
 
         $package = new ZipArchive();
-        self::assertTrue($package->open(self::$zip, ZipArchive::RDONLY));
+        self::assertTrue($package->open($this->package(), ZipArchive::RDONLY));
 
         try {
             $bytes = $package->getFromName('pkg_ecskc_customisations.xml');
@@ -189,11 +195,8 @@ final class PackageBytesTest extends TestCase
 
     public function testNoArchiveCarriesAnUpdateDescriptor(): void
     {
-        $this->requireMake();
-        $this->runMake(['dist_dev']);
-
         $package = new ZipArchive();
-        self::assertTrue($package->open(self::$zip, ZipArchive::RDONLY));
+        self::assertTrue($package->open($this->package(), ZipArchive::RDONLY));
 
         try {
             $entries = self::entries($package);
@@ -225,7 +228,7 @@ final class PackageBytesTest extends TestCase
         $template = self::$repo . '/pkg_ecskc_customisations.update.xml';
         $before   = \hash_file('sha256', $template);
         $install  = self::$scratch->path('descriptor');
-        $zip      = $install . '/release/pkg_ecskc_customisations-v0-1-0.zip';
+        $zip      = $install . '/release/' . self::$zipName;
 
         \mkdir(\dirname($zip), 0755, true);
         \file_put_contents($zip, 'fixture archive bytes');
@@ -240,9 +243,10 @@ final class PackageBytesTest extends TestCase
         self::assertSame('pkg_ecskc_customisations', (string) $update->element);
         self::assertSame('package', (string) $update->type);
         self::assertSame('site', (string) $update->client, 'a package is client 0; Joomla assumes administrator without it');
-        self::assertSame('0.1.0', (string) $update->version);
+        self::assertSame(self::$version, (string) $update->version);
         self::assertSame(
-            'https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/download/0.1.0/pkg_ecskc_customisations-v0-1-0.zip',
+            'https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/download/'
+            . self::$version . '/' . self::$zipName,
             (string) $update->downloads->downloadurl
         );
         self::assertSame(\hash_file('sha256', $zip), (string) $update->sha256);
@@ -289,7 +293,7 @@ final class PackageBytesTest extends TestCase
         $this->requireMake();
 
         $root = self::$scratch->path('broken-' . \md5($template));
-        $zip  = $root . '/installation/release/pkg_ecskc_customisations-v0-1-0.zip';
+        $zip  = $root . '/installation/release/' . self::$zipName;
 
         \mkdir(\dirname($zip), 0755, true);
         \mkdir($root . '/extensions/pkg_ecskc_customisations', 0755, true);
@@ -316,13 +320,9 @@ final class PackageBytesTest extends TestCase
      */
     public function testTwoDevBuildsFromTheSameCommitProduceTheSamePackage(): void
     {
-        $this->requireMake();
+        $first = \hash_file('sha256', $this->build('reproducible-1'));
 
-        $this->runMake(['dist_dev']);
-        $first = \hash_file('sha256', self::$zip);
-
-        $this->runMake(['dist_dev']);
-        self::assertSame($first, \hash_file('sha256', self::$zip));
+        self::assertSame($first, \hash_file('sha256', $this->build('reproducible-2')));
     }
 
     /**
@@ -457,19 +457,27 @@ final class PackageBytesTest extends TestCase
         self::assertFileEquals($master, $vendored);
     }
 
-    public function testDistDevDeletesTheZipBeforeValidate(): void
+    /**
+     * dist_dev deletes the old package before it validates, so a build that fails
+     * validation cannot leave the previous package looking like its output.
+     */
+    public function testAFailedValidationLeavesNoStalePackageBehind(): void
     {
         $this->requireMake();
-        $this->runMake(['dist_dev']);
-        self::assertFileExists(self::$zip);
 
-        $makefile = (string) \file_get_contents(self::$repo . '/Makefile');
+        $stale  = self::$scratch->write('stale/installation/dev/' . self::$zipName, 'the package an earlier build left');
+        $refuse = self::$scratch->write('stale/refuse.php', "<?php\n\nfwrite(STDERR, \"validation refused\\n\");\nexit(1);\n");
 
-        self::assertMatchesRegularExpression(
-            '/^dist_dev:\n\t@rm -f "\$\(DEV_ZIP\)"\n\t\$\(MAKE\) validate/m',
-            $makefile,
-            'dist_dev must delete the zip before validate, so a failed check cannot leave a stale artefact'
-        );
+        [$status, $output] = $this->make([
+            'dist_dev',
+            'BUILD_DIR=' . self::$scratch->path('stale/build'),
+            'INSTALL_DIR=' . self::$scratch->path('stale/installation'),
+            'VALIDATE=' . $refuse,
+        ]);
+
+        self::assertNotSame(0, $status, $output);
+        self::assertStringContainsString('validation refused', $output);
+        self::assertFileDoesNotExist($stale);
     }
 
     /**
@@ -477,23 +485,7 @@ final class PackageBytesTest extends TestCase
      */
     private function payloadFiles(): array
     {
-        return [
-            'apple-touch-icon.png.v1',
-            'apple-touch-icon-precomposed.png.v1',
-            'components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/language.php.v1',
-            'components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/override.php.v1',
-            'components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v1',
-            'components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v2',
-            'components/com_kunena/template/nts_kbee/config/config.xml.v1',
-            'components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v1',
-            'components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v2',
-            'components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v1',
-            'components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v2',
-            'plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v1',
-            'plugins/system/helixultimate/overrides_legacy/com_contact/contact/default_form.php.v1',
-            'templates/et_tennis/css/override.css',
-            'templates/et_tennis/options.xml.v1',
-        ];
+        return self::authoredFiles(self::$repo . '/data/payload');
     }
 
     /**
@@ -501,28 +493,74 @@ final class PackageBytesTest extends TestCase
      */
     private function ruleFiles(): array
     {
-        return [
-            '10-comprofiler.xml',
-            '20-helix-ultimate.xml',
-            '30-nts-kbee.xml',
-            '40-et-tennis.xml',
-            '50-site-icons.xml',
-        ];
+        return self::authoredFiles(self::$repo . '/data/rules');
+    }
+
+    /**
+     * Every authored file under `$root`, relative to it, read from the tree rather than
+     * from the Makefile, so a file the build leaves out fails the byte comparison.
+     * An `index.html` folder guard is not authored content and is left out.
+     *
+     * @return list<string>
+     */
+    private static function authoredFiles(string $root): array
+    {
+        $files = [];
+        $tree  = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)
+        );
+
+        foreach ($tree as $file) {
+            if ($file->getFilename() !== 'index.html') {
+                $files[] = \substr($file->getPathname(), \strlen($root) + 1);
+            }
+        }
+
+        \sort($files);
+        self::assertNotSame([], $files, $root . ' holds no authored file');
+
+        return $files;
+    }
+
+    /**
+     * A dev build into its own directories under this suite's scratch tree. The suite
+     * never writes the repository's build/ or installation/, so two runs cannot
+     * overwrite each other's output.
+     *
+     * @return string The package ZIP.
+     */
+    private function build(string $name): string
+    {
+        $this->requireMake();
+
+        $root = self::$scratch->path($name);
+
+        $this->runMake(['dist_dev', 'BUILD_DIR=' . $root . '/build', 'INSTALL_DIR=' . $root . '/installation']);
+
+        return $root . '/installation/dev/' . self::$zipName;
+    }
+
+    /**
+     * The package the content tests read. They inspect the same source, so one build
+     * serves them all.
+     */
+    private function package(): string
+    {
+        return self::$zip ??= $this->build('content');
     }
 
     /**
      * Skip rather than fail where the build itself cannot run.
      *
-     * These two tests drive `make`. The DDEV web container has no `make`, so
-     * without this they report a missing build tool as a packaging defect. The
-     * host builds releases and has it, so the gate still holds where it matters.
+     * Every test that drives `make` calls this. The DDEV web container has no
+     * `make`, so without this they report a missing build tool as a packaging
+     * defect. The host builds releases and has it, so the gate still holds where it
+     * matters.
      */
     private function requireMake(): void
     {
-        foreach (\explode(\PATH_SEPARATOR, (string) \getenv('PATH')) as $dir) {
-            if ($dir !== '' && \is_executable($dir . '/make')) {
-                return;
-            }
+        if (MakefileList::makeIsAvailable()) {
+            return;
         }
 
         self::markTestSkipped('make is not on PATH, so the build cannot be driven here');
@@ -541,53 +579,15 @@ final class PackageBytesTest extends TestCase
     /**
      * @param list<string> $args
      *
-     * @return array{int, string} The exit status, and stderr when there is any, else stdout.
+     * @return array{int, string} The exit status, and stdout followed by stderr.
      */
     private function make(array $args, ?string $dir = null): array
     {
-        $pipes   = [];
-        $process = \proc_open(
-            \array_merge(['make', '-s', '-C', $dir ?? self::$repo], $args),
-            [
-                0 => ['pipe', 'r'],
-                1 => ['pipe', 'w'],
-                2 => ['pipe', 'w'],
-            ],
-            $pipes
+        [$status, $stdout, $stderr] = ChildProcess::run(
+            \array_merge(['make', '-s', '-C', $dir ?? self::$repo], $args)
         );
 
-        self::assertIsResource($process, 'Could not start make');
-
-        \fclose($pipes[0]);
-        $stdout = (string) \stream_get_contents($pipes[1]);
-        $stderr = (string) \stream_get_contents($pipes[2]);
-        \fclose($pipes[1]);
-        \fclose($pipes[2]);
-        $status = \proc_close($process);
-
         return [$status, $stdout . $stderr];
-    }
-
-    /**
-     * The expanded value of a Makefile list, one entry per line, as make sees it.
-     *
-     * @return list<string>
-     */
-    private function makeList(string $name): array
-    {
-        [$status, $output] = $this->make([
-            '--eval',
-            'print_list: ; @printf "%s\\n" $($(LIST))',
-            'print_list',
-            'LIST=' . $name,
-        ]);
-
-        self::assertSame(0, $status, $output);
-
-        $entries = \explode("\n", \trim($output));
-        self::assertNotSame([''], $entries, $name . ' must not be empty');
-
-        return $entries;
     }
 
     /**
@@ -597,7 +597,7 @@ final class PackageBytesTest extends TestCase
     private function openChild(string $entry): ZipArchive
     {
         $package = new ZipArchive();
-        self::assertTrue($package->open(self::$zip, ZipArchive::RDONLY));
+        self::assertTrue($package->open($this->package(), ZipArchive::RDONLY));
 
         try {
             $bytes = $package->getFromName($entry);

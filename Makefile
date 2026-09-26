@@ -46,6 +46,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Condition/ConditionEvaluator.php \
 	admin/src/Core/Condition/ConditionGroup.php \
 	admin/src/Core/Condition/ConditionOutcome.php \
+	admin/src/Core/Condition/RegexExpression.php \
 	admin/src/Core/Condition/RuleCondition.php \
 	admin/src/Core/Environment/EnvironmentProviderInterface.php \
 	admin/src/Core/Environment/EnvironmentResolver.php \
@@ -81,6 +82,8 @@ COMPONENT_FILES := \
 	admin/src/Core/ReadOnlyRunnerInterface.php \
 	admin/src/Core/Runner.php \
 	admin/src/Core/WriteRunnerInterface.php \
+	admin/src/Core/State/BackupCatalog.php \
+	admin/src/Core/State/BackupEntry.php \
 	admin/src/Core/State/BackupOutcome.php \
 	admin/src/Core/State/BackupStore.php \
 	admin/src/Core/State/BoundBackupDirectory.php \
@@ -106,12 +109,14 @@ COMPONENT_FILES := \
 	admin/src/Core/Walk/TargetState.php \
 	admin/src/Core/Walk/TargetStatus.php \
 	admin/src/Core/Walk/WalkContext.php \
+	admin/src/Core/Write/ApplyExecutor.php \
 	admin/src/Core/Write/FreezeGuard.php \
 	admin/src/Core/Write/Freezer.php \
 	admin/src/Core/Write/MutationTransaction.php \
 	admin/src/Core/Write/RecoveryOutcome.php \
 	admin/src/Core/Write/Reverter.php \
 	admin/src/Core/Write/RunRecovery.php \
+	admin/src/Core/Write/TargetResult.php \
 	admin/src/Core/Write/TargetWriter.php \
 	admin/src/Core/Write/WriteOutcome.php \
 	admin/src/Core/Write/WritePlanner.php \
@@ -129,6 +134,8 @@ COMPONENT_FILES := \
 	admin/src/View/Targets/HtmlView.php \
 	admin/tmpl/dashboard/default.php \
 	admin/tmpl/targets/default.php \
+	admin/tmpl/targets/default_counts.php \
+	admin/tmpl/targets/default_rows.php \
 	admin/tmpl/targets/default_summary.php \
 	admin/tmpl/targets/default_targets.php \
 	admin/tmpl/targets/default_writeform.php \

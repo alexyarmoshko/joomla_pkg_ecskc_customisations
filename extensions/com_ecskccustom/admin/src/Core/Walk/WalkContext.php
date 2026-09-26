@@ -16,12 +16,18 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\HashResult;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleObject;
 
 /**
- * Mutable state carried through a single walkTarget pass.
+ * The walk's state for one target.
  *
- * Exists only to let the extracted walk helpers share state without passing
- * ten parameters back and forth.  Every field is public so the helpers read
- * and write it directly — the context is created, used and discarded inside
- * one walkTarget call.
+ * ObjectWalker creates one per target, its helpers read and write the public fields
+ * directly, and it is discarded when the target's state is built. `$state` is the
+ * simulated target: it starts as the hash, or the absence, observed on disk, and
+ * becomes the state each object the walk would apply leaves behind, so a later
+ * object is judged against what the earlier ones would leave.
+ *
+ * An object's predecessor is an earlier object that writes the hash it expects.
+ * `firstWriter` records, for each payload hash, the first position that writes it,
+ * so an object's own payload never counts as its predecessor, and a hash written
+ * again later still counts from its first position.
  *
  * @internal Not part of the public API; consumed only by ObjectWalker.
  */
@@ -55,60 +61,38 @@ final class WalkContext
     public readonly bool $packageOwned;
 
     /**
-     * Payload hashes written by earlier objects, per position.
+     * Each payload hash, lower case, and the position of the first object that writes it.
      *
-     * @var list<array<string, true>>
+     * @var array<string, int>
      */
-    public readonly array $writtenBefore;
+    private readonly array $firstWriter;
 
     /**
-     * The original object list, kept for recordConditionsUnmet which needs
-     * the full list to test gating.
-     *
-     * @var list<RuleObject>
+     * @param list<RuleObject> $objects The objects at this target, in load order.
      */
-    public readonly array $objects;
-
-    /**
-     * @param list<RuleObject> $objects
-     */
-    public function __construct(HashResult $actual, array $objects)
+    public function __construct(HashResult $actual, public readonly array $objects)
     {
         $this->state        = $actual;
-        $this->objects      = $objects;
         $this->packageOwned = $objects[0]->create;
 
-        // Pre-compute per-position payload hashes so an object can never
-        // link to itself.
-        $accumulated = [];
-        $before      = [];
+        $first = [];
 
-        foreach ($objects as $object) {
-            $before[] = $accumulated;
-
+        foreach ($objects as $index => $object) {
             foreach ($object->payloadHashes() as $hash) {
-                $accumulated[\strtolower($hash)] = true;
+                $first[\strtolower($hash)] ??= $index;
             }
         }
 
-        $this->writtenBefore = $before;
+        $this->firstWriter = $first;
     }
 
     /**
-     * The index of the given object in the original list.
-     *
-     * Used by recordConditionsUnmet which receives the object but not its
-     * position.
+     * Whether an object before position `$index` writes `$hash`.
      */
-    public function indexOf(RuleObject $object): int
+    public function isWrittenBefore(string $hash, int $index): bool
     {
-        foreach ($this->objects as $index => $candidate) {
-            if ($candidate === $object) {
-                return $index;
-            }
-        }
+        $first = $this->firstWriter[\strtolower($hash)] ?? null;
 
-        throw new \LogicException('Object not found in the walk context');
-
+        return $first !== null && $first < $index;
     }
 }

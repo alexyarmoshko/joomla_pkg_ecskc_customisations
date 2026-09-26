@@ -22,11 +22,9 @@ final class TempTree
     public static function create(string $prefix = 'ecskc-'): self
     {
         // The prefix names the tree; it does not get to say where the tree lives.
-        // create() is the one route into this class that resolve() cannot guard,
-        // because it is what builds the root resolve() measures against. A prefix
-        // carrying a separator steers the root anywhere reachable - measured:
-        // create('link/tree-') through a symbolic link in the temporary directory
-        // put the root under the link's target instead.
+        // resolve() cannot guard create(), because create() builds the root that
+        // resolve() measures against, and a prefix with a separator could put that
+        // root anywhere reachable.
         if (\preg_match('/\A[A-Za-z0-9._-]*\z/', $prefix) !== 1) {
             throw new RuntimeException(\sprintf(
                 'Refusing the temporary-tree prefix %s: it must be a bare name, '

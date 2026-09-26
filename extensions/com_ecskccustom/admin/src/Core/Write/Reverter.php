@@ -22,7 +22,8 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleAction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleObject;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleSet;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BoundBackupDirectory;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupCatalog;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupEntry;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventRecord;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
@@ -59,6 +60,8 @@ final class Reverter
 
     private readonly Hasher $hasher;
 
+    private readonly BackupCatalog $catalog;
+
     /**
      * @param Closure(string, string|null): void|null $checkpoint Called with a point
      *                                                            name and the staged
@@ -74,6 +77,7 @@ final class Reverter
         $this->writeRun = new WriteRun($paths, 'the target was not touched', $recovery);
         $this->guard    = new FreezeGuard(new FreezeMarkers($paths));
         $this->hasher   = new Hasher();
+        $this->catalog  = new BackupCatalog($paths);
         $this->writer   = new TargetWriter(
             $paths,
             $policy,
@@ -191,7 +195,7 @@ final class Reverter
             return WriteOutcome::refused((string) $reason);
         }
 
-        $backups = $this->backupsAt($targetPath, $hashType, $reason);
+        $backups = $this->catalog->newestFirst($targetPath, $hashType, $reason);
 
         if ($backups === null) {
             return WriteOutcome::refused((string) $reason);
@@ -228,8 +232,8 @@ final class Reverter
     /**
      * One step back from a known version: its newest backup, or the authored predecessor.
      *
-     * @param list<RuleObject>                                        $objects
-     * @param list<array{path: string, digest: string, version: int}> $backups
+     * @param list<RuleObject>  $objects
+     * @param list<BackupEntry> $backups
      */
     private function stepBackAtVersion(
         string $targetPath,
@@ -241,7 +245,7 @@ final class Reverter
     ): WriteOutcome {
         $atVersion = \array_values(\array_filter(
             $backups,
-            static fn (array $backup): bool => $backup['version'] === $version
+            static fn (BackupEntry $backup): bool => $backup->version === $version
         ));
 
         if ($atVersion !== []) {
@@ -256,9 +260,9 @@ final class Reverter
 
             return $this->writer->write(
                 $targetPath,
-                $restore['path'],
+                $restore->path,
                 $hashType,
-                $restore['digest'],
+                $restore->digest,
                 $current === EventRecord::ABSENT ? null : $current,
                 null,
                 EventRecord::REVERT
@@ -347,8 +351,8 @@ final class Reverter
     /**
      * Put back an expected original from a verified payload, or from a verified backup.
      *
-     * @param list<RuleObject>                                        $objects
-     * @param list<array{path: string, digest: string, version: int}> $backups
+     * @param list<RuleObject>  $objects
+     * @param list<BackupEntry> $backups
      */
     private function restoreExpected(
         string $targetPath,
@@ -393,17 +397,17 @@ final class Reverter
         }
 
         foreach ($backups as $backup) {
-            if ($backup['digest'] !== $expected) {
+            if ($backup->digest !== $expected) {
                 continue;
             }
 
-            if (!$this->hasher->hashFile($hashType, $backup['path'])->matches($expected)) {
+            if (!$this->hasher->hashFile($hashType, $backup->path)->matches($expected)) {
                 continue;
             }
 
             return $this->writer->write(
                 $targetPath,
-                $backup['path'],
+                $backup->path,
                 $hashType,
                 $expected,
                 $current === EventRecord::ABSENT ? null : $current,
@@ -597,11 +601,9 @@ final class Reverter
      * the live bytes, or a verified backup of this target already has to hold
      * them. Otherwise the live target is the only intact copy.
      *
-     * @param list<RuleObject>                                        $objects
-     * @param list<array{path: string, digest: string, version: int}> $backups
-     * @param string|null                                             $ambiguity Set when absence
-     *                                                                           has more than one
-     *                                                                           history.
+     * @param list<RuleObject>  $objects
+     * @param list<BackupEntry> $backups
+     * @param string|null       $ambiguity Set when absence has more than one history.
      */
     private function objectThatWrote(
         string $targetPath,
@@ -638,8 +640,8 @@ final class Reverter
         $wanted = \array_fill_keys($matching, true);
 
         foreach ($backups as $backup) {
-            if (isset($wanted[$backup['version']])) {
-                return $backup['version'];
+            if (isset($wanted[$backup->version])) {
+                return $backup->version;
             }
         }
 
@@ -800,14 +802,14 @@ final class Reverter
             }
         }
 
-        $backups = $this->backupsAt($targetPath, $hashType, $reason, true);
+        $backups = $this->catalog->newestFirst($targetPath, $hashType, $reason, true);
 
         if ($backups === null) {
             return false;
         }
 
         foreach ($backups as $backup) {
-            if ($backup['digest'] === $current) {
+            if ($backup->digest === $current) {
                 return true;
             }
         }
@@ -863,130 +865,21 @@ final class Reverter
     /**
      * Does a listed backup still hash to $digest?
      *
-     * @param list<array{path: string, digest: string, version: int}> $backups
+     * @param list<BackupEntry> $backups
      */
     private function verifiedBackupHolds(array $backups, string $hashType, string $digest): bool
     {
         foreach ($backups as $backup) {
-            if ($backup['digest'] !== $digest) {
+            if ($backup->digest !== $digest) {
                 continue;
             }
 
-            if ($this->hasher->hashFile($hashType, $backup['path'])->matches($digest)) {
+            if ($this->hasher->hashFile($hashType, $backup->path)->matches($digest)) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    /**
-     * This target's backups, newest first.
-     *
-     * A target with no mirrored directory has no backups, and that is an answer. Not
-     * being able to look is not: a symbolic link at a segment, a file where the
-     * directory should be, or a directory that cannot be listed or bound all refuse
-     * the step rather than report a chain with nothing behind it.
-     *
-     * @return list<array{path: string, digest: string, version: int}>|null
-     *                          Null with $reason set when they could not be listed.
-     */
-    private function backupsAt(
-        string $targetPath,
-        string $hashType,
-        ?string &$reason,
-        bool $requireHashMatch = false,
-    ): ?array {
-        $length = HashAlgorithm::digestLength($hashType);
-
-        if ($length === null) {
-            $reason = HashAlgorithm::unsupportedReason($hashType);
-
-            return null;
-        }
-
-        $missing = false;
-        $bound   = BoundBackupDirectory::open($this->paths, $targetPath, false, missing: $missing);
-
-        if (\is_string($bound)) {
-            if ($missing) {
-                // No mirrored directory is no backup, which is an answer rather than
-                // a fault: a target nothing has ever displaced has none.
-                return [];
-            }
-
-            // Anything else means the backups could not be looked at. Reading that
-            // as an empty listing would report a clean start of chain over state
-            // the package never saw, and a step back is not taken on a guess.
-            $reason = \sprintf(
-                'the backups of %s could not be inspected: %s',
-                $targetPath,
-                $bound
-            );
-
-            return null;
-        }
-
-        try {
-            $entries = @\scandir($bound->proc);
-
-            if ($entries === false) {
-                $reason = \sprintf(
-                    'the backups of %s could not be listed, so the package cannot say what to '
-                    . 'restore there',
-                    $targetPath
-                );
-
-                return null;
-            }
-
-            $directory = \dirname($this->paths->backup() . '/' . $targetPath);
-            $found     = [];
-
-            foreach ($entries as $entry) {
-                $parsed = PackagePaths::parseBackupName($entry, $targetPath);
-
-                if ($parsed === null || \strlen($parsed['digest']) !== $length) {
-                    continue;
-                }
-
-                $path = $bound->child($entry);
-                \clearstatcache(true, $path);
-
-                if (\is_link($path) || !\is_file($path)) {
-                    continue;
-                }
-
-                if ($requireHashMatch && !$this->hasher->hashFile($hashType, $path)->matches($parsed['digest'])) {
-                    continue;
-                }
-
-                $found[] = [
-                    'path'     => $directory . '/' . $entry,
-                    'digest'   => $parsed['digest'],
-                    'version'  => $parsed['version'],
-                    'modified' => (int) @\filemtime($path),
-                    'name'     => $entry,
-                ];
-            }
-        } finally {
-            $bound->close();
-        }
-
-        \usort(
-            $found,
-            static fn (array $left, array $right): int => [$right['modified'], $right['name']]
-                <=> [$left['modified'], $left['name']]
-        );
-
-        return \array_map(
-            static fn (array $backup): array => [
-                'path'    => $backup['path'],
-                'digest'  => $backup['digest'],
-                'version' => $backup['version'],
-            ],
-            $found
-        );
     }
 
     /**

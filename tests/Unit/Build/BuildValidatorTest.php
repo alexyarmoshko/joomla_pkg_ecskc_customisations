@@ -407,6 +407,25 @@ final class BuildValidatorTest extends TestCase
         self::assertStringContainsString('^.*$', $check->warnings[0]);
     }
 
+    /**
+     * The warning judges the operand the runtime evaluates. Collapsing its
+     * internal whitespace first would read `^  ?$` as `^ ?$`, which does match
+     * the empty string, and warn about an expression that never runs.
+     */
+    public function testInternalWhitespaceInAnExpressionIsKeptWhenCheckingForTheEmptyString(): void
+    {
+        $check = $this->check([
+            '10-spaces.xml' => self::oneObject(
+                dest: 'a/one.css',
+                source: 'one.v1',
+                conditions: RuleXml::conditions(EnvironmentValues::HOST, '^  ?$', 'regex'),
+            ),
+        ], ['one.v1']);
+
+        self::assertTrue($check->ok(), \implode("\n", $check->errors));
+        self::assertSame([], $check->warnings, \implode("\n", $check->warnings));
+    }
+
     public function testASiteUrlRegularExpressionThatLooksLikeAHostIsAWarning(): void
     {
         $check = $this->check([

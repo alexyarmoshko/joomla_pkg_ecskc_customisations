@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace YakShaver\ECSKCCustomisation\Tests\Unit\Tools;
 
-use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use YakShaver\ECSKCCustomisation\Tests\Support\ChildProcess;
+use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
  * The authoring helper's reported byte shape, not package hashing.
@@ -86,29 +87,9 @@ final class HashHelperTest extends TestCase
     {
         $script = \dirname(__DIR__, 3) . '/tools/hash.php';
 
-        $pipes = [];
-        $process = \proc_open(
-            [\PHP_BINARY, $script, $path],
-            [
-                0 => ['pipe', 'r'],
-                1 => ['pipe', 'w'],
-                2 => ['pipe', 'w'],
-            ],
-            $pipes
-        );
+        [$status, $stdout, $stderr] = ChildProcess::run([\PHP_BINARY, $script, $path]);
 
-        self::assertIsResource($process, 'Could not start tools/hash.php');
-
-        \fclose($pipes[0]);
-        $stdout = \stream_get_contents($pipes[1]);
-        $stderr = \stream_get_contents($pipes[2]);
-        \fclose($pipes[1]);
-        \fclose($pipes[2]);
-        $status = \proc_close($process);
-
-        self::assertSame(0, $status, $stderr === '' ? (string) $stdout : (string) $stderr);
-        self::assertIsString($stdout);
-        self::assertIsString($stderr);
+        self::assertSame(0, $status, $stderr === '' ? $stdout : $stderr);
         self::assertSame('', $stderr, $stdout);
 
         $fields = [];

@@ -14,7 +14,6 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Model;
 
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\RunReport;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\TargetReport;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\Reverter;
 
 \defined('_JEXEC') or die;
 
@@ -89,17 +88,10 @@ final class WriteResult
         $warning = null;
 
         foreach ($report->targets() as $target) {
-            $row       = self::row($target);
-            $targets[] = $row;
+            $targets[] = self::row($target);
 
-            // The revert warning is the core's sentence inside the outcome. It is
-            // lifted out so the page can put it where it cannot be missed.
-            if ($operation === self::REVERT && $row['path'] === $path && $row['outcome'] !== null) {
-                $sentence = \sprintf(Reverter::REAPPLY_WARNING, $path);
-
-                if (\str_contains($row['outcome'], $sentence)) {
-                    $warning = $sentence;
-                }
+            if ($operation === self::REVERT && $target->targetPath() === $path) {
+                $warning = $target->warning;
             }
         }
 
@@ -116,9 +108,11 @@ final class WriteResult
     }
 
     /**
+     * One target's line in the stored shape, which both report pages render.
+     *
      * @return Row
      */
-    private static function row(TargetReport $target): array
+    public static function row(TargetReport $target): array
     {
         $objects = [];
 

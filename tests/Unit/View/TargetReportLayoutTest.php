@@ -84,6 +84,16 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             ?WriteResult $result = null,
         ): string {
             $view = new class ($report, $items ?? $report->targets(), $run ?? RunRequest::wholeSetCheck(), $canWrite, $result) {
+                /** @var array<string, mixed> */
+                public array $counts = [];
+
+                /** @var list<array<string, mixed>> */
+                public array $rows = [];
+
+                public bool $rowsOpen = false;
+
+                public ?\Closure $rowControls = null;
+
                 /**
                  * @param list<TargetReport> $items
                  */
@@ -112,10 +122,26 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                     return \htmlspecialchars('index.php?option=com_ecskccustom&task=targets.' . $operation, ENT_COMPAT, 'UTF-8');
                 }
 
-                // The write form needs HTMLHelper for its token; the layouts are tested without it.
+                // Loads default_<tpl>.php, which HtmlView::loadTemplate() falls back to
+                // from any layout. The write form needs HTMLHelper for its token, so the
+                // layouts are tested without it.
                 public function loadTemplate(string $tpl): string
                 {
-                    return '';
+                    if ($tpl === 'writeform') {
+                        return '';
+                    }
+
+                    \ob_start();
+
+                    try {
+                        include \dirname(__DIR__, 3) . '/extensions/com_ecskccustom/admin/tmpl/targets/default_' . $tpl . '.php';
+                    } catch (\Throwable $e) {
+                        \ob_end_clean();
+
+                        throw $e;
+                    }
+
+                    return (string) \ob_get_clean();
                 }
             };
 
@@ -199,14 +225,19 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             );
         }
 
-        private static function line(TargetState $state, array $plan = [], ?ReportedValue $outcome = null): TargetReport
-        {
+        private static function line(
+            TargetState $state,
+            array $plan = [],
+            ?ReportedValue $outcome = null,
+            ?string $warning = null,
+        ): TargetReport {
             return new TargetReport(
                 $state,
                 ReportedValue::none(self::NO_WRITE),
                 ReportedValue::none('a check performs no operation'),
                 $plan,
-                $outcome
+                $outcome,
+                $warning
             );
         }
 
@@ -696,15 +727,18 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             self::assertSame(\array_fill(0, 4, $path), self::texts($xpath, '//p[@class="ecskc-row-writes mb-0"]/button/@value'));
         }
 
-        private static function revertResult(): WriteResult
+        /**
+         * @param bool $moved Whether the revert moved the file, and so carries the warning.
+         */
+        private static function revertResult(bool $moved = true): WriteResult
         {
-            $path    = 'templates/et_tennis/css/chain.css';
-            $warning = \sprintf(Reverter::REAPPLY_WARNING, $path);
-            $report  = RunReport::of(
+            $path   = 'templates/et_tennis/css/chain.css';
+            $report = RunReport::of(
                 [self::line(
                     self::state($path, TargetStatus::ACTIONABLE, 'version 2 would apply'),
                     [],
-                    ReportedValue::known('the target was stepped back to version 1. ' . $warning)
+                    ReportedValue::known('the target was stepped back to version 1'),
+                    $moved ? \sprintf(Reverter::REAPPLY_WARNING, $path) : null
                 )],
                 OperationalChecks::none(),
                 ReportedValue::known('the run begun at 10:00 was interrupted <b>after</b> its intent'),
@@ -735,6 +769,16 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
             self::assertSame([(string) $result->warning], self::texts($reader, $block . '/p'));
             self::assertSame([], self::texts($reader, '//button'));
+        }
+
+        public function testARevertWithNoWarningShowsNeitherTheWarningNorItsFreezeButton(): void
+        {
+            $result = self::revertResult(false);
+            $xpath  = self::dom(self::render('result', self::everyStatus(OperationalChecks::none()), null, null, true, $result));
+
+            self::assertNull($result->warning);
+            self::assertSame([], self::texts($xpath, '//*[@id="ecskc-revert-warning"]'));
+            self::assertSame([], self::texts($xpath, '//*[@id="ecskc-revert-freeze"]'));
         }
 
         public function testTheResultShowsWhyTheRunStoppedVerbatimAndNeverSaysNothingWasWritten(): void

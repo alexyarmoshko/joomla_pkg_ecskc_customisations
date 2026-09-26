@@ -51,10 +51,11 @@ class ECSKCCustomisationComponent extends MVCComponent
     }
 
     /**
-     * The same runner, typed so a caller can reach only the reads.
+     * The same runner, typed as the read-only interface.
      *
-     * The installer plugin takes this one, so no change to the plugin can start a write
-     * run without first changing its type.
+     * The installer plugin takes this one. The type is a static contract: the object
+     * is still the concrete `Runner`, so it keeps the plugin to reads only for as long
+     * as the plugin calls nothing outside the interface.
      */
     public function readOnlyRunner(): ReadOnlyRunnerInterface
     {

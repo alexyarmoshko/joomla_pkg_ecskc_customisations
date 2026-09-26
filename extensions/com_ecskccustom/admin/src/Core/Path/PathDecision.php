@@ -20,8 +20,9 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path;
  * which of confinement, the allow list or the deny list refused the path - the
  * three mean different things about what the author got wrong.
  *
- * An allowed decision carries the resolved absolute path, so nothing downstream
- * has to resolve it a second time and reach a different answer.
+ * An allowed decision carries the resolved absolute path as it stood when the
+ * policy decided. It holds for that observation only: a writer decides again
+ * immediately before it mutates, and refuses if the path now resolves elsewhere.
  */
 final class PathDecision
 {

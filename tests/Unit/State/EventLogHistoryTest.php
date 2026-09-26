@@ -10,8 +10,8 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventLog;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventLogHistory;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\EventRecord;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\ReportOnlyHistory;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunMarker;
+use YakShaver\ECSKCCustomisation\Tests\Support\ReportOnlyHistory;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
 
@@ -23,7 +23,6 @@ use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
  * the runtime will actually meet.
  */
 #[CoversClass(EventLogHistory::class)]
-#[CoversClass(ReportOnlyHistory::class)]
 final class EventLogHistoryTest extends TestCase
 {
     private const TARGET = 'templates/et_tennis/css/override.css';

@@ -102,12 +102,12 @@ final class ObjectWalker
             }
 
             if (!$object->enable) {
-                $this->walkDisabledObject($object, $objects, $index, $ctx);
+                $this->walkDisabledObject($object, $index, $ctx);
 
                 continue;
             }
 
-            $selection = $this->chooseAction($object, $values, $ctx);
+            $selection = $this->chooseAction($object, $index, $values, $ctx);
 
             if ($selection->isFaulted()) {
                 return $this->faultedTarget(
@@ -160,18 +160,12 @@ final class ObjectWalker
     /**
      * Handle a disabled object: record the outcome, decide whether it gates later
      * objects, and update the skip qualifier when the object could have advanced.
-     *
-     * @param list<RuleObject> $objects
      */
-    private function walkDisabledObject(
-        RuleObject $object,
-        array $objects,
-        int $index,
-        WalkContext $ctx,
-    ): void {
+    private function walkDisabledObject(RuleObject $object, int $index, WalkContext $ctx): void
+    {
         $reachable = $this->couldAdvance($object, $ctx->state);
 
-        $gates = $reachable && $this->gatesALaterChainStep($object, $objects, $index);
+        $gates = $reachable && $this->gatesALaterChainStep($object, $ctx->objects, $index);
 
         if ($gates) {
             $reason = 'the object is disabled, and a later object at this target expects '
@@ -202,6 +196,7 @@ final class ObjectWalker
      */
     private function chooseAction(
         RuleObject $object,
+        int $index,
         EnvironmentValues $values,
         WalkContext $ctx,
     ): ActionSelection {
@@ -230,7 +225,7 @@ final class ObjectWalker
         }
 
         if ($chosen === null) {
-            $this->recordConditionsUnmet($object, $ctx);
+            $this->recordConditionsUnmet($object, $index, $ctx);
 
             return ActionSelection::unmet();
         }
@@ -242,13 +237,13 @@ final class ObjectWalker
      * An object whose conditions did not hold: record the outcome and decide whether
      * the skip gates a later chain step or simply qualifies the status.
      */
-    private function recordConditionsUnmet(RuleObject $object, WalkContext $ctx): void
+    private function recordConditionsUnmet(RuleObject $object, int $index, WalkContext $ctx): void
     {
         $reachable = $this->couldAdvance($object, $ctx->state);
 
         $gates = $reachable
             && $ctx->settled !== null
-            && $this->gatesALaterChainStep($object, $ctx->objects, $ctx->indexOf($object));
+            && $this->gatesALaterChainStep($object, $ctx->objects, $index);
 
         $ctx->outcomes[] = ObjectOutcome::for(
             $object,
@@ -313,7 +308,7 @@ final class ObjectWalker
                     $ctx->expected = HashResult::digest($object->expectedHash);
                 }
 
-                if ($this->stopsTheChainShort($object, $ctx->settled, $ctx->packageOwned, $ctx->writtenBefore[$index])) {
+                if ($this->stopsTheChainShort($object, $index, $ctx)) {
                     $ctx->pendingGates[] = \array_key_last($ctx->outcomes);
                 }
 
@@ -322,7 +317,7 @@ final class ObjectWalker
             default:
                 $ctx->refusedByPermit = true;
 
-                if ($this->stopsTheChainShort($object, $ctx->settled, $ctx->packageOwned, $ctx->writtenBefore[$index])) {
+                if ($this->stopsTheChainShort($object, $index, $ctx)) {
                     $ctx->pendingGates[] = \array_key_last($ctx->outcomes);
                 }
         }
@@ -498,26 +493,19 @@ final class ObjectWalker
      * each other by construction, so a later one the walk cannot use has either forked
      * or broken, and the build's own chain check refuses a package-owned object whose
      * expectation no earlier object writes.
-     *
-     * @param array<string, true> $writtenBefore Payload hashes written by the objects
-     *                                           ahead of this one, lower case.
      */
-    private function stopsTheChainShort(
-        RuleObject $object,
-        ?RuleObject $settled,
-        bool $packageOwned,
-        array $writtenBefore,
-    ): bool {
-        if ($settled === null) {
+    private function stopsTheChainShort(RuleObject $object, int $index, WalkContext $ctx): bool
+    {
+        if ($ctx->settled === null) {
             return false;
         }
 
-        if ($packageOwned) {
+        if ($ctx->packageOwned) {
             return true;
         }
 
         return $object->expectedHash !== null
-            && isset($writtenBefore[\strtolower($object->expectedHash)]);
+            && $ctx->isWrittenBefore($object->expectedHash, $index);
     }
 
     /**

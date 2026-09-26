@@ -161,25 +161,18 @@ final class EventRecord
         ?int $at = null,
     ): self {
         self::require(\in_array($kind, self::MUTATIONS, true), 'mutation kind', $kind);
-        self::require(\in_array($operation, self::OPERATIONS, true), 'operation', $operation);
+        self::require(self::isOperation($operation), 'operation', $operation);
         self::require(self::operationFitsKind($kind, $operation), 'kind and operation pair', $kind . '/' . $operation);
         self::require(PackagePaths::isCanonicalTargetPath($target), 'target path', $target);
-        self::require(\preg_match(self::STATE, $pre) === 1, 'pre-state', $pre);
-        self::require(\preg_match(self::STATE, $post) === 1, 'post-state', $post);
+        self::require(self::isState($pre), 'pre-state', $pre);
+        self::require(self::isState($post), 'post-state', $post);
         self::require(
-            !self::isMarkerMutation($kind, $operation)
-                || (\in_array($pre, [self::ABSENT, self::PRESENT], true)
-                    && \in_array($post, [self::ABSENT, self::PRESENT], true)
-                    && ($observed === null || \in_array($observed, [self::ABSENT, self::PRESENT], true))),
+            self::markerStatesFit($kind, $operation, $pre, $post, $observed),
             'freeze-marker transition',
             $pre . ' to ' . $post
         );
-        self::require(
-            $observed === null || \preg_match(self::STATE, $observed) === 1,
-            'observed state',
-            $observed
-        );
-        self::require(\preg_match(WriteIntent::ID, $id) === 1, 'correlation id', $id);
+        self::require($observed === null || self::isState($observed), 'observed state', $observed);
+        self::require(self::isCorrelationId($id), 'correlation id', $id);
         self::require(
             \in_array($attribution, self::ATTRIBUTIONS, true),
             'attribution',
@@ -388,6 +381,9 @@ final class EventRecord
     /**
      * The mutation factory's contract, used on read so a known kind cannot arrive
      * half-built. Unknown future kinds skip this and stay records.
+     *
+     * Each rule is one of the predicates below, which the factory also calls, so a
+     * record this version writes is one it can read back, and the reverse.
      */
     private static function isReadableMutation(
         string $kind,
@@ -398,21 +394,58 @@ final class EventRecord
         ?string $observed,
         ?string $id,
     ): bool {
-        if ($target === null
-            || $operation === null || !\in_array($operation, self::OPERATIONS, true)
-            || !self::operationFitsKind($kind, $operation)
-            || $pre === null || \preg_match(self::STATE, $pre) !== 1
-            || $post === null || \preg_match(self::STATE, $post) !== 1
-            || $id === null || \preg_match(WriteIntent::ID, $id) !== 1
-            || ($observed !== null && \preg_match(self::STATE, $observed) !== 1)
-        ) {
-            return false;
+        return $target !== null
+            && $operation !== null
+            && self::isOperation($operation)
+            && self::operationFitsKind($kind, $operation)
+            && $pre !== null
+            && self::isState($pre)
+            && $post !== null
+            && self::isState($post)
+            && $id !== null
+            && self::isCorrelationId($id)
+            && ($observed === null || self::isState($observed))
+            && self::markerStatesFit($kind, $operation, $pre, $post, $observed);
+    }
+
+    private static function isOperation(string $operation): bool
+    {
+        return \in_array($operation, self::OPERATIONS, true);
+    }
+
+    /** `absent`, `present`, or a sha256 digest. */
+    private static function isState(string $state): bool
+    {
+        return \preg_match(self::STATE, $state) === 1;
+    }
+
+    private static function isCorrelationId(string $id): bool
+    {
+        return \preg_match(WriteIntent::ID, $id) === 1;
+    }
+
+    /**
+     * A freeze marker is either there or not, so every state a marker mutation names
+     * is `absent` or `present`. Any other mutation may name a digest.
+     */
+    private static function markerStatesFit(
+        string $kind,
+        string $operation,
+        string $pre,
+        string $post,
+        ?string $observed,
+    ): bool {
+        if (!self::isMarkerMutation($kind, $operation)) {
+            return true;
         }
 
-        return !self::isMarkerMutation($kind, $operation)
-            || (\in_array($pre, [self::ABSENT, self::PRESENT], true)
-                && \in_array($post, [self::ABSENT, self::PRESENT], true)
-                && ($observed === null || \in_array($observed, [self::ABSENT, self::PRESENT], true)));
+        foreach ([$pre, $post, $observed ?? self::ABSENT] as $state) {
+            if (!\in_array($state, [self::ABSENT, self::PRESENT], true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

@@ -14,6 +14,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupOutcom
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupStore;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BoundBackupDirectory;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
+use YakShaver\ECSKCCustomisation\Tests\Support\ChildProcess;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 #[CoversClass(BackupStore::class)]
@@ -112,22 +113,7 @@ final class BackupStoreTest extends TestCase
             \escapeshellarg($this->source)
         );
 
-        $pipes   = [];
-        $process = \proc_open(
-            ['sh', '-c', $command],
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes
-        );
-
-        self::assertIsResource($process, 'Could not start the file-size-limited backup child.');
-
-        \fclose($pipes[0]);
-        $stdout = (string) \stream_get_contents($pipes[1]);
-        $stderr = (string) \stream_get_contents($pipes[2]);
-        \fclose($pipes[1]);
-        \fclose($pipes[2]);
-
-        return [\proc_close($process), $stdout, $stderr];
+        return ChildProcess::run(['sh', '-c', $command]);
     }
 
     public function testABackupIsPublishedUnderTheMirroredTargetPathWithTheDisplacedBytes(): void

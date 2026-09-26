@@ -47,6 +47,11 @@ final class TargetReport
 
     /**
      * @param list<PlannedOperation> $plan
+     * @param string|null            $warning Something the operation here has to tell
+     *                                        the operator, kept apart from its outcome
+     *                                        so the page can show it where it cannot
+     *                                        be missed. Only a revert that moved the
+     *                                        file has one.
      */
     public function __construct(
         public readonly TargetState $state,
@@ -54,6 +59,7 @@ final class TargetReport
         public readonly ReportedValue $backup,
         private readonly array $plan = [],
         public readonly ?ReportedValue $outcome = null,
+        public readonly ?string $warning = null,
     ) {
     }
 

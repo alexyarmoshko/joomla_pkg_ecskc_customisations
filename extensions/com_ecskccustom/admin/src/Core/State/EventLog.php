@@ -106,9 +106,12 @@ final class EventLog
 
         [$handle, $created] = $opened;
 
-        // Blocking, for the reason in the class comment. LOCK_EX can still fail, on a
-        // filesystem that does not support it, and that is a fault rather than a
-        // reason to write unlocked beside another process.
+        // Blocking, because every holder lets go quickly. This lock serialises
+        // appenders and readers of the log, and each holds it for one append or one
+        // read of the file. The package's own appends also run inside the write-run
+        // lock, so in practice an append waits only for a reader. LOCK_EX can still
+        // fail, on a filesystem that does not support it, and that is a fault rather
+        // than a reason to write unlocked beside another process.
         if (!\flock($handle, \LOCK_EX)) {
             \fclose($handle);
             $this->failure = \sprintf(self::UNLOCKABLE, $this->path(), 'appending');

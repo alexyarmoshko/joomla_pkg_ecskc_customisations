@@ -80,7 +80,11 @@ final class RunLock
     }
 
     /**
-     * Observe the lock for a report, without taking it and without creating the file.
+     * Observe the lock for a report, without creating the file.
+     *
+     * This never takes the exclusive write-run lock. Where the file exists it holds
+     * a non-blocking shared lock, which refuses while a write run is in progress,
+     * and keeps it until `release()`.
      */
     public function observe(): bool
     {

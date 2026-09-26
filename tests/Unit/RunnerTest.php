@@ -26,10 +26,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\FreezeMarkers;
-use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\ReportOnlyHistory;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteHistoryInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
+use YakShaver\ECSKCCustomisation\Tests\Support\ReportOnlyHistory;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 use YakShaver\ECSKCCustomisation\Tests\Support\StubOperationalChecks;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
@@ -49,7 +49,6 @@ use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 #[CoversClass(RunReport::class)]
 #[CoversClass(RunCounts::class)]
 #[CoversClass(TargetReport::class)]
-#[CoversClass(ReportOnlyHistory::class)]
 final class RunnerTest extends TestCase
 {
     private const PACKAGE = 'administrator/components/com_ecskccustom';

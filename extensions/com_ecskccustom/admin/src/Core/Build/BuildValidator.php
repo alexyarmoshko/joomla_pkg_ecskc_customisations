@@ -14,6 +14,7 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Build;
 
 use RuntimeException;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\ConditionGroup;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\RegexExpression;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\RuleCondition;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentResolver;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\EnvironmentValues;
@@ -34,16 +35,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidat
  */
 final class BuildValidator
 {
-    /**
-     * Tried in the same order as ConditionEvaluator. Kept here because the
-     * warning pass has to compile an expression against the empty string, which
-     * the evaluator will not do: an undeterminable value faults before any
-     * pattern is evaluated.
-     *
-     * @var list<string>
-     */
-    private const DELIMITERS = ['/', '~', '#', '%', '!', '@', ';', ',', '|', '+', '=', ':'];
-
     private readonly RuleLoader $loader;
 
     private readonly Hasher $hasher;
@@ -225,11 +216,9 @@ final class BuildValidator
         $warnings = [];
 
         foreach ($this->conditionsOf($object) as $condition) {
-            $operand = $this->collapse($condition->operand);
-
             if ($condition->type === RuleCondition::LITERAL
                 && $condition->attribute === EnvironmentValues::HOST
-                && $operand !== EnvironmentResolver::canonicalHost($operand)
+                && $condition->operand !== EnvironmentResolver::canonicalHost($condition->operand)
             ) {
                 $warnings[] = \sprintf(
                     '%s: literal HOST "%s" is not canonical. EnvironmentResolver lower-cases '
@@ -243,7 +232,7 @@ final class BuildValidator
                 continue;
             }
 
-            if (!$this->isAnchored($operand)) {
+            if (!$this->isAnchored($condition->operand)) {
                 $warnings[] = \sprintf(
                     '%s: the regular expression for %s is unanchored. An excluding pattern '
                     . 'that is not anchored matches the value it was written to exclude.',
@@ -252,18 +241,18 @@ final class BuildValidator
                 );
             }
 
-            if ($this->matchesEmptyString($operand)) {
+            if ($this->matchesEmptyString($condition->operand)) {
                 $warnings[] = \sprintf(
                     '%s: the regular expression %s for %s matches the empty string. An '
                     . 'undetermined value faults before any pattern is evaluated, so this '
                     . 'almost always means the author misunderstood the value\'s shape.',
                     $object->label(),
-                    \var_export($operand, true),
+                    \var_export($condition->operand, true),
                     $condition->attribute
                 );
             }
 
-            if ($condition->attribute === EnvironmentValues::SITE_URL && $this->looksLikeAHost($operand)) {
+            if ($condition->attribute === EnvironmentValues::SITE_URL && $this->looksLikeAHost($condition->operand)) {
                 $warnings[] = \sprintf(
                     '%s: the regular expression for SITE_URL appears to describe a host. '
                     . 'SITE_URL is a URL (https://ecskc.eu) and HOST is the host on its own '
@@ -310,11 +299,6 @@ final class BuildValidator
         }
     }
 
-    private function collapse(string $value): string
-    {
-        return \trim((string) \preg_replace('/\s+/', ' ', $value));
-    }
-
     private function isAnchored(string $pattern): bool
     {
         return \str_starts_with($pattern, '^') && \str_ends_with($pattern, '$');
@@ -340,21 +324,13 @@ final class BuildValidator
             return true;
         }
 
-        $delimiter = null;
+        $expression = RegexExpression::of($pattern);
 
-        foreach (self::DELIMITERS as $candidate) {
-            if (!\str_contains($pattern, $candidate)) {
-                $delimiter = $candidate;
-
-                break;
-            }
-        }
-
-        if ($delimiter === null) {
+        if ($expression === null) {
             return false;
         }
 
-        $result = @\preg_match($delimiter . $pattern . $delimiter . 'D', '');
+        $result = @\preg_match($expression, '');
 
         return $result === 1;
     }

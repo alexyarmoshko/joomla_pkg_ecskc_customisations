@@ -7,6 +7,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SimpleXMLElement;
+use YakShaver\ECSKCCustomisation\Tests\Support\MakefileList;
 
 /**
  * The package manifest installs the component and both plugins, component first,
@@ -52,23 +53,6 @@ final class PackageManifestTest extends TestCase
         self::assertIsString($makefile);
 
         return $makefile;
-    }
-
-    /**
-     * @return list<string>
-     */
-    private static function makefileList(string $name): array
-    {
-        self::assertSame(
-            1,
-            \preg_match('/^' . $name . ' := \\\\\n((?:\t\S+(?: \\\\)?\n)+)/m', self::makefile(), $match),
-            $name . ' must be a one-entry-per-line list in the Makefile.'
-        );
-
-        return \array_map(
-            static fn (string $line): string => \trim($line, " \t\\"),
-            \explode("\n", \trim($match[1]))
-        );
     }
 
     /**
@@ -162,7 +146,7 @@ final class PackageManifestTest extends TestCase
     {
         $named = \array_map(static fn (SimpleXMLElement $child): string => (string) $child, self::children());
 
-        self::assertSame($named, self::makefileList('CHILD_ARCHIVES'));
+        self::assertSame($named, MakefileList::read('CHILD_ARCHIVES'));
     }
 
     /**
@@ -233,7 +217,7 @@ final class PackageManifestTest extends TestCase
                 '$(INSTALLER_PLUGIN_ROOT)/ecskccustom.xml',
                 '$(UPDATE_TEMPLATE)',
             ],
-            self::makefileList('VERSIONED_MANIFESTS')
+            MakefileList::source('VERSIONED_MANIFESTS')
         );
 
 

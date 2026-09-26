@@ -9,7 +9,6 @@ use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupOutcome;
@@ -21,6 +20,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\MutationTransaction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\TargetWriter;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteOutcome;
+use YakShaver\ECSKCCustomisation\Tests\Support\Crash;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
 /**
@@ -156,31 +156,6 @@ final class TargetWriterTest extends TestCase
 
         \chmod($directory, 0555);
         $this->readOnly[] = $directory;
-    }
-
-    private static function crashAt(string $point): Closure
-    {
-        return static function (string $reached) use ($point): void {
-            if ($reached === $point) {
-                throw new RuntimeException('simulated crash at ' . $point);
-            }
-        };
-    }
-
-    /**
-     * @param Closure(): WriteOutcome $operation
-     */
-    private static function crash(Closure $operation): void
-    {
-        try {
-            $operation();
-        } catch (RuntimeException $crash) {
-            self::assertStringStartsWith('simulated crash at ', $crash->getMessage());
-
-            return;
-        }
-
-        self::fail('The operation did not reach its crash point.');
     }
 
     /**
@@ -435,7 +410,7 @@ final class TargetWriterTest extends TestCase
 
     public function testACrashAfterIntentAndBeforeACreateLeavesTheTargetAbsentAndTheIntentWhole(): void
     {
-        self::crash(fn (): WriteOutcome => $this->create(self::crashAt(TargetWriter::INTENT_PUBLISHED)));
+        Crash::assertReached(fn (): WriteOutcome => $this->create(Crash::at(TargetWriter::INTENT_PUBLISHED)));
 
         $intent = $this->intents()->read()->intent;
 
@@ -453,7 +428,7 @@ final class TargetWriterTest extends TestCase
     {
         $this->original();
 
-        self::crash(fn (): WriteOutcome => $this->removal(null, self::crashAt(TargetWriter::INTENT_PUBLISHED)));
+        Crash::assertReached(fn (): WriteOutcome => $this->removal(null, Crash::at(TargetWriter::INTENT_PUBLISHED)));
 
         $intent = $this->intents()->read()->intent;
 
@@ -464,7 +439,7 @@ final class TargetWriterTest extends TestCase
 
     public function testACrashAfterACreateAndBeforeItsEventLeavesTheFileAndTheIntent(): void
     {
-        self::crash(fn (): WriteOutcome => $this->create(self::crashAt(TargetWriter::MUTATED)));
+        Crash::assertReached(fn (): WriteOutcome => $this->create(Crash::at(TargetWriter::MUTATED)));
 
         self::assertSame(self::PAYLOAD, \file_get_contents($this->target()));
         self::assertTrue($this->intents()->read()->isPresent());
@@ -475,7 +450,7 @@ final class TargetWriterTest extends TestCase
     {
         $this->original();
 
-        self::crash(fn (): WriteOutcome => $this->removal(null, self::crashAt(TargetWriter::MUTATED)));
+        Crash::assertReached(fn (): WriteOutcome => $this->removal(null, Crash::at(TargetWriter::MUTATED)));
 
         self::assertFileDoesNotExist($this->target());
         self::assertTrue($this->intents()->read()->isPresent());
@@ -484,7 +459,7 @@ final class TargetWriterTest extends TestCase
 
     public function testACrashAfterTheEventCommitsLeavesTheIntentWithTheIdAlreadyLogged(): void
     {
-        self::crash(fn (): WriteOutcome => $this->create(self::crashAt(TargetWriter::EVENT_COMMITTED)));
+        Crash::assertReached(fn (): WriteOutcome => $this->create(Crash::at(TargetWriter::EVENT_COMMITTED)));
 
         $intent  = $this->intents()->read()->intent;
         $records = $this->records();

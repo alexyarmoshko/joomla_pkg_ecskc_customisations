@@ -166,7 +166,7 @@ final class OperationsTest extends RunnerHarness
         );
         self::assertStringContainsString(
             'carries ' . self::CHAIN . ' forward',
-            $this->target($report, self::CHAIN)->outcome()->describe()
+            (string) $this->target($report, self::CHAIN)->warning
         );
 
         $this->runner()->revert(self::CHAIN);

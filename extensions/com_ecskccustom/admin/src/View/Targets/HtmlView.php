@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\View\Targets;
 
+use Closure;
 use Joomla\CMS\Form\Form;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\View\HtmlView as BaseHtmlView;
@@ -64,6 +65,31 @@ class HtmlView extends BaseHtmlView
 
     /** @var array<string, mixed> */
     public array $activeFilters = [];
+
+    /**
+     * The shared `counts` partial's input, set by the layout that loads it.
+     *
+     * @var array{faults: list<string>, interruption: string|null, byStatus: array<string, int>, total: int}|array{}
+     */
+    public array $counts = [];
+
+    /**
+     * The shared `rows` partial's input, set by the layout that loads it: the rows in
+     * WriteResult's primitive shape, with `backup` null where no backup line is shown.
+     *
+     * @var list<array<string, mixed>>
+     */
+    public array $rows = [];
+
+    /** Whether each row's details start open. */
+    public bool $rowsOpen = false;
+
+    /**
+     * Trusted HTML to put under a row's path, or null for none.
+     *
+     * @var (Closure(array<string, mixed>): string)|null
+     */
+    public ?Closure $rowControls = null;
 
     /**
      * @param string|null $tpl

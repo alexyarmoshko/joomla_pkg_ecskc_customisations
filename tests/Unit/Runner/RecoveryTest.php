@@ -16,6 +16,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteIntentStore;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\RecoveryOutcome;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\Reverter;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\RunRecovery;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\TargetWriter;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
@@ -664,6 +665,29 @@ final class RecoveryTest extends RunnerHarness
             \implode("\n", $report->faults())
         );
         self::assertTrue($this->lockIsFree());
+    }
+
+    /**
+     * The same break after a revert. With no line to carry it, the warning that the
+     * next apply undoes the revert goes into the fault text beside the outcome.
+     */
+    public function testARuleSetThatBreaksAfterARevertKeepsTheReapplyWarning(): void
+    {
+        $this->writeFixture();
+        $this->runner()->apply(self::VENDOR);
+
+        $report = $this->runner(function (string $point): void {
+            if ($point === TargetWriter::EVENT_COMMITTED) {
+                $this->tree->write(self::PACKAGE . '/rules/10-run.xml', '<patch');
+            }
+        })->revert(self::VENDOR);
+
+        self::assertSame(self::ORIGINAL, \file_get_contents($this->tree->path(self::VENDOR)));
+        self::assertSame([], $report->targets());
+        self::assertStringContainsString(
+            \sprintf(Reverter::REAPPLY_WARNING, self::VENDOR),
+            \implode("\n", $report->faults())
+        );
     }
 
     /**

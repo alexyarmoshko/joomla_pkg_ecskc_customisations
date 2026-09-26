@@ -9,7 +9,6 @@ use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ProcDescriptor;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\BackupStore;
@@ -27,6 +26,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\Freezer;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\MutationTransaction;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteOutcome;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\WriteRun as LockedWriteRun;
+use YakShaver\ECSKCCustomisation\Tests\Support\Crash;
 use YakShaver\ECSKCCustomisation\Tests\Support\RunLockProbe;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 use YakShaver\ECSKCCustomisation\Tests\Support\WriteRun;
@@ -137,31 +137,6 @@ final class FreezerTest extends TestCase
 
         \chmod($directory, 0555);
         $this->readOnly[] = $directory;
-    }
-
-    private static function crashAt(string $point): Closure
-    {
-        return static function (string $reached) use ($point): void {
-            if ($reached === $point) {
-                throw new RuntimeException('simulated crash at ' . $point);
-            }
-        };
-    }
-
-    /**
-     * @param Closure(): WriteOutcome $operation
-     */
-    private static function crash(Closure $operation): void
-    {
-        try {
-            $operation();
-        } catch (RuntimeException $crash) {
-            self::assertStringStartsWith('simulated crash at ', $crash->getMessage());
-
-            return;
-        }
-
-        self::fail('The operation did not reach its crash point.');
     }
 
     /**
@@ -580,9 +555,9 @@ final class FreezerTest extends TestCase
             \touch($this->markerDirectory() . '/' . \basename($this->marker()));
         }
 
-        $freezer = $this->freezer(self::crashAt(Freezer::INTENT_PUBLISHED));
+        $freezer = $this->freezer(Crash::at(Freezer::INTENT_PUBLISHED));
 
-        self::crash(fn (): WriteOutcome => $freezer->{$call}(self::TARGET));
+        Crash::assertReached(fn (): WriteOutcome => $freezer->{$call}(self::TARGET));
 
         $intent = $this->intents()->read()->intent;
 
@@ -658,9 +633,9 @@ final class FreezerTest extends TestCase
         $this->markerDirectory();
         \mkdir($this->marker());
 
-        $freezer = $this->freezer(self::crashAt(Freezer::INTENT_PUBLISHED));
+        $freezer = $this->freezer(Crash::at(Freezer::INTENT_PUBLISHED));
 
-        self::crash(fn (): WriteOutcome => $freezer->unfreeze(self::TARGET));
+        Crash::assertReached(fn (): WriteOutcome => $freezer->unfreeze(self::TARGET));
 
         self::assertTrue(\is_dir($this->marker()));
         self::assertSame(EventRecord::UNFREEZE, $this->intents()->read()->intent?->event['event']);
@@ -671,7 +646,7 @@ final class FreezerTest extends TestCase
     {
         \touch($this->markerDirectory() . '/' . \basename($this->marker()));
 
-        self::crash(fn (): WriteOutcome => $this->freezer(self::crashAt(Freezer::MUTATED))->unfreeze(self::TARGET));
+        Crash::assertReached(fn (): WriteOutcome => $this->freezer(Crash::at(Freezer::MUTATED))->unfreeze(self::TARGET));
 
         self::assertFalse($this->markerExists());
         self::assertSame(EventRecord::UNFREEZE, $this->intents()->read()->intent?->event['event']);

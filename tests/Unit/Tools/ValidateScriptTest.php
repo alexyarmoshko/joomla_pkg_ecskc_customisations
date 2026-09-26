@@ -6,6 +6,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Tools;
 
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
+use YakShaver\ECSKCCustomisation\Tests\Support\ChildProcess;
 use YakShaver\ECSKCCustomisation\Tests\Support\RuleXml;
 use YakShaver\ECSKCCustomisation\Tests\Support\TempTree;
 
@@ -33,26 +34,8 @@ final class ValidateScriptTest extends TestCase
     private function runValidate(string $rules, string $payload): array
     {
         $script = \dirname(__DIR__, 3) . '/tools/validate.php';
-        $pipes  = [];
-        $process = \proc_open(
-            [\PHP_BINARY, $script, '--rules', $rules, '--payload', $payload],
-            [
-                0 => ['pipe', 'r'],
-                1 => ['pipe', 'w'],
-                2 => ['pipe', 'w'],
-            ],
-            $pipes
-        );
 
-        self::assertIsResource($process);
-
-        \fclose($pipes[0]);
-        $stdout = (string) \stream_get_contents($pipes[1]);
-        $stderr = (string) \stream_get_contents($pipes[2]);
-        \fclose($pipes[1]);
-        \fclose($pipes[2]);
-
-        return [\proc_close($process), $stdout, $stderr];
+        return ChildProcess::run([\PHP_BINARY, $script, '--rules', $rules, '--payload', $payload]);
     }
 
     public function testTheAuthoredInventoryExitsZero(): void

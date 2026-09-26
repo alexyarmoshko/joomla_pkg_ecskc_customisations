@@ -1,28 +1,21 @@
 <?php
 
-/**
- * @package     YakShaver\Component\ECSKCCustomisation
- * @subpackage  Administrator
- * @author      Yak Shaver <me@kayakshaver.com>
- * @copyright   (C) 2026 Yak Shaver https://www.kayakshaver.com
- * @license     GNU General Public License version 2 or later; see LICENSE
- */
-
 declare(strict_types=1);
 
-namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\State;
+namespace YakShaver\ECSKCCustomisation\Tests\Support;
 
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedValue;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\WriteHistoryInterface;
 
 /**
- * The write history of a caller that has no package state tree to read.
+ * A write history with no records, for tests of read-only runs that need no state tree.
  */
 final class ReportOnlyHistory implements WriteHistoryInterface
 {
-    private const NO_WRITE_PATH = 'this package version only checks and reports, so it has '
-        . 'written nothing at any target';
+    private const NO_WRITE_PATH = 'the supplied history holds no record, so as far as it shows '
+        . 'the package has written nothing at any target';
 
-    private const NO_MARKER = 'this package version performs no write run, so no run marker '
+    private const NO_MARKER = 'the supplied history holds no run marker, so no run marker '
         . 'can have been left behind';
 
     public function lastWriteFor(string $targetPath): ReportedValue

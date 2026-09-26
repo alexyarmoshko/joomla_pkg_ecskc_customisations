@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SimpleXMLElement;
+use YakShaver\ECSKCCustomisation\Tests\Support\MakefileList;
 
 /**
  * The manifest, access.xml, and config.xml parse, ship, and name only language
@@ -28,8 +29,6 @@ final class ComponentManifestTest extends TestCase
     private const UNSHIPPED = [
         // tools/validate.php runs these at build time. The installed component never does.
         'admin/src/Core/Build/',
-        // Only the tests build a runner with it. The component uses EventLogHistory.
-        'admin/src/Core/State/ReportOnlyHistory.php',
     ];
 
     private static function component(): string
@@ -70,14 +69,7 @@ final class ComponentManifestTest extends TestCase
      */
     private static function componentFiles(): array
     {
-        $makefile = \file_get_contents(\dirname(__DIR__, 3) . '/Makefile');
-        self::assertIsString($makefile);
-        self::assertSame(1, \preg_match('/^COMPONENT_FILES := \\\\\n((?:\t\S+(?: \\\\)?\n)+)/m', $makefile, $match));
-
-        return \array_map(
-            static fn (string $line): string => \trim($line, " \t\\"),
-            \explode("\n", \trim($match[1]))
-        );
+        return MakefileList::read('COMPONENT_FILES');
     }
 
     public function testTheManifestAddsAnAdministratorMenuEntry(): void

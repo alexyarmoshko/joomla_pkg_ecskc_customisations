@@ -25,15 +25,6 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Environment\Enviro
 final class ConditionEvaluator
 {
     /**
-     * Tried in order; the first that appears nowhere in the expression is used.
-     *
-     * The alternative - one fixed delimiter and escaping it inside the expression -
-     * corrupts an expression that already escapes it, and the author would never
-     * see that their pattern had been rewritten.
-     */
-    private const DELIMITERS = ['/', '~', '#', '%', '!', '@', ';', ',', '|', '+', '=', ':'];
-
-    /**
      * Longest first, so `>=` is not read as `>` with a version of `=5.4.0`.
      */
     private const OPERATORS = ['>=', '<=', '==', '!=', '<>', '>', '<', '='];
@@ -171,9 +162,9 @@ final class ConditionEvaluator
             return false;
         }
 
-        $delimiter = $this->delimiter($condition->operand);
+        $expression = RegexExpression::of($condition->operand);
 
-        if ($delimiter === null) {
+        if ($expression === null) {
             $faults[] = \sprintf(
                 'the expression for %s uses every character available as a delimiter, so it '
                 . 'cannot be compiled without being rewritten',
@@ -182,10 +173,6 @@ final class ConditionEvaluator
 
             return false;
         }
-
-        // D anchors $ at the end of the subject rather than before a final newline,
-        // so an exclusion written as ^(?!host$).*$ means what its author read.
-        $expression = $delimiter . $condition->operand . $delimiter . 'D';
 
         // Compilation warnings include the pattern offset; preg_last_error_msg()
         // reports only "Internal error" for that case.
@@ -240,17 +227,6 @@ final class ConditionEvaluator
         $reason = \preg_replace('/^\s*preg_match\(\):\s*/', '', $warning);
 
         return $reason === null || \trim($reason) === '' ? $fallback : \trim($reason);
-    }
-
-    private function delimiter(string $expression): ?string
-    {
-        foreach (self::DELIMITERS as $delimiter) {
-            if (!\str_contains($expression, $delimiter)) {
-                return $delimiter;
-            }
-        }
-
-        return null;
     }
 
     /**

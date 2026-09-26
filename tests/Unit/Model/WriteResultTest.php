@@ -11,7 +11,9 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Model {
     use PHPUnit\Framework\Attributes\CoversClass;
     use PHPUnit\Framework\Attributes\DataProvider;
     use stdClass;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedValue;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\RunReport;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\TargetReport;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Write\Reverter;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
     use YakShaver\ECSKCCustomisation\Tests\Unit\Runner\RunnerHarness;
@@ -122,6 +124,34 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Model {
             $this->runner()->apply(self::CHAIN);
 
             $result = WriteResult::fromReport(WriteResult::REVERT, self::CHAIN, $this->runner()->revert(self::CHAIN));
+
+            self::assertSame(\sprintf(Reverter::REAPPLY_WARNING, self::CHAIN), $result->warning);
+        }
+
+        /**
+         * The warning travels as its own field, so the outcome's wording can change
+         * without the page losing it.
+         */
+        public function testTheWarningSurvivesARewordedOutcome(): void
+        {
+            $this->runner()->apply(self::CHAIN);
+
+            $report  = $this->runner()->revert(self::CHAIN);
+            $targets = [];
+
+            foreach ($report->targets() as $target) {
+                $targets[] = new TargetReport(
+                    $target->state,
+                    $target->lastPackageWrite,
+                    $target->backup,
+                    $target->plan(),
+                    ReportedValue::known('reworded'),
+                    $target->warning
+                );
+            }
+
+            $reworded = RunReport::of($targets, $report->checks, $report->interruption, $report->faults());
+            $result   = WriteResult::fromReport(WriteResult::REVERT, self::CHAIN, $reworded);
 
             self::assertSame(\sprintf(Reverter::REAPPLY_WARNING, self::CHAIN), $result->warning);
         }

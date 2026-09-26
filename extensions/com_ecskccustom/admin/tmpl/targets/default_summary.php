@@ -25,6 +25,13 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
 $report = $this->report;
 $run    = $this->run;
 
+$this->counts = [
+    'faults'       => $report->faults(),
+    'interruption' => $report->wasInterrupted() ? $report->interruption->describe() : null,
+    'byStatus'     => $report->counts->byStatus,
+    'total'        => $report->counts->targets,
+];
+
 if ($run->path === null) {
     $scope = Text::_($run->isDryRun() ? 'COM_ECSKCCUSTOM_RUN_DRY_RUN_ALL' : 'COM_ECSKCCUSTOM_RUN_CHECK_ALL');
 } else {
@@ -54,41 +61,7 @@ if ($run->path === null) {
         </button>
     <?php endif; ?>
 </div>
-<?php if ($report->faults() !== []) : ?>
-    <div class="alert alert-danger" id="ecskc-faults">
-        <h2 class="alert-heading h4"><?php echo Text::_('COM_ECSKCCUSTOM_FAULTS_HEADING'); ?></h2>
-        <ul class="mb-0">
-            <?php foreach ($report->faults() as $fault) : ?>
-                <li><?php echo $this->escape($fault); ?></li>
-            <?php endforeach; ?>
-        </ul>
-    </div>
-<?php endif; ?>
-<?php if ($report->wasInterrupted()) : ?>
-    <div class="alert alert-warning" id="ecskc-interruption">
-        <h2 class="alert-heading h4"><?php echo Text::_('COM_ECSKCCUSTOM_INTERRUPTION_HEADING'); ?></h2>
-        <p class="mb-0"><?php echo $this->escape($report->interruption->describe()); ?></p>
-    </div>
-<?php endif; ?>
-<table class="table table-sm w-auto" id="ecskc-counts">
-    <caption><?php echo Text::_('COM_ECSKCCUSTOM_COUNTS_CAPTION'); ?></caption>
-    <thead>
-        <tr>
-            <?php foreach (\array_keys($report->counts->byStatus) as $status) : ?>
-                <th scope="col"><?php echo $this->escape($status); ?></th>
-            <?php endforeach; ?>
-            <th scope="col"><?php echo Text::_('COM_ECSKCCUSTOM_COUNTS_TOTAL'); ?></th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <?php foreach ($report->counts->byStatus as $count) : ?>
-                <td><?php echo (int) $count; ?></td>
-            <?php endforeach; ?>
-            <td><?php echo (int) $report->counts->targets; ?></td>
-        </tr>
-    </tbody>
-</table>
+<?php echo $this->loadTemplate('counts'); ?>
 <div id="ecskc-checks">
     <?php if ($report->checks->isEmpty()) : ?>
         <p><?php echo Text::_('COM_ECSKCCUSTOM_CHECKS_NONE'); ?></p>
