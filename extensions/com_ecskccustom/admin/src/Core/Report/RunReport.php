@@ -102,8 +102,9 @@ final class RunReport
      * Whether the installer plugin tells the operator about this report.
      *
      * A notifiable target, a notifiable operational check, or a run-level fault each
-     * decide it alone, decisions 7, 22 and 51. The component and the installer plugin
-     * both ask here, so they cannot disagree.
+     * decide it alone, decisions 7, 22 and 51. The installer plugin is the only
+     * caller. The component view shows every state and check, and marks a notifiable
+     * check itself.
      */
     public function needsAttention(): bool
     {

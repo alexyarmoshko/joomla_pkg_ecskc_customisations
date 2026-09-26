@@ -144,8 +144,9 @@ final class ECSKCCustomisationPlugin extends CMSPlugin implements SubscriberInte
     /**
      * The message for this report, or null when nothing needs attention.
      *
-     * The plugin's own words come from its language file. Statuses, checks and faults
-     * are the runner's text, shown verbatim and escaped, decision 48.
+     * Trusted HTML: the plugin builds the `<br>` joins and the link. Its own words
+     * come from its language file. Statuses, checks and faults are the runner's text,
+     * shown verbatim and escaped, decision 48.
      */
     private function message(RunReport $report): ?string
     {

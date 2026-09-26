@@ -51,6 +51,8 @@ class Pkg_Ecskc_customisationsInstallerScript
 
         $db            = Factory::getContainer()->get(DatabaseInterface::class);
         $enabled       = 1;
+        // The component's JoomlaOperationalCheckProvider reads the system plugin's
+        // record by these values and PLUGIN_GROUPS; change both together.
         $extensionType = 'plugin';
         $element       = 'ecskccustom';
 

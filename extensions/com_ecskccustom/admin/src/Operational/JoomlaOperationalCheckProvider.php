@@ -36,6 +36,8 @@ final class JoomlaOperationalCheckProvider implements OperationalCheckProviderIn
         // site to surface, not a failed read of the plugin record.
         /** @var DatabaseDriver $db */
         $db      = Factory::getContainer()->get(DatabaseInterface::class);
+        // The package's script.php selects the same record to enable it on first
+        // install, from its own copy of these values; change both together.
         $type    = 'plugin';
         $folder  = 'system';
         $element = 'ecskccustom';

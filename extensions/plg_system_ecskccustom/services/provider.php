@@ -1,7 +1,7 @@
 <?php
 
 /**
- * ECSKC Customisations system plugin — service provider.
+ * ECSKC Customisations system plugin: service provider.
  *
  * @package     YakShaver\Plugin\System\ECSKCCustomisation
  * @subpackage  System
