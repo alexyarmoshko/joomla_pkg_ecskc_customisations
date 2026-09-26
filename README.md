@@ -27,7 +27,10 @@ Out of scope is what the site says, along with server and SEO configuration. Sit
 
 | Path | Contents |
 | --- | --- |
+| `extensions/pkg_ecskc_customisations/` | Package manifest and install script |
 | `extensions/com_ecskccustom/` | Component source, administrator only |
+| `extensions/plg_system_ecskccustom/` | System plugin that serves `override.css` on the site |
+| `extensions/plg_installer_ecskccustom/` | Installer plugin that checks after extension work |
 | `data/rules/` | The rule set, one XML file per extension |
 | `data/payload/` | The customised files a rule installs |
 | `tests/` | PHPUnit suites |
@@ -47,19 +50,24 @@ make deps       # composer install
 make test       # PHPUnit
 make lint       # PHP syntax and rule XML well-formedness
 make validate   # check the rule set against the payload tree
-make dist_dev   # build an installable dev ZIP under installation/dev/
+make versions   # check that every manifest declares the package version
+make dist_dev   # build an installable dev package ZIP under installation/dev/
 make info       # version, package contents, output paths
 ```
 
-`make release` tags the version declared in the component manifest. It refuses to run on a dirty
+`make release` tags the version declared in the package manifest. It refuses to run on a dirty
 tree, on an existing tag, or without release notes for that version. `make dist_release` then
-builds the ZIP from the tag into `installation/release/`, byte-reproducible from a clean
-checkout.
+builds the package ZIP from the tag into `installation/release/`, byte-reproducible from a clean
+checkout. Both builds package the component and each plugin from its own file list, then nest
+those three archives in the package, and refuse to run when a child manifest declares a version
+other than the package's.
 
 ## Install
 
-In the Joomla administrator, go to System, Install, Extensions, and upload the ZIP. The component
-installs into the administrator and adds nothing to the site front end.
+In the Joomla administrator, go to System, Install, Extensions, and upload the package ZIP. It
+installs the component and both plugins, and enables the plugins on the first install only. An
+update leaves each plugin enabled or disabled as the site had it. The children cannot be
+uninstalled on their own; uninstall the package.
 
 ## Status
 

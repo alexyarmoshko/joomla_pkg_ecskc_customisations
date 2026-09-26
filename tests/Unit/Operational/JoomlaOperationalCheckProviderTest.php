@@ -6,12 +6,6 @@ namespace {
     require_once \dirname(__DIR__, 2) . '/Support/joomla_stubs.php';
 }
 
-namespace Joomla\Database {
-    interface DatabaseInterface
-    {
-    }
-}
-
 namespace YakShaver\ECSKCCustomisation\Tests\Unit\Operational {
 
     use Joomla\CMS\Factory;

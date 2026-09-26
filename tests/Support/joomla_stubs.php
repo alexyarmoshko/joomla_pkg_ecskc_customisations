@@ -39,6 +39,18 @@ namespace Joomla\CMS {
     }
 }
 
+namespace Joomla\CMS\Installer {
+    class InstallerAdapter
+    {
+    }
+}
+
+namespace Joomla\Database {
+    interface DatabaseInterface
+    {
+    }
+}
+
 namespace Joomla\CMS\Language {
     final class Text
     {

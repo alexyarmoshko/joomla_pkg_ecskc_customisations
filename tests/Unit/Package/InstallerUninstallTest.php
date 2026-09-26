@@ -2,12 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Joomla\CMS\Installer {
-    class InstallerAdapter
-    {
-    }
-}
-
 namespace {
     require_once \dirname(__DIR__, 2) . '/Support/joomla_stubs.php';
     require_once \dirname(__DIR__, 3) . '/extensions/com_ecskccustom/admin/script.php';

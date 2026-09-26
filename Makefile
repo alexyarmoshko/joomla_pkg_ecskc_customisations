@@ -2,14 +2,23 @@
 
 SHELL := /bin/sh
 
-EXT_NAME := com_ecskccustom
+PKG_NAME := pkg_ecskc_customisations
+PKG_ROOT := extensions/pkg_ecskc_customisations
+MANIFEST := $(PKG_ROOT)/$(PKG_NAME).xml
 COM_ROOT := extensions/com_ecskccustom
-MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
+COM_MANIFEST := $(COM_ROOT)/com_ecskccustom.xml
 SYSTEM_PLUGIN_ROOT := extensions/plg_system_ecskccustom
 INSTALLER_PLUGIN_ROOT := extensions/plg_installer_ecskccustom
 
-# Explicit package inventory. script.php also ships at the archive root because
-# Joomla looks there on install and under admin/ on uninstall.
+# Every manifest whose <version> must equal the package's, decision 13.
+VERSIONED_MANIFESTS := \
+	$(MANIFEST) \
+	$(COM_MANIFEST) \
+	$(SYSTEM_PLUGIN_ROOT)/ecskccustom.xml \
+	$(INSTALLER_PLUGIN_ROOT)/ecskccustom.xml
+
+# The component's files, relative to $(COM_ROOT). script.php also ships at the
+# archive root because Joomla looks there on install and under admin/ on uninstall.
 COMPONENT_FILES := \
 	com_ecskccustom.xml \
 	admin/access.xml \
@@ -116,16 +125,14 @@ COMPONENT_FILES := \
 	admin/tmpl/targets/default_writeform.php \
 	admin/tmpl/targets/result.php
 
-# The system plugin's files, relative to $(SYSTEM_PLUGIN_ROOT). Linted here;
-# the build does not package the plugin yet (ticket 49).
+# The system plugin's files, relative to $(SYSTEM_PLUGIN_ROOT).
 SYSTEM_PLUGIN_FILES := \
 	ecskccustom.xml \
 	language/en-GB/plg_system_ecskccustom.sys.ini \
 	services/provider.php \
 	src/Extension/ECSKCCustomisationPlugin.php
 
-# The installer plugin's files, relative to $(INSTALLER_PLUGIN_ROOT). Linted here;
-# the build does not package the plugin yet (ticket 49).
+# The installer plugin's files, relative to $(INSTALLER_PLUGIN_ROOT).
 INSTALLER_PLUGIN_FILES := \
 	ecskccustom.xml \
 	language/en-GB/plg_installer_ecskccustom.ini \
@@ -157,21 +164,36 @@ PAYLOAD_FILES := \
 	templates/et_tennis/css/override.css \
 	templates/et_tennis/options.xml.v1
 
-# Archive-relative paths handed to jzip. The staged tree is the archive root.
-PACKAGE_FILES := \
+# Archive-relative paths handed to jzip, one list per archive. Each staged tree
+# is its archive's root.
+COMPONENT_ARCHIVE_FILES := \
 	LICENSE \
 	script.php \
 	$(COMPONENT_FILES) \
 	$(addprefix admin/rules/,$(RULE_FILES)) \
 	$(addprefix admin/payload/,$(PAYLOAD_FILES))
 
+# The child archives in the order the package manifest installs them: the
+# component first (see the comment in $(MANIFEST)).
+CHILD_ARCHIVES := \
+	com_ecskccustom.zip \
+	plg_system_ecskccustom.zip \
+	plg_installer_ecskccustom.zip
+
+PKG_ARCHIVE_FILES := \
+	$(PKG_NAME).xml \
+	script.php \
+	$(addprefix packages/,$(CHILD_ARCHIVES))
+
 DEPS_CMD ?= composer install
 TEST_CMD ?= composer test
-JZIP ?= tools/jzip.php
+# JZIP, COPY, VALIDATE and ZIP_LEVEL decide the package bytes or the checks, so
+# the environment cannot set them; dist_release refuses them from the command line.
+JZIP := tools/jzip.php
 JZIP_MASTER ?= $(HOME)/repos/ys_toolbox/src/jzip/jzip.php
-COPY ?= tools/copy_nofollow.php
-VALIDATE ?= tools/validate.php
-ZIP_LEVEL ?= 0
+COPY := tools/copy_nofollow.php
+VALIDATE := tools/validate.php
+ZIP_LEVEL := 0
 INSTALL_DIR ?= installation
 BUILD_DIR ?= build
 RELEASE_NOTES ?= docs/RELEASE.md
@@ -181,7 +203,7 @@ RELEASE_NOTES ?= docs/RELEASE.md
 # the whole point of `release`. Without `override`, `make release VERSION=x`
 # tags a version the manifest never declared.
 override VERSION := $(shell awk -F'[<>]' '/<version>/{print $$3; exit}' $(MANIFEST))
-ZIP_NAME := $(EXT_NAME)-v$(subst .,-,$(VERSION)).zip
+ZIP_NAME := $(PKG_NAME)-v$(subst .,-,$(VERSION)).zip
 RELEASE_STAGE := $(BUILD_DIR)/release
 DEV_STAGE := $(BUILD_DIR)/dev
 RELEASE_ZIP := $(INSTALL_DIR)/release/$(ZIP_NAME)
@@ -190,49 +212,115 @@ DEV_ZIP := $(INSTALL_DIR)/dev/$(ZIP_NAME)
 # $(JZIP) is linted although it does not ship: it is the packager.
 LINT_CMD := set -e; \
 	cmp -s "$(JZIP)" "$(JZIP_MASTER)" || { echo "FAIL: $(JZIP) has drifted from $(JZIP_MASTER) - fix jzip in ys_toolbox, never in the copy"; exit 1; }; \
-	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES)) $(addprefix $(SYSTEM_PLUGIN_ROOT)/,$(SYSTEM_PLUGIN_FILES)) $(addprefix $(INSTALLER_PLUGIN_ROOT)/,$(INSTALLER_PLUGIN_FILES))) $(JZIP) $(COPY) $(VALIDATE) tools/hash.php; do \
+	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES)) $(addprefix $(SYSTEM_PLUGIN_ROOT)/,$(SYSTEM_PLUGIN_FILES)) $(addprefix $(INSTALLER_PLUGIN_ROOT)/,$(INSTALLER_PLUGIN_FILES))) $(PKG_ROOT)/script.php $(JZIP) $(COPY) $(VALIDATE) tools/hash.php; do \
 		php -l "$$f" >/dev/null || exit 1; \
 	done; \
-	for f in $(MANIFEST) $(SYSTEM_PLUGIN_ROOT)/ecskccustom.xml $(INSTALLER_PLUGIN_ROOT)/ecskccustom.xml $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)); do \
+	for f in $(VERSIONED_MANIFESTS) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)); do \
 		php -r 'libxml_use_internal_errors(true); if (simplexml_load_file($$argv[1]) === false) { fwrite(STDERR, "FAIL: malformed XML in $$argv[1]\n"); exit(1); }' "$$f" || exit 1; \
 	done; \
 	echo "lint: ok"
 
 sha256 = $$( { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$(1)"; else shasum -a 256 "$(1)"; fi; } | awk '{print $$1}' | grep -Ex '[0-9a-f]{64}' )
 
-# Package staging directory $(2) into $(1), stamping every entry with epoch $(3).
-# The release build refuses to fall back to zip; dist_dev keeps that fallback.
+# Shell fragment: package the files $(3), relative to staging directory $(2),
+# into $(1), stamping every entry with the epoch in $$stamp. The caller sets
+# stamp once, so every archive of one build shares it. The release build
+# refuses to fall back to zip; dist_dev keeps that fallback.
 define package
-	@set -e; \
-	for f in $(PACKAGE_FILES); do \
+	for f in $(3); do \
 		if [ ! -f "$(2)/$$f" ]; then \
-			echo "FAIL: $$f is in PACKAGE_FILES but not in $(2)/ - the staged tree is incomplete"; \
+			echo "FAIL: $$f is in the file list for $(notdir $(1)) but not in $(2)/ - the staged tree is incomplete"; \
 			exit 1; \
 		fi; \
 	done; \
 	mkdir -p "$(dir $(1))"; \
-	archive="$$(cd "$(dir $(1))" && pwd)/$$(basename "$(1)").part"; stamp="$(3)"; \
+	archive="$$(cd "$(dir $(1))" && pwd)/$$(basename "$(1)").part"; \
 	rm -f "$(1).part"; \
 	if [ -f "$(JZIP)" ]; then \
-		php "$(JZIP)" --level=$(ZIP_LEVEL) "$$archive" "$$stamp" "$(2)" $(PACKAGE_FILES) >/dev/null; \
+		php "$(JZIP)" --level=$(ZIP_LEVEL) "$$archive" "$$stamp" "$(2)" $(3) >/dev/null; \
 		how="jzip level $(ZIP_LEVEL)"; \
 	else \
 		echo "WARNING: jzip not found at $(JZIP) - falling back to zip." >&2; \
 		echo "WARNING: the package is NOT reproducible - zip stores this machine's mtimes and host metadata." >&2; \
-		( cd "$(2)" && zip -q -X -$(ZIP_LEVEL) "$$archive" $(PACKAGE_FILES) ); \
+		( cd "$(2)" && zip -q -X -$(ZIP_LEVEL) "$$archive" $(3) ); \
 		how="zip fallback"; \
 	fi; \
 	mv "$(1).part" "$(1)"; \
 	sum="$(call sha256,$(1))"; \
-	echo "$(1): $(words $(PACKAGE_FILES)) entries, $$(wc -c < "$(1)") bytes, $$how, sha256 $$sum"
+	echo "$(1): $(words $(3)) entries, $$(wc -c < "$(1)") bytes, $$how, sha256 $$sum"
 endef
 
-.PHONY: info deps test lint validate release dist_release dist_dev clean
+# Stages 2 and 3 of the plan's build: package the three staged children under
+# staging root $(1) into its pkg/packages/, then package pkg/ into $(2). All
+# four archives take the one epoch that shell expression $(3) yields.
+define build_package
+	@set -e; \
+	stamp="$(3)"; \
+	$(call package,$(1)/pkg/packages/com_ecskccustom.zip,$(1)/com,$(COMPONENT_ARCHIVE_FILES)); \
+	$(call package,$(1)/pkg/packages/plg_system_ecskccustom.zip,$(1)/plg_system,$(SYSTEM_PLUGIN_FILES)); \
+	$(call package,$(1)/pkg/packages/plg_installer_ecskccustom.zip,$(1)/plg_installer,$(INSTALLER_PLUGIN_FILES)); \
+	$(call package,$(2),$(1)/pkg,$(PKG_ARCHIVE_FILES))
+endef
+
+# Refuse unless every manifest under source root $(1) declares $(VERSION), which
+# comes from the working-tree package manifest. For a release $(1) is the tag
+# export, so a tag whose package manifest disagrees with the working tree fails
+# here too: packaging it would publish one version under another's name.
+define check_versions
+	@set -e; \
+	for m in $(VERSIONED_MANIFESTS); do \
+		declared="$$(awk -F'[<>]' '/<version>/{print $$3; exit}' "$(1)/$$m")"; \
+		if [ "$$declared" != "$(VERSION)" ]; then \
+			echo "FAIL: $(1)/$$m declares version '$$declared', but the package is $(VERSION) from $(MANIFEST)"; \
+			echo "      every manifest in the package must declare the package manifest's version (decision 13)"; \
+			exit 1; \
+		fi; \
+	done
+endef
+
+# Delete <updateservers> from staged manifest $(1), and fail if any survives.
+# Decision 12: version 1 ships no update server.
+define strip_updateservers
+	@set -e; \
+	sed '/<updateservers>/,/<\/updateservers>/d' "$(1)" > "$(1).tmp"; \
+	mv "$(1).tmp" "$(1)"; \
+	rc=0; grep -q "updateservers" "$(1)" || rc=$$?; \
+	if [ "$$rc" -eq 0 ]; then \
+		echo "FAIL: <updateservers> survived in $(1)"; \
+		exit 1; \
+	elif [ "$$rc" -gt 1 ]; then \
+		echo "FAIL: cannot read $(1) to confirm <updateservers> was stripped"; \
+		exit 1; \
+	fi
+endef
+
+# The only variables release and dist_release take from the command line: where
+# dist_release writes. Every other variable and macro decides the published
+# bytes, the version or which checks run, so it must come from the Makefile.
+override RELEASE_FREE := INSTALL_DIR BUILD_DIR
+
+# Variables set on the command line, passed down from a parent make, or taken
+# from the environment under make -e, less RELEASE_FREE. Declared override so
+# release_overrides= on the command line cannot empty it.
+override release_overrides = $(sort $(filter-out $(RELEASE_FREE),$(foreach v,$(.VARIABLES),$(if $(findstring command line,$(origin $(v)))$(findstring environment override,$(origin $(v))),$(v)))))
+
+# The first step of release and dist_release: refuse any release_overrides.
+# Declared override so the command line cannot replace it either.
+override define refuse_release_overrides
+	@if [ -n "$(release_overrides)" ]; then \
+		echo "FAIL: $(release_overrides) set outside the Makefile"; \
+		echo "      a release takes only $(RELEASE_FREE) from the command line; everything else"; \
+		echo "      must come from the tagged Makefile. Change it in the repository instead."; \
+		exit 1; \
+	fi
+endef
+
+.PHONY: info deps test lint validate versions release dist_release dist_dev clean
 
 info:
-	@echo "Extension:       $(EXT_NAME)"
+	@echo "Package:         $(PKG_NAME)"
 	@echo "Version:         $(VERSION)"
-	@echo "Source:          $(PACKAGE_FILES)"
+	@echo "Child archives:  $(CHILD_ARCHIVES)"
 	@echo "Release package: $(RELEASE_ZIP)"
 	@echo "Dev package:     $(DEV_ZIP)"
 	@echo "Packager:        $(JZIP) (level $(ZIP_LEVEL))"
@@ -249,7 +337,13 @@ lint:
 validate:
 	php "$(VALIDATE)"
 
-# Fill staging directory $(1) from source root $(2). $(2) is the repository
+# Check the manifests under VERSION_ROOT, the repository unless given.
+VERSION_ROOT ?= .
+versions:
+	$(call check_versions,$(VERSION_ROOT))
+	@echo "versions: every manifest declares $(VERSION)"
+
+# Fill component staging directory $(1) from source root $(2). $(2) is the repository
 # root for a dev build, or the tag export for a release build. Every copy
 # goes through copy_nofollow.php, so a symbolic link in the source is a
 # failed build rather than bytes pulled in from outside the tree.
@@ -272,7 +366,27 @@ define stage_component
 	done
 endef
 
+# Copy the files $(3), relative to source directory $(2), into staging
+# directory $(1), through copy_nofollow.php as above.
+define stage_files
+	@set -e; \
+	for f in $(3); do \
+		mkdir -p "$(1)/$$(dirname "$$f")"; \
+		php "$(COPY)" "$(2)/$$f" "$(1)/$$f"; \
+	done
+endef
+
+# Stage 1's output, laid out for stages 2 and 3: one staging directory per
+# child archive under $(1), and pkg/ for the package's own manifest and script.
+define stage_package
+	$(call stage_component,$(1)/com,$(2))
+	$(call stage_files,$(1)/plg_system,$(2)/$(SYSTEM_PLUGIN_ROOT),$(SYSTEM_PLUGIN_FILES))
+	$(call stage_files,$(1)/plg_installer,$(2)/$(INSTALLER_PLUGIN_ROOT),$(INSTALLER_PLUGIN_FILES))
+	$(call stage_files,$(1)/pkg,$(2)/$(PKG_ROOT),$(PKG_NAME).xml script.php)
+endef
+
 release:
+	$(refuse_release_overrides)
 	@set -e; \
 	dirty="$$(git status --porcelain)" || { echo "FAIL: git status failed - cannot confirm the tree is clean"; exit 1; }; \
 	if [ -n "$$dirty" ]; then \
@@ -292,12 +406,14 @@ release:
 		echo "FAIL: $(RELEASE_NOTES) has no '## $(VERSION)' heading - write the release notes before tagging"; \
 		exit 1; \
 	fi
+	$(call check_versions,.)
 	$(MAKE) test
 	$(MAKE) lint
 	git tag "$(VERSION)"
 	@echo "Tagged $(VERSION) - next: make dist_release"
 
 dist_release:
+	$(refuse_release_overrides)
 	@if ! git rev-parse -q --verify "refs/tags/$(VERSION)" >/dev/null; then \
 		echo "FAIL: no tag $(VERSION) - run 'make release' first"; \
 		exit 1; \
@@ -319,12 +435,6 @@ dist_release:
 		echo "      producing bytes a clean checkout of $(VERSION) cannot reproduce. Check the tag out."; \
 		exit 1; \
 	fi
-	@if [ "$(origin ZIP_LEVEL)" = "command line" ] || [ "$(origin JZIP)" = "command line" ] \
-		|| [ "$(origin PACKAGE_FILES)" = "command line" ]; then \
-		echo "FAIL: ZIP_LEVEL, JZIP and PACKAGE_FILES decide the published bytes and must come from"; \
-		echo "      the tagged Makefile, not the command line. Change them in the repository instead."; \
-		exit 1; \
-	fi
 	@if [ ! -f "$(JZIP)" ]; then \
 		echo "FAIL: $(JZIP) is missing - a release package must come from the deterministic"; \
 		echo "      packager, never the zip fallback. Restore it before building."; \
@@ -334,40 +444,26 @@ dist_release:
 	@rm -rf "$(RELEASE_STAGE)"
 	@mkdir -p "$(RELEASE_STAGE)"
 	@git -c core.autocrlf=false archive "$(VERSION)" | tar -x -C "$(RELEASE_STAGE)"
-	@set -e; \
-	exported="$$(awk -F'[<>]' '/<version>/{print $$3; exit}' "$(RELEASE_STAGE)/$(MANIFEST)")"; \
-	if [ "$$exported" != "$(VERSION)" ]; then \
-		echo "FAIL: tag $(VERSION) exports a manifest declaring $$exported"; \
-		echo "      the ZIP name comes from the WORKING TREE manifest,"; \
-		echo "      so packaging this would publish one version under another's name - move the tag"; \
-		echo "      or fix <version> before rebuilding."; \
-		exit 1; \
-	fi
+	$(call check_versions,$(RELEASE_STAGE))
 	php "$(VALIDATE)" --rules "$(RELEASE_STAGE)/data/rules" --payload "$(RELEASE_STAGE)/data/payload"
 	@rm -rf "$(RELEASE_STAGE)/.stage"
 	@mkdir -p "$(RELEASE_STAGE)/.stage"
-	$(call stage_component,$(RELEASE_STAGE)/.stage,$(RELEASE_STAGE))
-	$(call package,$(RELEASE_ZIP),$(RELEASE_STAGE)/.stage,$$(git log -1 --format=%ct "$(VERSION)"))
+	$(call stage_package,$(RELEASE_STAGE)/.stage,$(RELEASE_STAGE))
+	$(call build_package,$(RELEASE_STAGE)/.stage,$(RELEASE_ZIP),$$(git log -1 --format=%ct "$(VERSION)"))
 	@rm -rf "$(RELEASE_STAGE)"
 
 dist_dev:
 	@rm -f "$(DEV_ZIP)"
 	$(MAKE) validate
+	$(call check_versions,.)
 	@rm -rf "$(DEV_STAGE)"
 	@mkdir -p "$(DEV_STAGE)"
-	$(call stage_component,$(DEV_STAGE),.)
-	@sed '/<updateservers>/,/<\/updateservers>/d' "$(DEV_STAGE)/$(notdir $(MANIFEST))" > "$(DEV_STAGE)/manifest.tmp" \
-		&& mv "$(DEV_STAGE)/manifest.tmp" "$(DEV_STAGE)/$(notdir $(MANIFEST))"
-	@set -e; \
-	rc=0; grep -q "updateservers" "$(DEV_STAGE)/$(notdir $(MANIFEST))" || rc=$$?; \
-	if [ "$$rc" -eq 0 ]; then \
-		echo "FAIL: <updateservers> survived in the dev manifest"; \
-		exit 1; \
-	elif [ "$$rc" -gt 1 ]; then \
-		echo "FAIL: cannot read $(DEV_STAGE)/$(notdir $(MANIFEST)) to confirm <updateservers> was stripped"; \
-		exit 1; \
-	fi
-	$(call package,$(DEV_ZIP),$(DEV_STAGE),$$(git log -1 --format=%ct))
+	$(call stage_package,$(DEV_STAGE),.)
+	$(call strip_updateservers,$(DEV_STAGE)/pkg/$(PKG_NAME).xml)
+	$(call strip_updateservers,$(DEV_STAGE)/com/com_ecskccustom.xml)
+	$(call strip_updateservers,$(DEV_STAGE)/plg_system/ecskccustom.xml)
+	$(call strip_updateservers,$(DEV_STAGE)/plg_installer/ecskccustom.xml)
+	$(call build_package,$(DEV_STAGE),$(DEV_ZIP),$$(git log -1 --format=%ct))
 	@rm -rf "$(DEV_STAGE)"
 
 clean:

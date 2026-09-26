@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="package" method="upgrade">
+    <name>ECSKC Customisations</name>
+    <!-- Joomla stores the package as pkg_ecskc_customisations. -->
+    <packagename>ecskc_customisations</packagename>
+    <author>Yak Shaver</author>
+    <creationDate>2026-09</creationDate>
+    <copyright>(C) 2026 Yak Shaver https://www.kayakshaver.com</copyright>
+    <license>GNU General Public License version 2 or later; see LICENSE</license>
+    <authorEmail>me@kayakshaver.com</authorEmail>
+    <authorUrl>https://www.kayakshaver.com</authorUrl>
+    <!-- The release version, decision 13. The build refuses a child manifest that declares another. -->
+    <version>0.1.0</version>
+    <description>Checks and applies the ECSKC site customisations, and re-checks them after extension work.</description>
+    <scriptfile>script.php</scriptfile>
+    <blockChildUninstall>true</blockChildUninstall>
+
+    <!--
+        The component comes first. Joomla boots a component once per request, so the
+        installer plugin's first check during this package's own update decides which
+        component code every later check in that request runs. Installed first, that
+        code is the new one.
+    -->
+    <files folder="packages">
+        <file type="component" id="com_ecskccustom">com_ecskccustom.zip</file>
+        <file type="plugin" group="system" id="ecskccustom">plg_system_ecskccustom.zip</file>
+        <file type="plugin" group="installer" id="ecskccustom">plg_installer_ecskccustom.zip</file>
+    </files>
+</extension>
