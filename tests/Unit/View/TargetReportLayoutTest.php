@@ -45,7 +45,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
         private const EXPECTED = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
         private const ACTUAL   = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
-        private const UNREADABLE = 'the target could not be read: permission denied';
+        private const UNREADABLE = 'the file could not be read: permission denied';
         private const NO_WRITE   = 'the event log records no package write at this path';
         private const SCRIPT     = 'the target matches no object <script>alert(1)</script>';
 
@@ -316,6 +316,43 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
         }
 
         /**
+         * Phase 5 work item 11: every card that is not ok says what to do next, in the
+         * component's words, after the runner's reason.
+         */
+        public function testEveryCardButOkNamesItsNextAction(): void
+        {
+            $xpath = self::dom(self::render('targets', self::everyStatus(OperationalChecks::none())));
+
+            $expected = [
+                TargetStatus::OK             => null,
+                TargetStatus::ACTIONABLE     => 'COM_ECSKCCUSTOM_NEXT_ACTIONABLE',
+                TargetStatus::INCOMPLETE     => 'COM_ECSKCCUSTOM_NEXT_INCOMPLETE',
+                TargetStatus::BLOCKED        => 'COM_ECSKCCUSTOM_NEXT_BLOCKED',
+                TargetStatus::NOT_APPLICABLE => 'COM_ECSKCCUSTOM_NEXT_NOT_APPLICABLE',
+                TargetStatus::FROZEN         => 'COM_ECSKCCUSTOM_NEXT_FROZEN',
+                TargetStatus::FAULTED        => 'COM_ECSKCCUSTOM_NEXT_FAULTED',
+            ];
+
+            foreach ($expected as $status => $key) {
+                $card = '//article[@data-status="' . $status . '"]';
+
+                self::assertSame(
+                    $key === null ? [] : ['Next action: ' . Text::$strings[$key]],
+                    self::texts($xpath, $card . '//p[@class="ecskc-next"]'),
+                    $status
+                );
+
+                if ($key !== null) {
+                    self::assertCount(
+                        1,
+                        $xpath->query($card . '//p[@class="ecskc-reason"]/following-sibling::*[1][@class="ecskc-next"]'),
+                        $status . ': the next action follows the reason'
+                    );
+                }
+            }
+        }
+
+        /**
          * Atum makes a card header a flex row, so the header holds one block, and the
          * path line, the links and the buttons stack inside it in that order.
          */
@@ -538,8 +575,16 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                 self::texts($summary, '//*[@id="ecskc-faults"]//li')
             );
             self::assertSame(
-                ['a write run stopped at templates/et_tennis/css/x.css'],
+                [
+                    'a write run stopped at templates/et_tennis/css/x.css',
+                    'The next write, such as Apply or Freeze, recovers this before it changes anything. '
+                    . 'If it cannot, it changes nothing and says why. Run a check afterwards to confirm.',
+                ],
                 self::texts($summary, '//*[@id="ecskc-interruption"]/p')
+            );
+            self::assertSame(
+                ['Fix the cause each fault names, then run a fresh check.'],
+                self::texts($summary, '//*[@id="ecskc-faults"]/p[contains(@class, "ecskc-next")]')
             );
             self::assertSame(['0', '0', '0', '0', '0', '0', '0', '0'], self::texts($summary, '//table[@id="ecskc-counts"]//td'));
 
@@ -884,7 +929,15 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
             self::assertStringStartsWith('Result of reverting one step: ' . $result->path, self::texts($xpath, '//*[@id="ecskc-run"]/p')[0]);
             self::assertSame($result->faults, self::texts($xpath, '//*[@id="ecskc-faults"]//li'));
-            self::assertSame([(string) $result->interruption], self::texts($xpath, '//*[@id="ecskc-interruption"]/p'));
+            self::assertSame(
+                [
+                    (string) $result->interruption,
+                    'A write recovers an interrupted run before it changes anything, and the line above is '
+                    . 'what that recovery found. If this write stopped before recovering, the faults above say '
+                    . 'why. Run a fresh check to see the files as they are now.',
+                ],
+                self::texts($xpath, '//*[@id="ecskc-interruption"]/p')
+            );
             self::assertStringNotContainsString('<b>', $html);
             self::assertStringNotContainsString('wrote nothing', $html);
             self::assertSame(['index.php?option=com_ecskccustom&view=targets&run=check'], self::texts($xpath, '//*[@id="ecskc-run"]//a/@href'));

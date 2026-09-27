@@ -481,6 +481,42 @@ final class PackageBytesTest extends TestCase
     }
 
     /**
+     * Work item 2 of Phase 5: the build checks the payloads inside the package it
+     * just wrote, and deletes a package that fails. VerifyPackageScriptTest covers
+     * what the check refuses.
+     */
+    public function testAPackageThatFailsThePayloadCheckIsDeleted(): void
+    {
+        $this->requireMake();
+
+        $refuse = self::$scratch->write('unverified/refuse.php', "<?php\n\nfwrite(STDERR, \"payload check refused\\n\");\nexit(1);\n");
+
+        [$status, $output] = $this->make([
+            'dist_dev',
+            'BUILD_DIR=' . self::$scratch->path('unverified/build'),
+            'INSTALL_DIR=' . self::$scratch->path('unverified/installation'),
+            'VERIFY=' . $refuse,
+        ]);
+
+        self::assertNotSame(0, $status, $output);
+        self::assertStringContainsString('payload check refused', $output);
+        self::assertStringContainsString('deleted - its payload bytes do not match its rules', $output);
+        self::assertFileDoesNotExist(self::$scratch->path('unverified/installation/dev/' . self::$zipName));
+    }
+
+    public function testTheBuiltPackagePassesThePayloadCheck(): void
+    {
+        [$status, $stdout, $stderr] = ChildProcess::run([
+            \PHP_BINARY,
+            self::$repo . '/tools/verify_package.php',
+            $this->package(),
+        ]);
+
+        self::assertSame(0, $status, $stderr);
+        self::assertStringEndsWith(": payload hashes verified\n", $stdout);
+    }
+
+    /**
      * @return list<string>
      */
     private function payloadFiles(): array

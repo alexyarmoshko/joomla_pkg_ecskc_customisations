@@ -203,12 +203,13 @@ PKG_ARCHIVE_FILES := \
 
 DEPS_CMD ?= composer install
 TEST_CMD ?= composer test
-# JZIP, COPY, VALIDATE and ZIP_LEVEL decide the package bytes or the checks, so
+# JZIP, COPY, VALIDATE, VERIFY and ZIP_LEVEL decide the package bytes or the checks, so
 # the environment cannot set them; dist_release refuses them from the command line.
 JZIP := tools/jzip.php
 JZIP_MASTER ?= $(HOME)/repos/ys_toolbox/src/jzip/jzip.php
 COPY := tools/copy_nofollow.php
 VALIDATE := tools/validate.php
+VERIFY := tools/verify_package.php
 ZIP_LEVEL := 0
 INSTALL_DIR ?= installation
 BUILD_DIR ?= build
@@ -230,7 +231,7 @@ DOWNLOAD_URL := https://github.com/$(GITHUB_OWNER)/$(GITHUB_REPO)/releases/downl
 # $(JZIP) is linted although it does not ship: it is the packager.
 LINT_CMD := set -e; \
 	cmp -s "$(JZIP)" "$(JZIP_MASTER)" || { echo "FAIL: $(JZIP) has drifted from $(JZIP_MASTER) - fix jzip in ys_toolbox, never in the copy"; exit 1; }; \
-	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES)) $(addprefix $(SYSTEM_PLUGIN_ROOT)/,$(SYSTEM_PLUGIN_FILES)) $(addprefix $(INSTALLER_PLUGIN_ROOT)/,$(INSTALLER_PLUGIN_FILES))) $(PKG_ROOT)/script.php $(JZIP) $(COPY) $(VALIDATE) tools/hash.php; do \
+	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES)) $(addprefix $(SYSTEM_PLUGIN_ROOT)/,$(SYSTEM_PLUGIN_FILES)) $(addprefix $(INSTALLER_PLUGIN_ROOT)/,$(INSTALLER_PLUGIN_FILES))) $(PKG_ROOT)/script.php $(JZIP) $(COPY) $(VALIDATE) $(VERIFY) tools/hash.php; do \
 		php -l "$$f" >/dev/null || exit 1; \
 	done; \
 	for f in $(VERSIONED_MANIFESTS) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)); do \
@@ -270,14 +271,17 @@ endef
 
 # Stages 2 and 3 of the plan's build: package the three staged children under
 # staging root $(1) into its pkg/packages/, then package pkg/ into $(2). All
-# four archives take the one epoch that shell expression $(3) yields.
+# four archives take the one epoch that shell expression $(3) yields. Then check
+# the payload bytes inside $(2) against its own rules, work item 2 of Phase 5,
+# and delete $(2) if they differ.
 define build_package
 	@set -e; \
 	stamp="$(3)"; \
 	$(call package,$(1)/pkg/packages/com_ecskccustom.zip,$(1)/com,$(COMPONENT_ARCHIVE_FILES)); \
 	$(call package,$(1)/pkg/packages/plg_system_ecskccustom.zip,$(1)/plg_system,$(SYSTEM_PLUGIN_FILES)); \
 	$(call package,$(1)/pkg/packages/plg_installer_ecskccustom.zip,$(1)/plg_installer,$(INSTALLER_PLUGIN_FILES)); \
-	$(call package,$(2),$(1)/pkg,$(PKG_ARCHIVE_FILES))
+	$(call package,$(2),$(1)/pkg,$(PKG_ARCHIVE_FILES)); \
+	php "$(VERIFY)" "$(2)" || { rm -f "$(2)"; echo "FAIL: $(2) deleted - its payload bytes do not match its rules"; exit 1; }
 endef
 
 # Refuse unless every manifest under source root $(1) declares $(VERSION), which

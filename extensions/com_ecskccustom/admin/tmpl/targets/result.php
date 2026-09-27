@@ -26,10 +26,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
 $result = $this->result;
 
 $this->counts = [
-    'faults'       => $result->faults,
-    'interruption' => $result->interruption,
-    'byStatus'     => $result->counts,
-    'total'        => $result->total,
+    'faults'           => $result->faults,
+    'interruption'     => $result->interruption,
+    // What this write's recovery found, or, if it never took the run lock, what is still left.
+    'interruptionNext' => 'COM_ECSKCCUSTOM_INTERRUPTION_RECOVERED_NEXT',
+    'byStatus'         => $result->counts,
+    'total'            => $result->total,
 ];
 
 $this->rows        = $result->targets;

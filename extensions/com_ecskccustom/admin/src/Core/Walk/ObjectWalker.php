@@ -69,7 +69,7 @@ final class ObjectWalker
         if (!$decision->allowed) {
             return $this->faultedTarget(
                 $targetPath,
-                \sprintf('path policy refused this target: %s', (string) $decision->reason)
+                \sprintf('the package may not write to this path: %s', (string) $decision->reason)
             );
         }
 
@@ -77,7 +77,7 @@ final class ObjectWalker
         $actual    = $this->hasher->hashFile($algorithm, (string) $decision->path);
 
         if (!$actual->isAvailable() && !$actual->isAbsent()) {
-            $reason = \sprintf('the target could not be read: %s', (string) $actual->reason);
+            $reason = \sprintf('the file could not be read: %s', (string) $actual->reason);
 
             return TargetState::of(
                 $targetPath,
@@ -93,7 +93,7 @@ final class ObjectWalker
         foreach ($objects as $index => $object) {
             if ($object->hashType !== $algorithm) {
                 return $this->faultedTarget($targetPath, \sprintf(
-                    '%s declares hash type %s where an earlier object at this target declares %s, '
+                    '%s declares hash type %s where an earlier version of this file declares %s, '
                     . 'so the two cannot be compared',
                     $object->label(),
                     $object->hashType,
@@ -147,8 +147,8 @@ final class ObjectWalker
             $status,
             $reason,
             $ctx->expected ?? HashResult::unavailable(
-                'no object at this target was measured against the file, so the rule set '
-                . 'declares no hash to expect here'
+                'no version of this file was compared with it, so the package has no hash '
+                . 'to expect here'
             ),
             $actual,
             $ctx->outcomes,
@@ -281,7 +281,7 @@ final class ObjectWalker
                 $ctx->settled      = $object;
                 $ctx->expected     = $chosen->isCopy()
                     ? HashResult::digest((string) $chosen->sourceHash)
-                    : HashResult::absent('this object removes the target, and nothing is there');
+                    : HashResult::absent('this version removes the file, and no file is there');
                 $ctx->pendingGates  = $this->release($ctx->outcomes, $ctx->pendingGates);
                 $ctx->skipQualifier = null;
                 $ctx->skipReason    = null;
@@ -294,7 +294,7 @@ final class ObjectWalker
                 $ctx->expected     = $this->expectationOf($object, $chosen);
                 $ctx->state        = $chosen->isCopy()
                     ? HashResult::digest((string) $chosen->sourceHash)
-                    : HashResult::absent('this object removes the target');
+                    : HashResult::absent('this version removes the file');
                 $ctx->pendingGates  = $this->release($ctx->outcomes, $ctx->pendingGates);
                 $ctx->skipQualifier = null;
                 $ctx->skipReason    = null;
@@ -373,7 +373,8 @@ final class ObjectWalker
         if ($gated) {
             return [
                 TargetStatus::INCOMPLETE,
-                'an object gates the objects after it, so the walk could not start',
+                'an earlier version is switched off or not meant for this site setup, and the '
+                . 'versions after it build on it, so none of them can be applied',
                 null,
             ];
         }
@@ -389,7 +390,7 @@ final class ObjectWalker
         if ($refusedByPermit) {
             return [
                 TargetStatus::NOT_APPLICABLE,
-                'the objects at this target do not permit the write the file would need',
+                'no version of this file is allowed to make the change it would need',
                 null,
             ];
         }
@@ -397,12 +398,12 @@ final class ObjectWalker
         if ($sawNotMatched) {
             return [
                 TargetStatus::BLOCKED,
-                'the target matches no expected original and no payload the rule set declares',
+                'the file matches neither an original the package expects nor any version it ships',
                 null,
             ];
         }
 
-        return [TargetStatus::NOT_APPLICABLE, 'no object at this target applies here', null];
+        return [TargetStatus::NOT_APPLICABLE, 'no version of this file applies to this site', null];
     }
 
     /**
@@ -598,7 +599,7 @@ final class ObjectWalker
         }
 
         return HashResult::unavailable(
-            'this object declares no expected original, so the removal is matched on path alone'
+            'this version names no expected original, so the removal goes by the path alone'
         );
     }
 

@@ -19,8 +19,9 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
  * shape WriteResult stores. Every value is the runner's own text, escaped (plan
  * decision 48). The card header holds the path and the state; a row that is not
  * `ok` shows its expected hash, actual hash and last package write in the body, each
- * a value or the reason there is none (the Phase 3 exit criterion). The target path
- * field is not repeated there, because the header shows it.
+ * a value or the reason there is none (the Phase 3 exit criterion), and its next
+ * action from the language file. The target path field is not repeated there,
+ * because the header shows it.
  *
  * The page that loads this sets `rows`, `rowsOpen` for whether the details start
  * open, and `rowControls` where a row carries links or buttons under its path. A
@@ -36,6 +37,16 @@ $labels = [
 ];
 
 $hashes = [TargetReport::EXPECTED_HASH, TargetReport::ACTUAL_HASH];
+
+// What the operator does next, for every state but ok (Phase 5 work item 11).
+$nextActions = [
+    TargetStatus::ACTIONABLE     => 'COM_ECSKCCUSTOM_NEXT_ACTIONABLE',
+    TargetStatus::INCOMPLETE     => 'COM_ECSKCCUSTOM_NEXT_INCOMPLETE',
+    TargetStatus::BLOCKED        => 'COM_ECSKCCUSTOM_NEXT_BLOCKED',
+    TargetStatus::FAULTED        => 'COM_ECSKCCUSTOM_NEXT_FAULTED',
+    TargetStatus::FROZEN         => 'COM_ECSKCCUSTOM_NEXT_FROZEN',
+    TargetStatus::NOT_APPLICABLE => 'COM_ECSKCCUSTOM_NEXT_NOT_APPLICABLE',
+];
 
 $badges = [
     TargetStatus::OK             => 'text-bg-success',
@@ -73,6 +84,9 @@ $path = fn (string $value): string => \str_replace('/', '/<wbr>', $field($value)
             </div>
             <div class="card-body">
                 <p class="ecskc-reason"><?php echo $field($row['reason']); ?></p>
+                <?php if (isset($nextActions[$row['status']])) : ?>
+                    <p class="ecskc-next"><strong><?php echo Text::_('COM_ECSKCCUSTOM_NEXT_ACTION'); ?></strong> <?php echo Text::_($nextActions[$row['status']]); ?></p>
+                <?php endif; ?>
                 <?php if ($row['status'] !== TargetStatus::OK) : ?>
                     <dl class="ecskc-required row mb-0">
                         <?php foreach ($row['required'] as $name => $value) : ?>

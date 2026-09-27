@@ -18,7 +18,8 @@ use Joomla\CMS\Language\Text;
  * decision 48).
  *
  * The page that loads this sets `counts`: the faults, the interruption or null,
- * the count per status, and the total.
+ * the language key of the interruption's next action, the count per status, and
+ * the total.
  *
  * @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Targets\HtmlView $this
  */
@@ -33,12 +34,14 @@ $counts = $this->counts;
                 <li><?php echo $this->escape($fault); ?></li>
             <?php endforeach; ?>
         </ul>
+        <p class="mt-2 mb-0 ecskc-next"><?php echo Text::_('COM_ECSKCCUSTOM_FAULTS_NEXT'); ?></p>
     </div>
 <?php endif; ?>
 <?php if ($counts['interruption'] !== null) : ?>
     <div class="alert alert-warning" id="ecskc-interruption">
         <h2 class="alert-heading h4"><?php echo Text::_('COM_ECSKCCUSTOM_INTERRUPTION_HEADING'); ?></h2>
         <p class="mb-0"><?php echo $this->escape($counts['interruption']); ?></p>
+        <p class="mt-2 mb-0 ecskc-next"><?php echo Text::_($counts['interruptionNext']); ?></p>
     </div>
 <?php endif; ?>
 <section id="ecskc-summary" class="mb-3">

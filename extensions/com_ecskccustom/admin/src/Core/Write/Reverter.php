@@ -308,8 +308,8 @@ final class Reverter
 
         if ($expected === null) {
             return WriteOutcome::unchanged(\sprintf(
-                '%s is at the start of its chain: version %d displaced nothing that was kept under '
-                . 'backup/, so there is no earlier content to restore',
+                '%s has no earlier version to go back to: version %d overwrote nothing that was kept '
+                . 'under backup/, so there is no earlier content to restore',
                 $targetPath,
                 $version
             ));
@@ -320,8 +320,8 @@ final class Reverter
 
             if ($previous === null) {
                 return WriteOutcome::unchanged(\sprintf(
-                    '%s is at the start of its chain: version %d displaced nothing that was kept under '
-                    . 'backup/, so there is no earlier content to restore',
+                    '%s has no earlier version to go back to: version %d overwrote nothing that was kept '
+                    . 'under backup/, so there is no earlier content to restore',
                     $targetPath,
                     $version
                 ));
@@ -365,8 +365,8 @@ final class Reverter
     ): WriteOutcome {
         if ($expected === null) {
             return WriteOutcome::unchanged(\sprintf(
-                '%s is at the start of its chain: version %d displaced nothing that was kept under '
-                . 'backup/, so there is no earlier content to restore',
+                '%s has no earlier version to go back to: version %d overwrote nothing that was kept '
+                . 'under backup/, so there is no earlier content to restore',
                 $targetPath,
                 $object->version
             ));
@@ -421,8 +421,8 @@ final class Reverter
         // Without a verified payload or backup holding those bytes, the step
         // cannot proceed and must not be reported as chain exhaustion.
         return WriteOutcome::refused(\sprintf(
-            '%s names predecessor %s at version %d, but neither a verified payload nor a verified '
-            . 'backup can supply those bytes, so the chain cannot step back',
+            '%s expects %s before version %d, but neither the package\'s copy nor a verified '
+            . 'backup holds that content, so it cannot be reverted',
             $targetPath,
             $expected,
             $object->version
@@ -481,7 +481,7 @@ final class Reverter
 
         if ($state->status === TargetStatus::FAULTED) {
             return WriteOutcome::refused(\sprintf(
-                '%s cannot be stepped forward: %s',
+                '%s cannot be updated by one step: %s',
                 $targetPath,
                 $state->reason
             ));
@@ -491,7 +491,7 @@ final class Reverter
 
         if ($operations === []) {
             return WriteOutcome::unchanged(\sprintf(
-                '%s is at the head of its chain: %s',
+                '%s has no next version to apply: %s',
                 $targetPath,
                 $state->reason
             ));
@@ -533,7 +533,7 @@ final class Reverter
         if (!$operation->isCopy()) {
             if ($current === EventRecord::ABSENT) {
                 return WriteOutcome::unchanged(\sprintf(
-                    '%s is already absent, so the removal at version %d has nothing to step through',
+                    '%s is already gone, so the removal at version %d has nothing to do',
                     $targetPath,
                     $operation->version
                 ));
@@ -582,8 +582,8 @@ final class Reverter
 
         if (!$result->isAvailable()) {
             $reason = \sprintf(
-                'the bytes at %s could not be read (%s), so the package cannot say where the chain '
-                . 'stands there',
+                'the file at %s could not be read (%s), so the package cannot tell which version '
+                . 'it holds',
                 $targetPath,
                 $result->describe()
             );
@@ -681,8 +681,8 @@ final class Reverter
         }
 
         $ambiguity = \sprintf(
-            'no file is at %s, and versions %s each remove one, so the package cannot say which of '
-            . 'them left it absent or what preceded that; nothing was reverted',
+            'no file is at %s, and versions %s each remove it, so the package cannot tell which of '
+            . 'them removed it or what was there before; nothing was reverted',
             $targetPath,
             \implode(', ', $removals)
         );
@@ -734,8 +734,8 @@ final class Reverter
     {
         if ($current === EventRecord::ABSENT && self::createsFromNothing($objects[0])) {
             return \sprintf(
-                '%s is at the start of its chain: no file is there, and version %d is the object '
-                . 'that creates one, so the rule set records nothing before that',
+                '%s has no earlier version to go back to: no file is there, and version %d is the '
+                . 'one that creates it',
                 $targetPath,
                 $objects[0]->version
             );
@@ -744,8 +744,8 @@ final class Reverter
         foreach ($objects as $object) {
             if ($object->expectedHash !== null && \strtolower($object->expectedHash) === $current) {
                 return \sprintf(
-                    '%s is at the start of its chain: it holds the expected original version %d '
-                    . 'declares, and the rule set records nothing before that',
+                    '%s has no earlier version to go back to: it holds the original that version %d '
+                    . 'expects, and the package records nothing before that',
                     $targetPath,
                     $object->version
                 );
@@ -775,8 +775,8 @@ final class Reverter
     private function unrecorded(string $targetPath, string $current): string
     {
         return \sprintf(
-            '%s holds %s, which is neither a payload the rule set ships nor an expected original '
-            . 'it declares, so it carries an unrecorded change and was not reverted',
+            '%s holds %s, which is neither a version the package ships nor an original it expects, '
+            . 'so it carries a change the package did not make and was not reverted',
             $targetPath,
             $current === EventRecord::ABSENT ? 'no file' : $current
         );
@@ -815,9 +815,9 @@ final class Reverter
         }
 
         $reason = \sprintf(
-            '%s holds %s, which is neither a payload the rule set ships nor content a backup already '
-            . 'holds, and a step that writes no backup cannot displace it. Apply preserves what it '
-            . 'displaces',
+            '%s holds %s, which is neither a version the package ships nor content a backup already '
+            . 'holds. Revert one step and Apply one step keep no backup, so they will not overwrite '
+            . 'it. Apply backs up what it overwrites',
             $targetPath,
             $current
         );
@@ -917,8 +917,8 @@ final class Reverter
     private function mixedHashTypes(string $targetPath): string
     {
         return \sprintf(
-            'the objects at %s declare more than one hash type, so their hashes cannot be compared '
-            . 'and the chain has no order to step along',
+            'the versions of %s declare more than one hash type, so their hashes cannot be compared '
+            . 'and the package cannot tell which version comes before which',
             $targetPath
         );
     }

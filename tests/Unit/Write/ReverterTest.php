@@ -185,7 +185,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->redo(self::TARGET, $ruleSet, self::environment());
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('writes no backup', $outcome->reason);
+        self::assertStringContainsString('keep no backup', $outcome->reason);
         self::assertSame(self::ORIGINAL, $this->bytes());
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -240,7 +240,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->redo(self::TARGET, $ruleSet, self::environment());
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('writes no backup', $outcome->reason);
+        self::assertStringContainsString('keep no backup', $outcome->reason);
         self::assertSame(self::FIRST, $this->bytes());
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -256,7 +256,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('writes no backup', $outcome->reason);
+        self::assertStringContainsString('keep no backup', $outcome->reason);
         self::assertSame(self::SECOND, $this->bytes());
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -272,7 +272,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->redo(self::TARGET, $ruleSet, self::environment());
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('writes no backup', $outcome->reason);
+        self::assertStringContainsString('keep no backup', $outcome->reason);
         self::assertSame(self::FIRST, $this->bytes());
         $this->assertRunClosed();
     }
@@ -287,7 +287,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('writes no backup', $outcome->reason);
+        self::assertStringContainsString('keep no backup', $outcome->reason);
         self::assertSame(self::SECOND, $this->bytes());
         $this->assertRunClosed();
     }
@@ -381,7 +381,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->redo(self::TARGET, $ruleSet, self::environment());
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('writes no backup', $outcome->reason);
+        self::assertStringContainsString('keep no backup', $outcome->reason);
         self::assertSame(self::ORIGINAL, $this->bytes());
         $this->assertRunClosed();
     }
@@ -396,7 +396,7 @@ final class ReverterTest extends TestCase
 
         self::assertSame(TargetStatus::OK, $outcome->status, $outcome->reason);
         self::assertFalse($outcome->changed);
-        self::assertStringContainsString('start of its chain', $outcome->reason);
+        self::assertStringContainsString('has no earlier version to go back to', $outcome->reason);
         self::assertSame(self::ORIGINAL, $this->bytes());
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -411,7 +411,7 @@ final class ReverterTest extends TestCase
 
         self::assertSame(TargetStatus::OK, $outcome->status, $outcome->reason);
         self::assertFalse($outcome->changed);
-        self::assertStringContainsString('head of its chain', $outcome->reason);
+        self::assertStringContainsString('has no next version to apply', $outcome->reason);
         self::assertSame(self::THIRD, $this->bytes());
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -429,8 +429,8 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('names predecessor', $outcome->reason);
-        self::assertStringNotContainsString('start of its chain', $outcome->reason);
+        self::assertStringContainsString('neither the package\'s copy nor a verified backup holds that content', $outcome->reason);
+        self::assertStringNotContainsString('has no earlier version to go back to', $outcome->reason);
         self::assertSame(self::FIRST, $this->bytes());
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -485,7 +485,7 @@ final class ReverterTest extends TestCase
 
         self::assertSame(TargetStatus::OK, $outcome->status, $outcome->reason);
         self::assertFalse($outcome->changed);
-        self::assertStringContainsString('start of its chain', $outcome->reason);
+        self::assertStringContainsString('has no earlier version to go back to', $outcome->reason);
         self::assertNull($outcome->warning);
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -501,7 +501,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('unrecorded change', $outcome->reason);
+        self::assertStringContainsString('a change the package did not make', $outcome->reason);
         self::assertSame(self::FOREIGN, $this->bytes());
         self::assertSame([], $this->records());
         self::assertSame($before, $this->backupNames());
@@ -526,7 +526,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->redo(self::TARGET, $ruleSet, self::environment());
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('writes no backup', $outcome->reason);
+        self::assertStringContainsString('keep no backup', $outcome->reason);
         self::assertSame(self::FOREIGN, $this->bytes());
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -628,8 +628,8 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('names predecessor', $outcome->reason);
-        self::assertStringNotContainsString('start of its chain', $outcome->reason);
+        self::assertStringContainsString('neither the package\'s copy nor a verified backup holds that content', $outcome->reason);
+        self::assertStringNotContainsString('has no earlier version to go back to', $outcome->reason);
         self::assertFileDoesNotExist($this->tree->path(self::TARGET));
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -644,8 +644,8 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('names predecessor', $outcome->reason);
-        self::assertStringNotContainsString('start of its chain', $outcome->reason);
+        self::assertStringContainsString('neither the package\'s copy nor a verified backup holds that content', $outcome->reason);
+        self::assertStringNotContainsString('has no earlier version to go back to', $outcome->reason);
         self::assertFileDoesNotExist($this->tree->path(self::TARGET));
         self::assertSame([], $this->records());
         $this->assertRunClosed();
@@ -661,7 +661,7 @@ final class ReverterTest extends TestCase
 
         self::assertSame(TargetStatus::OK, $outcome->status, $outcome->reason);
         self::assertFalse($outcome->changed);
-        self::assertStringContainsString('start of its chain', $outcome->reason);
+        self::assertStringContainsString('has no earlier version to go back to', $outcome->reason);
         self::assertFileDoesNotExist($this->tree->path(self::TARGET));
         self::assertNull($outcome->warning);
         self::assertSame([], $this->records());
@@ -681,8 +681,8 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('which of them left it absent', $outcome->reason);
-        self::assertStringNotContainsString('start of its chain', $outcome->reason);
+        self::assertStringContainsString('which of them removed it', $outcome->reason);
+        self::assertStringNotContainsString('has no earlier version to go back to', $outcome->reason);
         self::assertFileDoesNotExist($this->tree->path(self::TARGET));
         self::assertSame([], $this->records());
         $this->assertRunClosed();

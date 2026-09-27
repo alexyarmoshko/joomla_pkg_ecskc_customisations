@@ -26,10 +26,12 @@ $report = $this->report;
 $run    = $this->run;
 
 $this->counts = [
-    'faults'       => $report->faults(),
-    'interruption' => $report->wasInterrupted() ? $report->interruption->describe() : null,
-    'byStatus'     => $report->counts->byStatus,
-    'total'        => $report->counts->targets,
+    'faults'           => $report->faults(),
+    'interruption'     => $report->wasInterrupted() ? $report->interruption->describe() : null,
+    // A check or dry run leaves an interruption for the next write to recover.
+    'interruptionNext' => 'COM_ECSKCCUSTOM_INTERRUPTION_NEXT',
+    'byStatus'         => $report->counts->byStatus,
+    'total'            => $report->counts->targets,
 ];
 
 if ($run->path === null) {

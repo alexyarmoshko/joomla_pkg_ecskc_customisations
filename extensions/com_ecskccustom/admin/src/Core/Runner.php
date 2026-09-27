@@ -614,7 +614,7 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
         }
 
         return WriteOutcome::summary($changed > 0, $intentLeft, $faulted > 0, \sprintf(
-            '%d of %d targets were changed and %d faulted',
+            '%d of %d managed files were changed and %d faulted',
             $changed,
             \count($outcomes),
             $faulted

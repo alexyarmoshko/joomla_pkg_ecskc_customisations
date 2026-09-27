@@ -902,7 +902,7 @@ final class ObjectWalkerTest extends TestCase
         )));
 
         self::assertSame(TargetStatus::NOT_APPLICABLE, $state->status);
-        self::assertStringContainsString('do not permit', $state->reason);
+        self::assertStringContainsString('is allowed to make the change', $state->reason);
     }
 
     public function testATargetPathPolicyRefusesIsFaultedNotBlocked(): void
@@ -918,7 +918,7 @@ final class ObjectWalkerTest extends TestCase
 
         self::assertSame(TargetStatus::FAULTED, $state->status);
         self::assertSame([], $state->operations());
-        self::assertStringContainsString('path policy refused', $state->reason);
+        self::assertStringContainsString('the package may not write to this path', $state->reason);
         self::assertNull($state->actual->digest);
         self::assertNotNull($state->actual->reason);
     }

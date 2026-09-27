@@ -269,7 +269,7 @@ final class ApplyTest extends RunnerHarness
             $target->outcome()->describe()
         );
         self::assertStringContainsString(
-            '1 of 1 targets were changed and 1 faulted',
+            '1 of 1 managed files were changed and 1 faulted',
             \implode("\n", $report->faults())
         );
     }
