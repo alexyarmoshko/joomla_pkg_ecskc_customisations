@@ -13,12 +13,19 @@ use RuntimeException;
  * while the parent is still reading stdout to its end blocks for ever, and a file
  * has no buffer to fill.
  *
+ * The child gets this process's environment without make's own variables.
+ * `make release` runs the suite as a sub-make, so MAKELEVEL and MAKEFLAGS are
+ * set, and a child make that inherits them prints "Entering directory" lines
+ * into the output the tests parse.
+ *
  * There is no time limit: a child that never exits hangs the test run. That is a
  * known limitation, declined in docs/code_refactoring_review.v4.md (C1). It affects
  * only the test suite, never the package.
  */
 final class ChildProcess
 {
+    private const MAKE_VARIABLES = ['MAKELEVEL', 'MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES'];
+
     /**
      * @param list<string> $command The program and its arguments, run without a shell.
      *
@@ -38,7 +45,9 @@ final class ChildProcess
             $process = \proc_open(
                 $command,
                 [0 => ['file', '/dev/null', 'r'], 1 => $stdout, 2 => $stderr],
-                $pipes
+                $pipes,
+                null,
+                \array_diff_key(\getenv(), \array_flip(self::MAKE_VARIABLES))
             );
 
             if ($process === false) {

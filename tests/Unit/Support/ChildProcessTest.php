@@ -52,4 +52,38 @@ final class ChildProcessTest extends TestCase
         self::assertSame('done', $stdout);
         self::assertSame(1 << 20, \strlen($stderr));
     }
+
+    /**
+     * `make release` runs the suite as a sub-make, and a child make that inherits
+     * MAKELEVEL prints "Entering directory" lines into the output the tests read.
+     */
+    public function testTheChildDoesNotInheritTheCallingMakesVariables(): void
+    {
+        $names = ['MAKELEVEL', 'MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES'];
+        $saved = [];
+
+        foreach ($names as $name) {
+            $saved[$name] = \getenv($name);
+            \putenv($name . '=1');
+        }
+
+        try {
+            [$status, $stdout] = ChildProcess::run([
+                \PHP_BINARY,
+                '-r',
+                'foreach (["MAKELEVEL", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "PATH"] as $n) {'
+                . ' echo $n, "=", getenv($n) === false ? "unset" : "set", "\n"; }',
+            ]);
+        } finally {
+            foreach ($saved as $name => $value) {
+                \putenv($value === false ? $name : $name . '=' . $value);
+            }
+        }
+
+        self::assertSame(0, $status);
+        self::assertSame(
+            "MAKELEVEL=unset\nMAKEFLAGS=unset\nMFLAGS=unset\nMAKEOVERRIDES=unset\nPATH=set\n",
+            $stdout
+        );
+    }
 }
