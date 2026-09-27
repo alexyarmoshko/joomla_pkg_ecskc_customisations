@@ -69,11 +69,6 @@ final class PathPolicy
         $this->packageRoot = $this->resolve($packageRoot) ?? \rtrim($packageRoot, '/');
     }
 
-    public function siteRoot(): string
-    {
-        return $this->siteRoot;
-    }
-
     /**
      * @param string $targetPath A target in canonical form: relative to the site
      *                           root, with no leading slash, as RuleObject produces.

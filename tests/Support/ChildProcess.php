@@ -12,6 +12,10 @@ use RuntimeException;
  * The streams go to temporary files, not pipes. A child that fills the stderr pipe
  * while the parent is still reading stdout to its end blocks for ever, and a file
  * has no buffer to fill.
+ *
+ * There is no time limit: a child that never exits hangs the test run. That is a
+ * known limitation, declined in docs/code_refactoring_review.v4.md (C1). It affects
+ * only the test suite, never the package.
  */
 final class ChildProcess
 {

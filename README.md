@@ -96,9 +96,9 @@ Customisations opens a Dashboard with the installed version and a card that show
 system plugin is enabled. Its Customisations entry runs a
 whole-set check and lists every managed path with its state, reason, and
 hashes, filtered by state or path. The same screen runs a check or a dry run of the whole set or
-of one path, and each row links to its own. A dry run shows the operations, backups, and refusals
+of one path, and each file's card links to its own check and dry run. A dry run shows the operations, backups, and refusals
 an apply would produce. A user with the Change Managed Files permission also gets Apply, Revert
-one step, Apply one step, Freeze, and Unfreeze on each row, each with a hint and confirmed in the
+one step, Apply one step, Freeze, and Unfreeze on each card, each with a hint and confirmed in the
 browser. The whole set is applied from the whole-set dry run's Apply this plan button. Each write shows its result once; reloading
 runs a fresh check. Installing the component writes no managed file. Joomla deletes `backup/`
 and `state/` with the component on uninstall. So, when those folders hold any history,

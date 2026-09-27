@@ -122,7 +122,8 @@ final class TargetState
     }
 
     /**
-     * The unfrozen state, for a report that shows what the freeze is holding back.
+     * The state the walk found under the freeze, or null for a target that is not
+     * frozen. The report shows only its status, through `describe()`.
      */
     public function underlying(): ?self
     {

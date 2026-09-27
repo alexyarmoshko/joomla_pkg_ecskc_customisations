@@ -13,23 +13,10 @@ declare(strict_types=1);
 namespace YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash;
 
 /**
- * Hashes payload bytes and files on disk, under the algorithm the rule declared.
+ * Hashes files on disk, under the algorithm the rule declared.
  */
 final class Hasher
 {
-    /**
-     * The digest of bytes already in memory - a payload the build is checking
-     * against its declared `sourceHash`, or content staged for a write.
-     */
-    public function hashBytes(string $algorithm, string $bytes): HashResult
-    {
-        if (!HashAlgorithm::isSupported($algorithm)) {
-            return HashResult::unavailable(HashAlgorithm::unsupportedReason($algorithm));
-        }
-
-        return HashResult::digest(\hash($algorithm, $bytes));
-    }
-
     /**
      * Whether a directory on the way to the path cannot be searched.
      *

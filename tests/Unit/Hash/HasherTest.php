@@ -24,6 +24,9 @@ final class HasherTest extends TestCase
     private TempTree $tree;
     private Hasher $hasher;
 
+    /** How many files `hashOf()` has written, so each gets its own name. */
+    private int $written = 0;
+
     protected function setUp(): void
     {
         $this->tree   = TempTree::create('ecskc-hash-');
@@ -38,6 +41,17 @@ final class HasherTest extends TestCase
     private function repositoryPath(string $relative): string
     {
         return \dirname(__DIR__, 3) . '/' . $relative;
+    }
+
+    /**
+     * These exact bytes, written to a file and hashed the way the package hashes a
+     * target.
+     */
+    private function hashOf(string $bytes, string $algorithm = 'sha256'): HashResult
+    {
+        $this->written++;
+
+        return $this->hasher->hashFile($algorithm, $this->tree->write('bytes-' . $this->written . '.css', $bytes));
     }
 
     /**
@@ -58,9 +72,11 @@ final class HasherTest extends TestCase
     }
 
     #[DataProvider('algorithmsVersionOneDoesNotSupport')]
-    public function testUnsupportedAlgorithmYieldsAReasonRatherThanADigestForBytes(string $algorithm): void
+    public function testUnsupportedAlgorithmYieldsAReasonRatherThanADigestForAFile(string $algorithm): void
     {
-        $result = $this->hasher->hashBytes($algorithm, 'bytes');
+        $this->tree->write('a.css', 'bytes');
+
+        $result = $this->hasher->hashFile($algorithm, $this->tree->path('a.css'));
 
         self::assertFalse($result->isAvailable());
         self::assertNull($result->digest);
@@ -73,18 +89,6 @@ final class HasherTest extends TestCase
         );
     }
 
-    #[DataProvider('algorithmsVersionOneDoesNotSupport')]
-    public function testUnsupportedAlgorithmYieldsAReasonRatherThanADigestForAFile(string $algorithm): void
-    {
-        $this->tree->write('a.css', 'bytes');
-
-        $result = $this->hasher->hashFile($algorithm, $this->tree->path('a.css'));
-
-        self::assertFalse($result->isAvailable());
-        self::assertNull($result->digest);
-        self::assertStringContainsString('version 1 supports sha256 only', (string) $result->reason);
-    }
-
     /**
      * The refusal above is the whole point of reading the algorithm from the
      * declaration: a hasher that fell back to sha256 would answer a question nobody
@@ -94,10 +98,7 @@ final class HasherTest extends TestCase
     {
         $bytes = 'bytes';
 
-        self::assertNotSame(
-            \hash('sha256', $bytes),
-            $this->hasher->hashBytes('sha512', $bytes)->digest
-        );
+        self::assertNotSame(\hash('sha256', $bytes), $this->hashOf($bytes, 'sha512')->digest);
     }
 
     public function testTheDeclaredAlgorithmIsTheOneComputed(): void
@@ -105,10 +106,7 @@ final class HasherTest extends TestCase
 
         $declared = HashAlgorithm::supported()[0];
 
-        self::assertSame(
-            \hash($declared, 'bytes'),
-            $this->hasher->hashBytes($declared, 'bytes')->digest
-        );
+        self::assertSame(\hash($declared, 'bytes'), $this->hashOf('bytes', $declared)->digest);
     }
 
     public function testAnUnsupportedAlgorithmHasNoDigestWidthToMeasureAgainst(): void
@@ -139,23 +137,12 @@ final class HasherTest extends TestCase
     #[DataProvider('payloadsAndTheirRecordedDigests')]
     public function testALineEndingFormHashesToItsOwnRecordedValue(string $bytes, string $recorded): void
     {
-        self::assertSame($recorded, $this->hasher->hashBytes('sha256', $bytes)->digest);
-
-        $path = $this->tree->write('style.css', $bytes);
-
-        self::assertSame(
-            $recorded,
-            $this->hasher->hashFile('sha256', $path)->digest,
-            'A file on disk must hash to the same value as the bytes written into it.'
-        );
+        self::assertSame($recorded, $this->hashOf($bytes)->digest);
     }
 
     public function testCrlfAndLfDigestsDifferFromEachOther(): void
     {
-        $crlf = $this->hasher->hashBytes('sha256', "a\r\nb");
-        $lf   = $this->hasher->hashBytes('sha256', "a\nb");
-
-        self::assertNotSame($crlf->digest, $lf->digest);
+        self::assertNotSame($this->hashOf("a\r\nb")->digest, $this->hashOf("a\nb")->digest);
     }
 
     public function testAFinalNewlineChangesTheDigest(): void
@@ -172,18 +159,12 @@ final class HasherTest extends TestCase
 
     public function testLeadingAndTrailingWhitespaceIsNotTrimmed(): void
     {
-        self::assertNotSame(
-            $this->hasher->hashBytes('sha256', ' body {} ')->digest,
-            $this->hasher->hashBytes('sha256', 'body {}')->digest
-        );
+        self::assertNotSame($this->hashOf(' body {} ')->digest, $this->hashOf('body {}')->digest);
     }
 
     public function testAByteOrderMarkIsPartOfTheFile(): void
     {
-        self::assertNotSame(
-            $this->hasher->hashBytes('sha256', "\xEF\xBB\xBFbody {}")->digest,
-            $this->hasher->hashBytes('sha256', 'body {}')->digest
-        );
+        self::assertNotSame($this->hashOf("\xEF\xBB\xBFbody {}")->digest, $this->hashOf('body {}')->digest);
     }
 
     public function testTheShippedOverrideCssHashesToTheValueTicketZeroEightRecorded(): void
@@ -199,7 +180,6 @@ final class HasherTest extends TestCase
         self::assertStringEndsWith('}', $bytes, 'The payload ends without a final newline.');
 
         self::assertSame(self::OVERRIDE_CSS_SHA256, $this->hasher->hashFile('sha256', $path)->digest);
-        self::assertSame(self::OVERRIDE_CSS_SHA256, $this->hasher->hashBytes('sha256', $bytes)->digest);
     }
 
     public function testHashingAFileLeavesItUntouched(): void
@@ -398,7 +378,7 @@ final class HasherTest extends TestCase
 
     public function testADigestMatchesItsDeclaredValueInEitherCase(): void
     {
-        $result   = $this->hasher->hashBytes('sha256', 'bytes');
+        $result   = $this->hashOf('bytes');
         $declared = \hash('sha256', 'bytes');
 
         self::assertTrue($result->matches($declared));
@@ -421,7 +401,7 @@ final class HasherTest extends TestCase
 
     public function testAnAvailableResultDescribesItselfWithItsDigest(): void
     {
-        $result = $this->hasher->hashBytes('sha256', 'bytes');
+        $result = $this->hashOf('bytes');
 
         self::assertSame(\hash('sha256', 'bytes'), $result->describe());
     }

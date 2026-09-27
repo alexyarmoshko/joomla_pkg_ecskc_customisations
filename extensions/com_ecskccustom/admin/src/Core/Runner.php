@@ -109,7 +109,7 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
         private readonly EnvironmentResolver $resolver,
         private readonly ObjectWalker $walker,
         private readonly WriteHistoryInterface $history,
-        private readonly PathPolicy $policy,
+        PathPolicy $policy,
         private readonly ?Closure $checkpoint = null,
     ) {
         $this->planner  = new WritePlanner($paths, $policy);
