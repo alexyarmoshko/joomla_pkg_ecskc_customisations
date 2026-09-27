@@ -25,7 +25,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ProposedOpera
 final class PlannedOperation
 {
     /** What a dry run's result field says, because it executed nothing. */
-    public const NOT_EXECUTED = 'a dry run executes nothing, so this operation was not performed';
+    public const NOT_EXECUTED = 'not done: a dry run changes nothing';
 
     /**
      * @param list<string> $refusals Reasons this operation cannot be performed,
@@ -49,12 +49,12 @@ final class PlannedOperation
      */
     public static function alreadyInPlace(ProposedOperation $operation, string $reason): self
     {
-        $nothing = ReportedValue::none('the target already held this payload, so nothing was displaced');
+        $nothing = ReportedValue::none('nothing, the file already had this content');
 
         return new self(
             $operation,
             $nothing,
-            ReportedValue::none('nothing was displaced, so no backup was written'),
+            ReportedValue::none('none, nothing was overwritten'),
             [],
             ReportedValue::known($reason)
         );
@@ -88,16 +88,16 @@ final class PlannedOperation
     public function describe(): string
     {
         $description = \sprintf(
-            '%s; replaces %s; backup %s',
+            '%s. Overwrites: %s. Backup: %s.',
             $this->operation->describe(),
             $this->displaced->describe(),
             $this->backup->describe()
         );
 
         if ($this->refusals !== []) {
-            $description .= '; refused: ' . \implode('; ', $this->refusals);
+            $description .= ' Refused: ' . \implode('; ', $this->refusals) . '.';
         }
 
-        return $description . '; ' . $this->result->describe();
+        return $description . ' Result: ' . $this->result->describe();
     }
 }

@@ -172,7 +172,7 @@ final class ECSKCCustomisationPlugin extends CMSPlugin implements SubscriberInte
         }
 
         foreach ($report->checks->notifiable() as $check) {
-            $lines[] = Text::sprintf('PLG_INSTALLER_ECSKCCUSTOM_MESSAGE_CHECK', self::escape($check->describe()));
+            $lines[] = Text::sprintf('PLG_INSTALLER_ECSKCCUSTOM_MESSAGE_CHECK', self::escape($check->reason));
         }
 
         foreach ($report->faults() as $fault) {

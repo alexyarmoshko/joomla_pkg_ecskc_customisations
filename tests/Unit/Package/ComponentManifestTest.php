@@ -304,7 +304,7 @@ final class ComponentManifestTest extends TestCase
         self::assertContains('COM_ECSKCCUSTOM_ACTION_WRITE_DESC', $keys);
         self::assertContains('COM_ECSKCCUSTOM_FILTER_STATUS_SELECT', $keys);
         self::assertContains('COM_ECSKCCUSTOM_FIELD_LAST_PACKAGE_WRITE', $keys);
-        self::assertContains('COM_ECSKCCUSTOM_CHECKS_NONE', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_SYSTEM_PLUGIN_UNKNOWN', $keys);
         self::assertContains('COM_ECSKCCUSTOM_SUBMENU_TARGETS', $keys);
         self::assertContains('COM_ECSKCCUSTOM_DASHBOARD_TITLE', $keys);
     }

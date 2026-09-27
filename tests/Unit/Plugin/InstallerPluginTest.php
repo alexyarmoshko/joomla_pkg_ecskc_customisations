@@ -178,7 +178,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Plugin {
             $messages = self::ours($application);
             self::assertCount(1, $messages);
             self::assertStringContainsString(
-                'Operational check system_plugin_enabled: ' . $outcome . ', the plugin is not loading &lt;override.css&gt;',
+                'System plugin: the plugin is not loading &lt;override.css&gt;',
                 $messages[0]['message']
             );
             self::assertStringNotContainsString('Managed paths', $messages[0]['message']);

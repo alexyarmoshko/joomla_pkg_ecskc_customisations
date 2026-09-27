@@ -135,10 +135,8 @@ final class RunRecovery
         }
 
         if (!$read->isPresent()) {
-
             return RecoveryOutcome::settled(\sprintf(
-                'an earlier run left the run marker at %s and no write intent, so no '
-                . 'mutation is outstanding',
+                'an earlier run left %s behind, but no unfinished write needs recovery',
                 $this->marker->path()
             ));
         }
@@ -221,8 +219,7 @@ final class RunRecovery
                     (string) $record->post,
                     $intent->id,
                     EventRecord::OBSERVED,
-                    reason: 'the interrupted run published its intent and the target is still '
-                        . 'in the state that mutation was to replace'
+                    reason: 'the interrupted change was never made: the file is as it was before'
                 ),
                 \sprintf(
                     '%s is still in the state the interrupted mutation was to replace, so the '
@@ -242,8 +239,8 @@ final class RunRecovery
                 $intent->id,
                 EventRecord::OBSERVED,
                 observed: $observed,
-                reason: 'the target matches neither the state the interrupted mutation was to '
-                    . 'replace nor the state it was to leave'
+                reason: 'the file matches neither the before nor the after of the interrupted '
+                    . 'change'
             ),
             \sprintf(
                 '%s matches neither state of the interrupted mutation, so an unresolved-intent '

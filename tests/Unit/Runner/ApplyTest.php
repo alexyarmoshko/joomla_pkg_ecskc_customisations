@@ -128,7 +128,7 @@ final class ApplyTest extends RunnerHarness
             $target->outcome()->describe()
         );
         self::assertStringContainsString(
-            'already holds the payload this operation writes',
+            'already has this content',
             $target->plan()[0]->result->describe()
         );
         self::assertFileDoesNotExist(
@@ -177,7 +177,7 @@ final class ApplyTest extends RunnerHarness
         self::assertCount(2, $plan, 'Both steps of the chain are on the report.');
         self::assertStringContainsString('already holds the version 2 payload', $plan[0]->result->describe());
         self::assertStringContainsString(
-            'already holds the payload this operation writes',
+            'already has this content',
             $plan[1]->result->describe()
         );
 
@@ -226,7 +226,7 @@ final class ApplyTest extends RunnerHarness
         self::assertStringNotContainsString('nothing was written', $target->outcome()->describe());
         self::assertStringContainsString($first, $plan[0]->result->describe());
         self::assertStringContainsString(
-            'already holds the payload this operation writes',
+            'already has this content',
             $plan[1]->result->describe()
         );
         self::assertSame($first, $target->backup->describe());
@@ -346,7 +346,7 @@ final class ApplyTest extends RunnerHarness
         self::assertSame(TargetStatus::BLOCKED, $target->status());
         self::assertFalse($target->outcome()->isKnown());
         self::assertStringContainsString(
-            'match neither a shipped payload nor an expected original',
+            'matches no version the package knows',
             $target->outcome()->describe()
         );
         self::assertSame([], \array_filter(
@@ -520,6 +520,40 @@ final class ApplyTest extends RunnerHarness
         self::assertFileDoesNotExist($this->paths()->writeIntent());
     }
 
+    /**
+     * The removal overwrites the file, so the backup field must not say nothing would be.
+     */
+    public function testARemovalToldToKeepNoCopyIsNotReportedAsOverwritingNothing(): void
+    {
+        $this->tree->write(self::REMOVED, self::FIRST);
+        $this->payload('comingsoon.php.v1', self::FIRST);
+        $this->tree->write(self::PACKAGE . '/rules/10-run.xml', RuleXml::patch(
+            RuleXml::object(
+                version: 1,
+                dest: self::REMOVED,
+                source: 'comingsoon.php.v1',
+                sourceHash: self::digest(self::FIRST),
+                expectedHash: self::digest(self::ORIGINAL)
+            )
+            . RuleXml::object(
+                version: 2,
+                dest: self::REMOVED,
+                expectedHash: self::digest(self::FIRST),
+                backup: false
+            )
+        ));
+
+        $planned = $this->target($this->runner()->dryRun(), self::REMOVED);
+        $applied = $this->target($this->runner()->apply(), self::REMOVED);
+
+        self::assertNotSame([], $planned->plan());
+        self::assertSame(
+            'no backup: the planned change keeps no copy of this file',
+            $planned->backup->describe()
+        );
+        self::assertSame('no backup: this run kept no copy of this file', $applied->backup->describe());
+    }
+
     public function testARemovalWhoseBackupFailsLeavesTheTargetInPlace(): void
     {
         $this->writeFixture();
@@ -686,7 +720,7 @@ final class ApplyTest extends RunnerHarness
 
         foreach ([self::CREATED, self::CHAIN, self::FOREIGN_TARGET, self::REMOVED] as $targetPath) {
             self::assertStringContainsString(
-                'is still outstanding, so this run went no further',
+                'did not finish and has to be recovered first, so this run stopped there',
                 $this->target($report, $targetPath)->outcome()->describe(),
                 $targetPath . ' was not told why it was left alone.'
             );

@@ -26,12 +26,13 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetState;
 
 final class WritePlanner
 {
-    private const NO_BACKUP_ON_CREATE = 'the file does not exist yet, so this operation '
-        . 'displaces nothing and writes no backup';
+    private const NO_BACKUP_ON_CREATE = 'none, the file does not exist yet';
 
-    private const NO_BACKUP_REQUESTED = 'the rule asks for no copy of the removed bytes';
+    private const NO_BACKUP_REQUESTED = 'none, the rule says not to keep a copy of the removed file';
 
-    private const NOTHING_DISPLACED = 'nothing is displaced: the target does not exist';
+    private const NOTHING_DISPLACED = 'none, the file does not exist';
+
+    private const NOTHING_OVERWRITTEN = 'nothing, the file does not exist';
 
     private const UNREADABLE_CURRENT = 'what is at %s now could not be read, so nothing may be '
         . 'displaced there: %s';
@@ -60,7 +61,7 @@ final class WritePlanner
             $plan[]  = $this->line($operation, $current);
             $current = $operation->isCopy()
                 ? HashResult::digest((string) $operation->payloadHash)
-                : HashResult::absent(self::NOTHING_DISPLACED);
+                : HashResult::absent(self::NOTHING_OVERWRITTEN);
         }
 
         return $plan;
@@ -87,7 +88,7 @@ final class WritePlanner
             return new PlannedOperation(
                 $operation,
                 self::displacedValue($displaced),
-                ReportedValue::none('the path is denied, so no backup destination is computed'),
+                ReportedValue::none('none, the path is not allowed'),
                 [(string) $decision->reason],
                 ReportedValue::none(PlannedOperation::NOT_EXECUTED)
             );
@@ -136,7 +137,7 @@ final class WritePlanner
 
             if (!$displaced->isAbsent()) {
                 return ReportedValue::unavailable(\sprintf(
-                    'what is at %s now could not be read, so no backup destination is computed',
+                    'none, what is at %s now could not be read',
                     $operation->targetPath
                 ));
             }
@@ -272,7 +273,7 @@ final class WritePlanner
         }
 
         return $displaced->isAbsent()
-            ? ReportedValue::none(self::NOTHING_DISPLACED)
+            ? ReportedValue::none(self::NOTHING_OVERWRITTEN)
             : ReportedValue::unavailable((string) $displaced->reason);
     }
 }

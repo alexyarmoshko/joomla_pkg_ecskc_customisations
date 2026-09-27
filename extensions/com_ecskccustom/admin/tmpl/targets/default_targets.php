@@ -24,16 +24,28 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Model\WriteResult;
  * @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Targets\HtmlView $this
  */
 
-// Each button posts the row's path to one task through the write form. A frozen
+// Each button posts the row's path to one task through the write form. Its hint
+// follows it in Atum's tooltip pattern, which shows a `role="tooltip"` sibling on
+// hover and on focus; the counter keeps each hint's id unique on the page. A frozen
 // row offers unfreeze instead of freeze. Trusted HTML: every attribute value is
-// escaped, and the label is a language string.
-$writeButton = fn (string $operation, string $path): string => \sprintf(
-    '<button type="submit" form="ecskc-write" formaction="%s" name="path" value="%s" data-ecskc-confirm="%s" class="btn btn-sm btn-outline-secondary me-1 mt-1">%s</button>',
-    $this->taskUrl($operation),
-    $this->escape($path),
-    $this->escape(Text::sprintf('COM_ECSKCCUSTOM_CONFIRM_' . \strtoupper($operation), $path)),
-    Text::_('COM_ECSKCCUSTOM_ROW_' . \strtoupper($operation))
-);
+// escaped, and the label and hint are language strings.
+$hint        = 0;
+$writeButton = function (string $operation, string $path) use (&$hint): string {
+    $key = \strtoupper($operation);
+    $id  = 'ecskc-hint-' . ++$hint;
+
+    return \sprintf(
+        '<button type="submit" form="ecskc-write" formaction="%s" name="path" value="%s" data-ecskc-confirm="%s" aria-describedby="%s" class="btn btn-sm btn-outline-secondary me-1 mt-1">%s</button>'
+        . '<div role="tooltip" id="%s">%s</div>',
+        $this->taskUrl($operation),
+        $this->escape($path),
+        $this->escape(Text::sprintf('COM_ECSKCCUSTOM_CONFIRM_' . $key, $path)),
+        $id,
+        Text::_('COM_ECSKCCUSTOM_ROW_' . $key),
+        $id,
+        Text::_('COM_ECSKCCUSTOM_HINT_' . $key)
+    );
+};
 
 $this->rows = [];
 
@@ -45,17 +57,17 @@ $this->rowsOpen    = $this->run->isDryRun();
 $this->rowControls = function (array $row) use ($writeButton): string {
     \ob_start();
     ?>
-    <p class="ecskc-row-runs small mb-0">
+    <p class="ecskc-row-runs small mt-2 mb-0">
         <a href="<?php echo $this->runUrl(RunRequest::CHECK, $row['path']); ?>"><?php echo Text::_('COM_ECSKCCUSTOM_ROW_CHECK'); ?></a>
         <a href="<?php echo $this->runUrl(RunRequest::DRY_RUN, $row['path']); ?>" class="ms-2"><?php echo Text::_('COM_ECSKCCUSTOM_ROW_DRY_RUN'); ?></a>
     </p>
     <?php if ($this->canWrite) : ?>
-        <p class="ecskc-row-writes mb-0">
+        <div class="ecskc-row-writes">
             <?php echo $writeButton(WriteResult::APPLY, $row['path']); ?>
             <?php echo $writeButton(WriteResult::REVERT, $row['path']); ?>
             <?php echo $writeButton(WriteResult::REDO, $row['path']); ?>
             <?php echo $writeButton($row['status'] === TargetStatus::FROZEN ? WriteResult::UNFREEZE : WriteResult::FREEZE, $row['path']); ?>
-        </p>
+        </div>
     <?php endif; ?>
     <?php
     return (string) \ob_get_clean();

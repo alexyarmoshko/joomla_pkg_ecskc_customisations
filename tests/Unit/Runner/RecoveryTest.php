@@ -123,7 +123,7 @@ final class RecoveryTest extends RunnerHarness
 
         self::assertTrue($first->wasInterrupted());
         self::assertStringContainsString(
-            'an earlier run left the run marker',
+            'no unfinished write needs recovery',
             $first->interruption->describe()
         );
 
@@ -143,7 +143,7 @@ final class RecoveryTest extends RunnerHarness
                 'A lock this call could not acquire is a live run, not the previous recovery.'
             );
             self::assertStringNotContainsString(
-                'an earlier run left the run marker',
+                'no unfinished write needs recovery',
                 $second->interruption->describe()
             );
         } finally {
@@ -714,12 +714,12 @@ final class RecoveryTest extends RunnerHarness
 
         self::assertStringContainsString('10-run.xml', $faults);
         self::assertStringContainsString(
-            'the rule set could not be walked again after this run, so ' . self::VENDOR,
+            'the files could not be checked again after this run, so ' . self::VENDOR,
             $faults
         );
         self::assertStringContainsString('does not hold one ISO-8601 UTC timestamp', $faults);
         self::assertStringContainsString(
-            'replaces ' . self::digest(self::ORIGINAL),
+            'Overwrites: ' . self::digest(self::ORIGINAL),
             $faults,
             'The executed plan still names what the write displaced.'
         );
@@ -728,7 +728,7 @@ final class RecoveryTest extends RunnerHarness
 
         self::assertCount(1, $backups);
         self::assertStringContainsString(
-            'backup ' . $this->paths()->backup() . '/' . $backups[0],
+            'Backup: ' . $this->paths()->backup() . '/' . $backups[0],
             $faults,
             'The executed plan still names where the displaced original went.'
         );

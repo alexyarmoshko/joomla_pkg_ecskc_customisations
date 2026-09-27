@@ -157,8 +157,8 @@ final class WriteRun
     {
         if ($this->intents->isPresent()) {
             return \sprintf(
-                'the write intent at %s was left by an interrupted run, and this run has no '
-                . 'recovery to settle it, so %s',
+                'an earlier write was interrupted (it left %s behind) and this run cannot '
+                . 'recover it, so %s',
                 $this->intents->path(),
                 $this->untouched
             );
@@ -166,8 +166,8 @@ final class WriteRun
 
         if ($this->marker->isPresent()) {
             return \sprintf(
-                'the run marker at %s was left by an interrupted run, and this run has no '
-                . 'recovery to settle it, so %s',
+                'an earlier write was interrupted (it left %s behind) and this run cannot '
+                . 'recover it, so %s',
                 $this->marker->path(),
                 $this->untouched
             );

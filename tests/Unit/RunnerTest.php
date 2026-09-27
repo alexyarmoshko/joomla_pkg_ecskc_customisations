@@ -147,7 +147,7 @@ final class RunnerTest extends TestCase
         $target = $this->withStatus($this->report()->targets(), TargetStatus::ACTIONABLE);
 
         self::assertFalse($target->backup->isKnown());
-        self::assertStringContainsString('nothing is displaced', $target->backup->describe());
+        self::assertStringContainsString('a check changes nothing', $target->backup->describe());
     }
 
     public function testTheOperationalChecksSectionHoldsTheSystemPluginCheck(): void

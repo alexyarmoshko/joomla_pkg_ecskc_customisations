@@ -62,15 +62,3 @@ if ($run->path === null) {
     <?php endif; ?>
 </div>
 <?php echo $this->loadTemplate('counts'); ?>
-<div id="ecskc-checks">
-    <?php if ($report->checks->isEmpty()) : ?>
-        <p><?php echo Text::_('COM_ECSKCCUSTOM_CHECKS_NONE'); ?></p>
-    <?php else : ?>
-        <p><?php echo Text::sprintf('COM_ECSKCCUSTOM_CHECKS_SUMMARY', $report->counts->checks, $report->counts->notifiableChecks); ?></p>
-        <ul>
-            <?php foreach ($report->checks->all() as $check) : ?>
-                <li<?php echo $check->notifiable ? ' class="text-warning-emphasis fw-bold"' : ''; ?>><?php echo $this->escape($check->describe()); ?></li>
-            <?php endforeach; ?>
-        </ul>
-    <?php endif; ?>
-</div>

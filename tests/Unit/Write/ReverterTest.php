@@ -768,7 +768,7 @@ final class ReverterTest extends TestCase
 
         self::assertNotNull($outcome->warning);
         self::assertStringContainsString(self::TARGET, (string) $outcome->warning);
-        self::assertStringContainsString('freeze the path', (string) $outcome->warning);
+        self::assertStringContainsString('freeze the file to keep this revert', (string) $outcome->warning);
     }
 
     public function testARefusedRevertCarriesNoWarning(): void
@@ -824,7 +824,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert(self::TARGET, $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('interrupted run', $outcome->reason);
+        self::assertStringContainsString('an earlier write was interrupted', $outcome->reason);
         self::assertSame(self::THIRD, $this->bytes());
         self::assertTrue((new RunMarker($this->paths))->isPresent(), 'the stale marker was replaced');
     }
@@ -877,7 +877,7 @@ final class ReverterTest extends TestCase
         $outcome = $this->reverter()->revert('templates/et_tennis/css/other.css', $ruleSet);
 
         self::assertTrue($outcome->isFaulted(), $outcome->reason);
-        self::assertStringContainsString('no object at', $outcome->reason);
+        self::assertStringContainsString('the package has no versions of', $outcome->reason);
     }
 
     public function testANonCanonicalTargetPathIsRejectedBeforeTheLock(): void

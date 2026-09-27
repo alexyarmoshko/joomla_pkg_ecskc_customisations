@@ -230,7 +230,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Model {
                 self::assertSame($path, $model->getRunRequest()->path);
                 self::assertSame([], $report->targets(), 'An undeclared path is not narrowed to a declared one.');
                 self::assertSame(
-                    ['the rule set declares no target at ' . $path . ', so nothing was done'],
+                    ['the package does not manage ' . $path . ', so nothing was done'],
                     $report->faults()
                 );
             }

@@ -49,8 +49,8 @@ final class Reverter
      */
     public const LOCKED = 'locked';
 
-    public const REAPPLY_WARNING = 'the next apply carries %s forward to the head again; '
-        . 'freeze the path to hold this revert';
+    public const REAPPLY_WARNING = 'the next Apply will change %s back; freeze the file to keep '
+        . 'this revert';
 
     private readonly WriteRun $writeRun;
 
@@ -74,7 +74,7 @@ final class Reverter
         private readonly ?Closure $checkpoint = null,
         ?RunRecovery $recovery = null,
     ) {
-        $this->writeRun = new WriteRun($paths, 'the target was not touched', $recovery);
+        $this->writeRun = new WriteRun($paths, 'the file was not touched', $recovery);
         $this->guard    = new FreezeGuard(new FreezeMarkers($paths));
         $this->hasher   = new Hasher();
         $this->catalog  = new BackupCatalog($paths);
@@ -167,7 +167,7 @@ final class Reverter
 
         if ($objects === []) {
             return WriteOutcome::refused(\sprintf(
-                'the rule set declares no object at %s, so it has no chain to step along',
+                'the package has no versions of %s, so there is nothing to revert or apply',
                 $targetPath
             ));
         }
@@ -273,8 +273,8 @@ final class Reverter
 
         if ($object === null) {
             return WriteOutcome::refused(\sprintf(
-                'the rule set declares no object at version %d for %s, so the chain has no '
-                . 'predecessor to restore',
+                'the package has no version before %d for %s, so there is nothing earlier to '
+                . 'restore',
                 $version,
                 $targetPath
             ));
@@ -474,7 +474,7 @@ final class Reverter
 
         if ($state === null) {
             return WriteOutcome::refused(\sprintf(
-                'the walk reported nothing about %s, so there is no step to take there',
+                'the check returned nothing for %s, so there is nothing to revert or apply',
                 $targetPath
             ));
         }

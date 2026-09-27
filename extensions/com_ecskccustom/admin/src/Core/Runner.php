@@ -20,6 +20,7 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\Operat
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\SystemPluginCheck;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalCheck;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalChecks;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\PlannedOperation;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedValue;
@@ -53,19 +54,30 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
      * operation preserves displaced content, and a line that dropped it in a
      * report-only run would look like a line that had nothing to say.
      */
-    private const NO_BACKUP = 'a check performs no operation, so nothing is displaced and no '
-        . 'backup is written';
+    private const NO_BACKUP = 'no backup: a check changes nothing';
 
-    private const NO_PLAN_BACKUP = 'no operation at this target preserves displaced content';
+    private const NO_PLAN_BACKUP = 'no backup: nothing at this path would be overwritten';
+
+    /**
+     * A plan can overwrite and still keep no copy, as a removal with `backup="false"` does,
+     * or when the current file could not be read. Its lines say why.
+     */
+    private const NO_PLAN_BACKUP_KEPT = 'no backup: the planned change keeps no copy of this file';
+
+    /**
+     * A run that wrote and kept no copy. Its line may carry the next apply's plan, whose
+     * destinations stay on the operation lines and say nothing about this run.
+     */
+    private const NO_RUN_BACKUP = 'no backup: this run kept no copy of this file';
 
     private const NO_INTERRUPTION = 'no earlier write run was interrupted';
 
-    private const NOT_WALKED_AGAIN = 'the rule set could not be walked again after this run, so %s '
-        . 'is reported by its outcome and the plan this run executed: %s';
+    private const NOT_WALKED_AGAIN = 'the files could not be checked again after this run, so %s is '
+        . 'shown with this run\'s result and plan: %s';
 
     private const PLANNED_BEFORE_WALK = '%s, as this run planned it: %s';
 
-    private const UNDECLARED = 'the rule set declares no target at %s, so nothing was done';
+    private const UNDECLARED = 'the package does not manage %s, so nothing was done';
 
     private readonly WritePlanner $planner;
 
@@ -102,7 +114,7 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
     ) {
         $this->planner  = new WritePlanner($paths, $policy);
         $this->recovery = new RunRecovery($paths, $policy);
-        $this->writeRun = new WriteRun($paths, 'no target was touched', $this->recovery);
+        $this->writeRun = new WriteRun($paths, 'no file was changed', $this->recovery);
         $this->executor = new ApplyExecutor($paths, $policy, $this->planner, $this->checkpoint);
         $this->freezer  = new Freezer(
             $paths,
@@ -405,20 +417,29 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
         ?string $warning = null,
     ): TargetReport {
         $destinations = $preservedBackups ?? [];
+        $overwrites   = false;
 
-        if ($preservedBackups === null) {
-            foreach ($plan as $planned) {
-                if ($planned->backup->isKnown()) {
-                    $destinations[] = (string) $planned->backup->value;
-                }
+        foreach ($plan as $planned) {
+            $overwrites = $overwrites || (!$planned->backup->isKnown()
+                && ($planned->displaced->isKnown() || !$planned->displaced->isDetermined()));
+
+            if ($preservedBackups === null && $planned->backup->isKnown()) {
+                $destinations[] = (string) $planned->backup->value;
             }
         }
+
+        $noBackup = match (true) {
+            $plan === []               => self::NO_PLAN_BACKUP,
+            $preservedBackups !== null => self::NO_RUN_BACKUP,
+            $overwrites                => self::NO_PLAN_BACKUP_KEPT,
+            default                    => self::NO_PLAN_BACKUP,
+        };
 
         return new TargetReport(
             $state,
             $this->history->lastWriteFor($state->targetPath),
             $destinations === []
-                ? ReportedValue::none(self::NO_PLAN_BACKUP)
+                ? ReportedValue::none($noBackup)
                 : ReportedValue::known(\implode(', ', $destinations)),
             $plan,
             $outcome,
@@ -453,7 +474,16 @@ final class Runner implements ReadOnlyRunnerInterface, WriteRunnerInterface
      */
     private function operationalChecks(): OperationalChecks
     {
-        return OperationalChecks::of($this->systemPlugin->derive($this->operational->systemPluginEnabled()));
+        return OperationalChecks::of($this->systemPluginCheck());
+    }
+
+    /**
+     * `system_plugin_enabled` on its own, for the dashboard. It loads no rule and
+     * walks no path.
+     */
+    public function systemPluginCheck(): OperationalCheck
+    {
+        return $this->systemPlugin->derive($this->operational->systemPluginEnabled());
     }
 
     /**

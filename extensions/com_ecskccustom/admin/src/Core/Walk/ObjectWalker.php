@@ -168,16 +168,16 @@ final class ObjectWalker
         $gates = $reachable && $this->gatesALaterChainStep($object, $ctx->objects, $index);
 
         if ($gates) {
-            $reason = 'the object is disabled, and a later object at this target expects '
-                . 'a state it would have produced';
+            $reason = 'this version is switched off, and a later version expects the content it '
+                . 'would have written';
         } else {
-            $reason = 'the object is disabled';
+            $reason = 'this version is switched off';
 
             if ($reachable) {
                 $ctx->skipQualifier = TargetState::DISABLED;
                 $ctx->skipReason    = \sprintf(
-                    'version %d matches this target and is switched off, so the rule set '
-                    . 'writes nothing further here',
+                    'the file matches version %d, which is switched off, so nothing more is '
+                    . 'written here',
                     $object->version
                 );
             }
@@ -218,7 +218,7 @@ final class ObjectWalker
         }
 
         if ($faults !== []) {
-            $reason          = \sprintf('a condition could not be judged: %s', \implode('; ', $faults));
+            $reason          = \sprintf('a condition of this version could not be checked: %s', \implode('; ', $faults));
             $ctx->outcomes[] = ObjectOutcome::for($object, ObjectOutcome::FAULTED, $reason);
 
             return ActionSelection::faulted($reason);
@@ -248,7 +248,7 @@ final class ObjectWalker
         $ctx->outcomes[] = ObjectOutcome::for(
             $object,
             ObjectOutcome::CONDITIONS_UNMET,
-            'no action of this object has conditions that hold in this environment',
+            'this version is not meant for this site setup',
             $gates
         );
 
@@ -257,8 +257,8 @@ final class ObjectWalker
         } elseif ($reachable) {
             $ctx->skipQualifier = TargetState::UNMET;
             $ctx->skipReason    = \sprintf(
-                'version %d is written for another environment, so the rule set writes '
-                . 'nothing further here',
+                'version %d is meant for a different site setup, so nothing more is written '
+                . 'here',
                 $object->version
             );
         }
@@ -344,7 +344,7 @@ final class ObjectWalker
                 return [
                     TargetStatus::INCOMPLETE,
                     \sprintf(
-                        'the walk reached version %d and stopped there, short of the head',
+                        'the file can be updated to version %d, but not to the latest version',
                         $settled->version
                     ),
                     null,
@@ -354,7 +354,7 @@ final class ObjectWalker
             if ($operations !== []) {
                 return [
                     TargetStatus::ACTIONABLE,
-                    \sprintf('the target can be carried to version %d', $settled->version),
+                    \sprintf('the file can be updated to version %d', $settled->version),
                     null,
                 ];
             }
@@ -365,7 +365,7 @@ final class ObjectWalker
 
             return [
                 TargetStatus::OK,
-                \sprintf('the target already holds what version %d writes', $settled->version),
+                \sprintf('the file already has the version %d changes', $settled->version),
                 null,
             ];
         }
@@ -419,71 +419,70 @@ final class ObjectWalker
     {
         if ($action->isCopy()) {
             if ($state->matches((string) $action->sourceHash)) {
-                return [ObjectOutcome::AT_PAYLOAD, 'the target already holds this object\'s payload'];
+                return [ObjectOutcome::AT_PAYLOAD, 'the file already has this version\'s content'];
             }
 
             if ($object->expectedHash === null) {
 
                 if ($state->isAbsent()) {
                     return $object->create
-                        ? [ObjectOutcome::WOULD_APPLY, 'the file is absent and this object may create it']
+                        ? [ObjectOutcome::WOULD_APPLY, 'the file does not exist yet, and this version may create it']
                         : [
                             ObjectOutcome::NOT_APPLICABLE,
-                            'the file is absent and this object may not create it',
+                            'the file does not exist, and this version is not allowed to create it',
                         ];
                 }
 
                 return $object->replace
                     ? [
                         ObjectOutcome::WOULD_APPLY,
-                        'a file is present, this object may replace it, and no expected original '
-                            . 'narrows that',
+                        'a file exists, and this version may replace whatever it holds',
                     ]
                     : [
                         ObjectOutcome::NOT_APPLICABLE,
-                        'a file is present and this object may not replace it',
+                        'a file exists, and this version is not allowed to replace it',
                     ];
             }
 
             if (!$state->isAvailable()) {
                 return [
                     ObjectOutcome::NOT_MATCHED,
-                    'the file is absent, so it cannot be the expected original this object declares',
+                    'the file does not exist, so it is not the original this version expects',
                 ];
             }
 
             if (!$state->matches($object->expectedHash)) {
                 return [
                     ObjectOutcome::NOT_MATCHED,
-                    'the target matches neither this object\'s expected original nor its payload',
+                    'the file matches neither the original this version expects nor this version\'s content',
                 ];
             }
 
             return $object->replace
                 ? [
                     ObjectOutcome::WOULD_APPLY,
-                    'the target is the expected original and this object may replace it',
+                    'the file is the original this version expects, and this version may replace it',
                 ]
                 : [
                     ObjectOutcome::NOT_APPLICABLE,
-                    'the target is the expected original but this object may not replace it',
+                    'the file is the original this version expects, but this version is not allowed to replace it',
                 ];
         }
 
         if ($state->isAbsent()) {
-            return [ObjectOutcome::AT_PAYLOAD, 'the target is already absent'];
+            return [ObjectOutcome::AT_PAYLOAD, 'the file is already gone'];
         }
 
         if ($object->expectedHash !== null && !$state->matches($object->expectedHash)) {
             return [
                 ObjectOutcome::NOT_MATCHED,
-                'the target is not the file this object was written to remove',
+                'the file is not the one this version was written to remove',
             ];
         }
 
         return $object->replace
-            ? [ObjectOutcome::WOULD_APPLY, 'the file is present and this object removes it']
-            : [ObjectOutcome::NOT_APPLICABLE, 'a file is present and this object may not replace it'];
+            ? [ObjectOutcome::WOULD_APPLY, 'the file exists, and this version removes it']
+            : [ObjectOutcome::NOT_APPLICABLE, 'a file exists, and this version is not allowed to replace it'];
     }
 
     /**

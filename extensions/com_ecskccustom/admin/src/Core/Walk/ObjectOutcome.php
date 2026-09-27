@@ -40,6 +40,19 @@ final class ObjectOutcome
     /** A condition could not be judged, so the whole target halts here. */
     public const FAULTED = 'faulted';
 
+    /**
+     * What a report shows for each result. The codes stay the code's own words.
+     */
+    private const LABELS = [
+        self::AT_PAYLOAD       => 'already applied',
+        self::WOULD_APPLY      => 'can be applied',
+        self::DISABLED         => 'switched off',
+        self::CONDITIONS_UNMET => 'not for this site',
+        self::NOT_MATCHED      => 'does not match',
+        self::NOT_APPLICABLE   => 'not allowed',
+        self::FAULTED          => 'could not be checked',
+    ];
+
     private function __construct(
         public readonly string $sourceFile,
         public readonly int $version,
@@ -71,7 +84,7 @@ final class ObjectOutcome
             $this->sourceFile,
             $this->version,
             $this->result,
-            $this->reason . ', though a later object at this target carried the walk past it',
+            $this->reason . ', but a later version moved the file past it',
             false
         );
     }
@@ -81,6 +94,11 @@ final class ObjectOutcome
      */
     public function describe(): string
     {
-        return \sprintf('version %d: %s, %s', $this->version, $this->result, $this->reason);
+        return \sprintf(
+            'version %d, %s: %s',
+            $this->version,
+            self::LABELS[$this->result] ?? $this->result,
+            $this->reason
+        );
     }
 }

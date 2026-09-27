@@ -20,12 +20,12 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\ReportedVal
  */
 final class EventLogHistory implements WriteHistoryInterface
 {
-    private const NO_WRITE = 'no package write is recorded at %s';
+    private const NO_WRITE = 'the package has no record of changing %s';
 
     private const UNKNOWN_WRITE = 'whether the package has written at %s is unknown: %s';
 
-    private const INTENT_WITHOUT_MARKER = 'an earlier write run left a write intent behind and '
-        . 'no run marker, so a mutation may have happened with its event unrecorded';
+    private const INTENT_WITHOUT_MARKER = 'an earlier write stopped before finishing its record, so '
+        . 'a file may have changed without being logged';
 
     private readonly EventLog $log;
 

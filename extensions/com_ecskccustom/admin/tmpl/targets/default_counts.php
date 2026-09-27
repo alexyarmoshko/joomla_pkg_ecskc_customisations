@@ -13,8 +13,9 @@
 use Joomla\CMS\Language\Text;
 
 /**
- * The run's faults, the interruption and the counts, which both pages show above
- * their rows. Report text is the runner's, escaped (plan decision 48).
+ * The run's faults, the interruption and the Summary section with the counts, which
+ * both pages show above their rows. Report text is the runner's, escaped (plan
+ * decision 48).
  *
  * The page that loads this sets `counts`: the faults, the interruption or null,
  * the count per status, and the total.
@@ -40,22 +41,25 @@ $counts = $this->counts;
         <p class="mb-0"><?php echo $this->escape($counts['interruption']); ?></p>
     </div>
 <?php endif; ?>
-<table class="table table-sm w-auto" id="ecskc-counts">
-    <caption><?php echo Text::_('COM_ECSKCCUSTOM_COUNTS_CAPTION'); ?></caption>
-    <thead>
-        <tr>
-            <?php foreach (\array_keys($counts['byStatus']) as $status) : ?>
-                <th scope="col"><?php echo $this->escape($status); ?></th>
-            <?php endforeach; ?>
-            <th scope="col"><?php echo Text::_('COM_ECSKCCUSTOM_COUNTS_TOTAL'); ?></th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <?php foreach ($counts['byStatus'] as $count) : ?>
-                <td><?php echo (int) $count; ?></td>
-            <?php endforeach; ?>
-            <td><?php echo (int) $counts['total']; ?></td>
-        </tr>
-    </tbody>
-</table>
+<section id="ecskc-summary" class="mb-3">
+    <h2 class="h4" id="ecskc-summary-heading"><?php echo Text::_('COM_ECSKCCUSTOM_SUMMARY_HEADING'); ?></h2>
+    <p id="ecskc-counts-desc"><?php echo Text::_('COM_ECSKCCUSTOM_COUNTS_DESC'); ?></p>
+    <table class="table table-sm" id="ecskc-counts" aria-labelledby="ecskc-summary-heading" aria-describedby="ecskc-counts-desc">
+        <thead>
+            <tr>
+                <?php foreach (\array_keys($counts['byStatus']) as $status) : ?>
+                    <th scope="col"><?php echo $this->escape($status); ?></th>
+                <?php endforeach; ?>
+                <th scope="col"><?php echo Text::_('COM_ECSKCCUSTOM_COUNTS_TOTAL'); ?></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <?php foreach ($counts['byStatus'] as $count) : ?>
+                    <td><?php echo (int) $count; ?></td>
+                <?php endforeach; ?>
+                <td><?php echo (int) $counts['total']; ?></td>
+            </tr>
+        </tbody>
+    </table>
+</section>

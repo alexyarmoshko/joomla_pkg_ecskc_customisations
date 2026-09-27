@@ -374,7 +374,7 @@ final class EventLogHistoryTest extends TestCase
         $interruption = $this->history()->interruption();
 
         self::assertTrue($interruption->isKnown());
-        self::assertStringContainsString('write intent', (string) $interruption->value);
+        self::assertStringContainsString('stopped before finishing its record', (string) $interruption->value);
     }
 
     public function testAnUnreadableMarkerIsAFaultOnTheFieldRatherThanACleanRun(): void

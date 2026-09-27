@@ -15,19 +15,22 @@ namespace YakShaver\Component\ECSKCCustomisation\Administrator\View\Dashboard;
 use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\View\HtmlView as BaseHtmlView;
 use Joomla\CMS\Toolbar\ToolbarHelper;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Report\OperationalCheck;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Model\DashboardModel;
 
 \defined('_JEXEC') or die;
 
 /**
- * What the component does, and which version is installed. It runs no check;
- * the target report does that.
+ * What the component does, which version is installed, and whether the system
+ * plugin is enabled. It checks no managed path; the target report does that.
  */
 class HtmlView extends BaseHtmlView
 {
     public string $version = '';
 
     public string $author = '';
+
+    public ?OperationalCheck $systemPlugin = null;
 
     /**
      * @param string|null $tpl
@@ -40,6 +43,8 @@ class HtmlView extends BaseHtmlView
 
         $this->version = $info['version'];
         $this->author  = $info['author'];
+
+        $this->systemPlugin = $model->getSystemPluginCheck();
 
         $this->addToolbar();
 

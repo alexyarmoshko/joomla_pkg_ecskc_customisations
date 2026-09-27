@@ -21,7 +21,7 @@ final class RunLock
 {
     public const IN_PROGRESS = 'another write run is in progress';
 
-    public const READING = 'a check or dry run is reading the run state';
+    public const READING = 'a check or dry run is in progress';
 
     private const UNAVAILABLE = 'the run lock at %s could not be opened';
 

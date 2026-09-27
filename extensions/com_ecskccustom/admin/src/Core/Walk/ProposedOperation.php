@@ -59,10 +59,10 @@ final class ProposedOperation
     public function describe(): string
     {
         return \sprintf(
-            '%s %s at version %d: %s',
-            $this->operation,
-            $this->targetPath,
+            'version %d %s %s: %s',
             $this->version,
+            $this->isCopy() ? 'writes' : 'removes',
+            $this->targetPath,
             $this->reason
         );
     }

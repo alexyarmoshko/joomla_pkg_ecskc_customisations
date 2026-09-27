@@ -345,7 +345,7 @@ final class FreezerTest extends TestCase
         })->freeze(self::TARGET);
 
         self::assertSame(TargetStatus::FAULTED, $outcome->status);
-        self::assertStringContainsString('interrupted run', $outcome->reason);
+        self::assertStringContainsString('an earlier write was interrupted', $outcome->reason);
         self::assertFalse($this->markerExists());
         self::assertFileDoesNotExist($this->paths->eventLog());
         self::assertTrue($this->lockIsFree());

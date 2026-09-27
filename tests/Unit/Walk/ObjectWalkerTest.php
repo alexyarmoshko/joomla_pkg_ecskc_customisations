@@ -269,7 +269,7 @@ final class ObjectWalkerTest extends TestCase
 
         self::assertSame(TargetStatus::NOT_APPLICABLE, $state->status);
         self::assertSame([], $state->operations());
-        self::assertStringContainsString('may not create it', $state->objectOutcomes()[0]->reason);
+        self::assertStringContainsString('is not allowed to create it', $state->objectOutcomes()[0]->reason);
         self::assertTrue($state->actual->isAbsent());
     }
 
@@ -522,7 +522,7 @@ final class ObjectWalkerTest extends TestCase
         ));
 
         self::assertSame(TargetStatus::INCOMPLETE, $state->status);
-        self::assertStringContainsString('reached version 1 and stopped there', $state->reason);
+        self::assertStringContainsString('can be updated to version 1, but not to the latest version', $state->reason);
     }
 
     /**
@@ -689,7 +689,7 @@ final class ObjectWalkerTest extends TestCase
         self::assertNull($state->qualifier, 'the skip no longer explains where the walk stands');
         self::assertCount(2, $state->operations());
         self::assertFalse($state->objectOutcomes()[1]->gatesLaterObjects);
-        self::assertStringContainsString('carried the walk past it', $state->objectOutcomes()[1]->reason);
+        self::assertStringContainsString('a later version moved the file past it', $state->objectOutcomes()[1]->reason);
     }
 
     public function testAnUnmatchedStepGateIsLiftedWhenALaterObjectReachesTheHead(): void
@@ -880,7 +880,7 @@ final class ObjectWalkerTest extends TestCase
 
         self::assertSame(TargetStatus::INCOMPLETE, $state->status);
         self::assertSame(ObjectOutcome::NOT_APPLICABLE, $state->objectOutcomes()[1]->result);
-        self::assertStringContainsString('may not replace it', $state->objectOutcomes()[1]->reason);
+        self::assertStringContainsString('is not allowed to replace it', $state->objectOutcomes()[1]->reason);
     }
 
     /**

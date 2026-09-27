@@ -285,17 +285,17 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             );
         }
 
-        public function testEveryNonOkRowShowsTheFourRequiredFieldsInOrder(): void
+        public function testEveryNonOkCardShowsItsPathAndStateAboveTheThreeFieldsInOrder(): void
         {
             $report = self::everyStatus(OperationalChecks::none());
             $xpath  = self::dom(self::render('targets', $report));
 
-            self::assertSame(TargetStatus::ALL, self::texts($xpath, '//tbody/tr/@data-status'));
+            self::assertSame(TargetStatus::ALL, self::texts($xpath, '//article/@data-status'));
 
             foreach ($report->targets() as $target) {
-                $row = '//tbody/tr[th/code = "' . $target->targetPath() . '"]';
+                $row = '//article[.//h3/code = "' . $target->targetPath() . '"]';
 
-                self::assertSame([$target->describe()], self::texts($xpath, $row . '/td[1]'));
+                self::assertSame([$target->describe()], self::texts($xpath, $row . '//span[contains(@class, "ecskc-state")]'));
                 self::assertSame([$target->reason()], self::texts($xpath, $row . '//p[@class="ecskc-reason"]'));
 
                 if ($target->status() === TargetStatus::OK) {
@@ -303,46 +303,114 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                     continue;
                 }
 
+                // The header shows the path, so the fields do not repeat it.
                 self::assertSame(
-                    ['Target path', 'Expected hash', 'Actual hash', 'Last package write'],
+                    ['Expected hash', 'Actual hash', 'Last package write'],
                     self::texts($xpath, $row . '//dl/dt')
                 );
                 self::assertSame(
-                    \array_values($target->requiredFields()),
+                    \array_slice(\array_values($target->requiredFields()), 1),
                     self::texts($xpath, $row . '//dl/dd')
                 );
             }
+        }
+
+        /**
+         * Atum makes a card header a flex row, so the header holds one block, and the
+         * path line, the links and the buttons stack inside it in that order.
+         */
+        public function testTheCardHeaderStacksThePathTheLinksAndTheButtons(): void
+        {
+            $report = self::everyStatus(OperationalChecks::none());
+            $xpath  = self::dom(self::render('targets', $report, null, null, true));
+
+            foreach ($xpath->query('//article/div[contains(@class, "card-header")]') as $header) {
+                $children = \iterator_to_array($xpath->query('./*', $header));
+
+                self::assertCount(1, $children);
+                self::assertStringContainsString('ecskc-card-head', $children[0]->getAttribute('class'));
+                self::assertSame(
+                    ['d-flex align-items-start gap-2', 'ecskc-row-runs small mt-2 mb-0', 'ecskc-row-writes'],
+                    \array_map(
+                        static fn (\DOMElement $child): string => $child->getAttribute('class'),
+                        \iterator_to_array($xpath->query('./*', $children[0]))
+                    )
+                );
+            }
+        }
+
+        public function testEachStateGetsItsBadgeColour(): void
+        {
+            $xpath   = self::dom(self::render('targets', self::everyStatus(OperationalChecks::none())));
+            $colours = [];
+
+            foreach ($xpath->query('//article') as $card) {
+                $badge = $xpath->query('.//span[contains(@class, "ecskc-state")]', $card)->item(0);
+                self::assertInstanceOf(\DOMElement::class, $badge);
+
+                $colours[$card->getAttribute('data-status')] = $badge->getAttribute('class');
+            }
+
+            self::assertSame(
+                [
+                    TargetStatus::OK             => 'badge text-bg-success ecskc-state',
+                    TargetStatus::ACTIONABLE     => 'badge text-bg-primary ecskc-state',
+                    TargetStatus::INCOMPLETE     => 'badge text-bg-warning ecskc-state',
+                    TargetStatus::BLOCKED        => 'badge text-bg-danger ecskc-state',
+                    TargetStatus::NOT_APPLICABLE => 'badge text-bg-secondary ecskc-state',
+                    TargetStatus::FROZEN         => 'badge text-bg-warning ecskc-state',
+                    TargetStatus::FAULTED        => 'badge text-bg-danger ecskc-state',
+                ],
+                $colours
+            );
+        }
+
+        public function testThePathBreaksOnlyAfterASlashAndStaysEscaped(): void
+        {
+            $path   = 'templates/et_tennis/css/a<b>.css';
+            $report = RunReport::of(
+                [self::line(self::state($path, TargetStatus::ACTIONABLE, 'version 1 would apply'))],
+                OperationalChecks::none(),
+                ReportedValue::none('no earlier write run was interrupted')
+            );
+            $html   = self::render('targets', $report);
+
+            self::assertStringContainsString(
+                '<code>templates/<wbr>et_tennis/<wbr>css/<wbr>a&lt;b&gt;.css</code>',
+                $html
+            );
+            self::assertSame([$path], self::texts(self::dom($html), '//article//h3/code'));
         }
 
         public function testQualifiersAndReasonsInsteadOfHashesRender(): void
         {
             $xpath = self::dom(self::render('targets', self::everyStatus(OperationalChecks::none())));
 
-            self::assertSame(['ok (disabled)'], self::texts($xpath, '//tr[@data-status="ok"]/td[1]'));
-            self::assertSame(['frozen (would be actionable)'], self::texts($xpath, '//tr[@data-status="frozen"]/td[1]'));
+            self::assertSame(['ok (disabled)'], self::texts($xpath, '//article[@data-status="ok"]//span[contains(@class, "ecskc-state")]'));
+            self::assertSame(['frozen (would be actionable)'], self::texts($xpath, '//article[@data-status="frozen"]//span[contains(@class, "ecskc-state")]'));
             self::assertSame(
-                ['templates/et_tennis/css/faulted.css', self::EXPECTED, self::UNREADABLE, self::NO_WRITE],
-                self::texts($xpath, '//tr[@data-status="faulted"]//dl/dd')
+                [self::EXPECTED, self::UNREADABLE, self::NO_WRITE],
+                self::texts($xpath, '//article[@data-status="faulted"]//dl/dd')
             );
         }
 
         public function testTheRowDetailShowsObjectsPlanAndOutcomeWhenTheReportCarriesThem(): void
         {
             $xpath = self::dom(self::render('targets', self::everyStatus(OperationalChecks::none())));
-            $row   = '//tr[@data-status="actionable"]//details';
+            $row   = '//article[@data-status="actionable"]//details';
 
             self::assertSame(
-                ['version 1: not-matched, the target matches neither hash'],
+                ['version 1, does not match: the target matches neither hash'],
                 self::texts($xpath, $row . '//ul[@class="ecskc-objects"]/li')
             );
 
             $plan = self::texts($xpath, $row . '//ul[@class="ecskc-plan"]/li');
             self::assertCount(1, $plan);
-            self::assertStringContainsString('backup backup/' . self::ACTUAL, $plan[0]);
+            self::assertStringContainsString('Backup: backup/' . self::ACTUAL, $plan[0]);
             self::assertSame(['a dry run performed nothing'], self::texts($xpath, $row . '//p[@class="ecskc-outcome"]'));
 
-            self::assertSame([], self::texts($xpath, '//tr[@data-status="blocked"]//ul[@class="ecskc-plan"]'));
-            self::assertSame([], self::texts($xpath, '//tr[@data-status="blocked"]//p[@class="ecskc-outcome"]'));
+            self::assertSame([], self::texts($xpath, '//article[@data-status="blocked"]//ul[@class="ecskc-plan"]'));
+            self::assertSame([], self::texts($xpath, '//article[@data-status="blocked"]//p[@class="ecskc-outcome"]'));
         }
 
         public function testAReasonCarryingMarkupRendersEscaped(): void
@@ -360,7 +428,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
             self::assertSame(
                 [TargetStatus::FROZEN],
-                self::texts(self::dom(self::render('targets', $report, $filtered)), '//tbody/tr/@data-status')
+                self::texts(self::dom(self::render('targets', $report, $filtered)), '//article/@data-status')
             );
             self::assertSame(
                 self::render('summary', $report),
@@ -376,7 +444,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
             self::assertSame(
                 ['components/com_kunena/ok.php'],
-                self::texts(self::dom(self::render('targets', $report, $filtered)), '//tbody/tr/th/code')
+                self::texts(self::dom(self::render('targets', $report, $filtered)), '//article//h3/code')
             );
             self::assertCount(6, (new TargetFilter('', 'css'))->apply($report->targets()));
             self::assertCount(1, (new TargetFilter(TargetStatus::ACTIONABLE, 'css'))->apply($report->targets()));
@@ -399,64 +467,51 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             self::assertSame([], self::texts($xpath, '//table'));
         }
 
-        public function testOperationalChecksGetASummaryLineOutsideTheTargetCounts(): void
-        {
-            $report = self::everyStatus(OperationalChecks::of(
-                new OperationalCheck('system_plugin_enabled', 'disabled', true, 'the plugin row says enabled = 0'),
-                new OperationalCheck('another_check', 'ok', false, 'it holds')
-            ));
-            $xpath  = self::dom(self::render('summary', $report));
-
-            self::assertSame(
-                [
-                    'Operational checks: 2 in this report, 1 needing attention. They are not counted as managed paths.',
-                    'system_plugin_enabled: disabled, the plugin row says enabled = 0',
-                    'another_check: ok, it holds',
-                ],
-                self::texts($xpath, '//*[@id="ecskc-checks"]/p | //*[@id="ecskc-checks"]//li')
-            );
-            self::assertSame([], self::texts($xpath, '//table[@id="ecskc-counts"]//*[@id="ecskc-checks"]'));
-            self::assertSame('7', self::texts($xpath, '//table[@id="ecskc-counts"]//td')[7]);
-        }
-
-        public function testANotifiableCheckIsStyledAsAWarningAndAHealthyOneIsNot(): void
+        /**
+         * The dashboard shows the system plugin now. The report still carries its
+         * checks, for the installer plugin, but the summary lists none of them.
+         */
+        public function testTheSummaryListsNoOperationalCheck(): void
         {
             $checks = OperationalChecks::of(
-                new OperationalCheck('system_plugin_enabled', 'enabled', false, 'the plugin is enabled'),
-                new OperationalCheck('system_plugin_enabled', 'disabled', true, 'the plugin is disabled'),
-                new OperationalCheck('system_plugin_enabled', 'unknown', true, 'no extension record <b>exists</b>')
+                new OperationalCheck('system_plugin_enabled', 'disabled', true, 'the plugin is disabled')
             );
             $xpath  = self::dom(self::render('summary', self::everyStatus($checks)));
 
-            self::assertSame(
-                [
-                    'system_plugin_enabled: enabled, the plugin is enabled',
-                    'system_plugin_enabled: disabled, the plugin is disabled',
-                    'system_plugin_enabled: unknown, no extension record <b>exists</b>',
-                ],
-                self::texts($xpath, '//*[@id="ecskc-checks"]//li')
-            );
-            self::assertSame(
-                ['', 'text-warning-emphasis fw-bold', 'text-warning-emphasis fw-bold'],
-                \array_map(
-                    static fn (\DOMElement $li): string => $li->getAttribute('class'),
-                    \iterator_to_array($xpath->query('//*[@id="ecskc-checks"]//li'))
-                )
-            );
-            self::assertSame([], self::texts($xpath, '//*[@id="ecskc-checks"]//b'));
-            // Three checks, two of them notifiable, leave the target counts as they were.
+            self::assertSame([], self::texts($xpath, '//*[@id="ecskc-checks"]'));
+            self::assertStringNotContainsString('system_plugin_enabled', (string) $xpath->document->saveHTML());
             self::assertSame(
                 self::texts(self::dom(self::render('summary', self::everyStatus(OperationalChecks::none()))), '//table[@id="ecskc-counts"]//td'),
                 self::texts($xpath, '//table[@id="ecskc-counts"]//td')
             );
         }
 
-        public function testNoOperationalChecksSaysSoAndClaimsNothingAboutThePlugin(): void
+        public function testTheCountsSitInASummarySectionWithTheirDescriptionAbove(): void
         {
             $xpath = self::dom(self::render('summary', self::everyStatus(OperationalChecks::none())));
 
-            self::assertSame(['Operational checks: none in this report.'], self::texts($xpath, '//*[@id="ecskc-checks"]'));
-            self::assertSame([], self::texts($xpath, '//*[@id="ecskc-checks"]//li'));
+            self::assertSame(
+                ['h2', 'p', 'table'],
+                \array_map(
+                    static fn (\DOMElement $child): string => $child->tagName,
+                    \iterator_to_array($xpath->query('//section[@id="ecskc-summary"]/*'))
+                )
+            );
+            self::assertSame(['Summary'], self::texts($xpath, '//section[@id="ecskc-summary"]/h2'));
+            self::assertSame(
+                ['Managed paths by state, across the whole report. The filters do not change these counts.'],
+                self::texts($xpath, '//section[@id="ecskc-summary"]/p')
+            );
+
+            $table = $xpath->query('//table[@id="ecskc-counts"]')->item(0);
+            self::assertInstanceOf(\DOMElement::class, $table);
+            self::assertSame('table table-sm', $table->getAttribute('class'));
+            self::assertSame(0, $xpath->query('//table[@id="ecskc-counts"]/caption')->length);
+            self::assertSame(['Summary'], self::texts($xpath, '//*[@id="' . $table->getAttribute('aria-labelledby') . '"]'));
+            self::assertSame(
+                self::texts($xpath, '//section[@id="ecskc-summary"]/p'),
+                self::texts($xpath, '//*[@id="' . $table->getAttribute('aria-describedby') . '"]')
+            );
         }
 
         public function testTheCountsNameEveryStatusInTheRunnersWords(): void
@@ -515,7 +570,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
             self::assertSame(
                 'The report gave neither a value nor a reason for this field.',
-                self::texts(self::dom(self::render('targets', $report)), '//dl/dd')[3]
+                self::texts(self::dom(self::render('targets', $report)), '//dl/dd')[2]
             );
         }
 
@@ -597,7 +652,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             $xpath  = self::dom(self::render('targets', $report));
 
             foreach ($report->targets() as $target) {
-                $row = '//tbody/tr[th/code = "' . $target->targetPath() . '"]';
+                $row = '//article[.//h3/code = "' . $target->targetPath() . '"]';
 
                 self::assertSame(
                     [
@@ -628,7 +683,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             self::assertSame([], self::texts($dryRun, '//details[not(@open)]'));
             self::assertSame([], self::texts($check, '//details[@open]'));
             self::assertStringContainsString(
-                'backup backup/' . self::ACTUAL,
+                'Backup: backup/' . self::ACTUAL,
                 self::texts($dryRun, '//ul[@class="ecskc-plan"]/li')[0]
             );
         }
@@ -683,10 +738,10 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
             foreach ($report->targets() as $target) {
                 $path    = $target->targetPath();
-                $buttons = '//tbody/tr[th/code = "' . $path . '"]//p[@class="ecskc-row-writes mb-0"]/button';
+                $buttons = '//article[.//h3/code = "' . $path . '"]//div[@class="ecskc-row-writes"]/button';
                 $toggle  = $target->status() === TargetStatus::FROZEN ? 'unfreeze' : 'freeze';
 
-                self::assertSame(['Apply', 'Revert', 'Redo', \ucfirst($toggle)], self::texts($xpath, $buttons));
+                self::assertSame(['Apply', 'Revert one step', 'Apply one step', \ucfirst($toggle)], self::texts($xpath, $buttons));
                 self::assertSame(
                     \array_map(
                         static fn (string $task): string => 'index.php?option=com_ecskccustom&task=targets.' . $task,
@@ -704,11 +759,51 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
 
                 foreach ($prompts as $index => $prompt) {
                     self::assertStringContainsString($path, $prompt);
-                    self::assertStringStartsWith(['Apply', 'Revert', 'Redo', \ucfirst($toggle)][$index] . ' ', $prompt);
+                    self::assertStringStartsWith(['Apply', 'Revert one step', 'Apply one step', \ucfirst($toggle)][$index] . ' ', $prompt);
                 }
 
-                self::assertStringContainsString('The next apply redoes this change unless the path is frozen.', $prompts[1]);
+                self::assertStringContainsString('The next Apply changes it back unless the file is frozen.', $prompts[1]);
             }
+        }
+
+        /**
+         * Each write button names the hint that follows it, in Atum's tooltip pattern,
+         * and no two hints on the page share an id.
+         */
+        public function testEachWriteButtonNamesAHintThatFollowsIt(): void
+        {
+            $report = self::everyStatus(OperationalChecks::none());
+            $xpath  = self::dom(self::render('targets', $report, null, null, true));
+            $hints  = [
+                'Apply'           => 'Update this file to the latest version. What it overwrites is backed up first.',
+                'Revert one step' => 'Put back the version before the current one. The next Apply changes it again unless the file is frozen.',
+                'Apply one step'  => 'Update this file by one version only. Apply does every step at once.',
+                'Freeze'          => 'Keep this file as it is. Apply and Revert leave it alone until it is unfrozen.',
+                'Unfreeze'        => 'Let Apply and Revert change this file again.',
+            ];
+            $buttons = \iterator_to_array($xpath->query('//div[@class="ecskc-row-writes"]/button'));
+            $ids     = [];
+
+            self::assertCount(4 * \count($report->targets()), $buttons);
+
+            foreach ($buttons as $button) {
+                $id  = $button->getAttribute('aria-describedby');
+                $tip = $button->nextSibling;
+
+                while ($tip !== null && !$tip instanceof \DOMElement) {
+                    $tip = $tip->nextSibling;
+                }
+
+                self::assertNotSame('', $id);
+                self::assertInstanceOf(\DOMElement::class, $tip);
+                self::assertSame('tooltip', $tip->getAttribute('role'));
+                self::assertSame($id, $tip->getAttribute('id'));
+                self::assertSame($hints[\trim($button->textContent)], \trim($tip->textContent));
+
+                $ids[] = $id;
+            }
+
+            self::assertSame($ids, \array_values(\array_unique($ids)));
         }
 
         public function testAPathInAWriteButtonRendersEscaped(): void
@@ -724,7 +819,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             $xpath = self::dom($html);
 
             self::assertStringNotContainsString('<script>', $html);
-            self::assertSame(\array_fill(0, 4, $path), self::texts($xpath, '//p[@class="ecskc-row-writes mb-0"]/button/@value'));
+            self::assertSame(\array_fill(0, 4, $path), self::texts($xpath, '//div[@class="ecskc-row-writes"]/button/@value'));
         }
 
         /**
@@ -787,7 +882,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             $html   = self::render('result', self::everyStatus(OperationalChecks::none()), null, null, false, $result);
             $xpath  = self::dom($html);
 
-            self::assertStringStartsWith('Result of reverting one path: ' . $result->path, self::texts($xpath, '//*[@id="ecskc-run"]/p')[0]);
+            self::assertStringStartsWith('Result of reverting one step: ' . $result->path, self::texts($xpath, '//*[@id="ecskc-run"]/p')[0]);
             self::assertSame($result->faults, self::texts($xpath, '//*[@id="ecskc-faults"]//li'));
             self::assertSame([(string) $result->interruption], self::texts($xpath, '//*[@id="ecskc-interruption"]/p'));
             self::assertStringNotContainsString('<b>', $html);
@@ -801,9 +896,9 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             $xpath  = self::dom(self::render('result', self::everyStatus(OperationalChecks::none()), null, null, false, $result));
             $row    = $result->targets[0];
 
-            self::assertSame([$row['status']], self::texts($xpath, '//table[@id="ecskc-targets"]/tbody/tr/@data-status'));
-            self::assertSame([$row['state']], self::texts($xpath, '//table[@id="ecskc-targets"]/tbody/tr/td[1]'));
-            self::assertSame(\array_values($row['required']), self::texts($xpath, '//table[@id="ecskc-targets"]/tbody/tr//dl/dd'));
+            self::assertSame([$row['status']], self::texts($xpath, '//*[@id="ecskc-targets"]/article/@data-status'));
+            self::assertSame([$row['state']], self::texts($xpath, '//*[@id="ecskc-targets"]/article//span[contains(@class, "ecskc-state")]'));
+            self::assertSame(\array_slice(\array_values($row['required']), 1), self::texts($xpath, '//*[@id="ecskc-targets"]/article//dl/dd'));
             self::assertSame([$row['backup']], self::texts($xpath, '//p[@class="ecskc-backup"]'));
             self::assertSame([(string) $row['outcome']], self::texts($xpath, '//p[@class="ecskc-outcome"]'));
             self::assertSame([], self::texts($xpath, '//details[not(@open)]'));

@@ -165,7 +165,7 @@ final class OperationsTest extends RunnerHarness
             'One object back, not all the way to the vendor original.'
         );
         self::assertStringContainsString(
-            'carries ' . self::CHAIN . ' forward',
+            'the next Apply will change ' . self::CHAIN . ' back',
             (string) $this->target($report, self::CHAIN)->warning
         );
 
@@ -204,9 +204,10 @@ final class OperationsTest extends RunnerHarness
                 $target->plan(),
                 \sprintf('%s left nothing for the next apply, so this proves nothing', $name)
             );
-            self::assertFalse(
-                $target->backup->isKnown(),
-                \sprintf('%s reported the backup %s', $name, $target->backup->describe())
+            self::assertSame(
+                'no backup: this run kept no copy of this file',
+                $target->backup->describe(),
+                \sprintf('%s must not say its next plan overwrites nothing', $name)
             );
         }
     }

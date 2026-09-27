@@ -20,7 +20,7 @@ final class TargetPathTest extends RunnerHarness
 {
     private const ELSEWHERE = 'templates/et_tennis/css/elsewhere.css';
 
-    private const UNDECLARED = 'the rule set declares no target at %s, so nothing was done';
+    private const UNDECLARED = 'the package does not manage %s, so nothing was done';
 
     public function testASinglePathCheckReportsTheLineTheWholeSetCheckReports(): void
     {

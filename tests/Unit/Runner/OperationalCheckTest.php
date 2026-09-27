@@ -89,6 +89,28 @@ final class OperationalCheckTest extends RunnerHarness
         $this->assertTheCheck($this->runner()->dryRun(), $outcome, $notifiable, $reason);
     }
 
+    /**
+     * The dashboard's entry point: the same outcome, without a rule set to load.
+     */
+    #[DataProvider('rawReads')]
+    public function testTheStandaloneCheckDerivesTheSameOutcomeWithoutRules(
+        ExtensionRecordRead $read,
+        string $outcome,
+        bool $notifiable,
+        string $reason,
+    ): void {
+        $this->tree->write(self::PACKAGE . '/rules/05-broken.xml', '<patch hashType="sha256"><nonsense/></patch>');
+        $this->operational->read = $read;
+
+        $check = $this->runner()->systemPluginCheck();
+
+        self::assertSame(SystemPluginCheck::NAME, $check->name);
+        self::assertSame($outcome, $check->outcome);
+        self::assertSame($notifiable, $check->notifiable);
+        self::assertStringContainsString($reason, $check->reason);
+        self::assertSame(1, $this->operational->reads);
+    }
+
     public function testASinglePathCheckCarriesTheSection(): void
     {
         $this->writeFixture();

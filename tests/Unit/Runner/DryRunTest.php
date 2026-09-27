@@ -79,6 +79,29 @@ final class DryRunTest extends RunnerHarness
         }
     }
 
+    /**
+     * A plan line and a version line read as sentences, with the result codes shown
+     * as plain labels.
+     */
+    public function testAPlanLineAndAVersionLineReadPlainly(): void
+    {
+        $this->writeFixture();
+
+        $target = $this->target($this->runner()->dryRun(), self::CHAIN);
+
+        self::assertSame(
+            'version 1 writes ' . self::CHAIN . ': ' . $target->state->operations()[0]->reason
+                . '. Overwrites: ' . self::digest(self::ORIGINAL)
+                . '. Backup: ' . $this->paths()->backupFile(self::CHAIN, 1, self::digest(self::ORIGINAL))
+                . '. Result: not done: a dry run changes nothing',
+            $target->plan()[0]->describe()
+        );
+        self::assertStringStartsWith(
+            'version 1, can be applied: the file is the original this version expects',
+            $target->state->objectOutcomes()[0]->describe()
+        );
+    }
+
     public function testACreateDisplacesNothingAndNamesNoBackup(): void
     {
         $this->writeFixture();
@@ -88,7 +111,29 @@ final class DryRunTest extends RunnerHarness
         self::assertCount(1, $plan);
         self::assertFalse($plan[0]->displaced->isKnown());
         self::assertFalse($plan[0]->backup->isKnown());
-        self::assertStringContainsString('displaces nothing', $plan[0]->backup->describe());
+        self::assertStringContainsString('the file does not exist yet', $plan[0]->backup->describe());
+    }
+
+    /**
+     * After an apply every managed path is ok, and a dry run's Backup field says in
+     * plain words that nothing would be overwritten.
+     */
+    public function testAnOkPathsBackupFieldSaysNothingWouldBeOverwritten(): void
+    {
+        $this->writeFixture();
+        $this->runner()->apply();
+
+        $ok = \array_values(\array_filter(
+            $this->runner()->dryRun()->targets(),
+            static fn ($target): bool => $target->status() === TargetStatus::OK
+        ));
+
+        self::assertNotSame([], $ok);
+
+        foreach ($ok as $target) {
+            self::assertSame([], $target->plan());
+            self::assertSame('no backup: nothing at this path would be overwritten', $target->backup->describe());
+        }
     }
 
     public function testADryRunReportsAMissingWritePermissionWithoutWriting(): void

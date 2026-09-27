@@ -11,8 +11,23 @@
 \defined('_JEXEC') or die;
 
 use Joomla\CMS\Language\Text;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\SystemPluginCheck;
 
-/** @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Dashboard\HtmlView $this */
+/**
+ * The system plugin card is green only for `enabled`. An `unknown` outcome is red
+ * like `disabled`, with the runner's reason, because the page cannot tell whether
+ * the site loads override.css.
+ *
+ * @var \YakShaver\Component\ECSKCCustomisation\Administrator\View\Dashboard\HtmlView $this
+ */
+
+$plugin  = $this->systemPlugin;
+$enabled = $plugin !== null && $plugin->outcome === SystemPluginCheck::ENABLED;
+$label   = match ($plugin?->outcome) {
+    SystemPluginCheck::ENABLED  => 'COM_ECSKCCUSTOM_SYSTEM_PLUGIN_ENABLED',
+    SystemPluginCheck::DISABLED => 'COM_ECSKCCUSTOM_SYSTEM_PLUGIN_DISABLED',
+    default                     => 'COM_ECSKCCUSTOM_SYSTEM_PLUGIN_UNKNOWN',
+};
 ?>
 <div class="com-ecskccustom-dashboard">
     <div class="row">
@@ -47,6 +62,22 @@ use Joomla\CMS\Language\Text;
                     </dl>
                 </div>
             </div>
+            <?php if ($plugin !== null) : ?>
+                <div class="card mt-3" id="ecskc-system-plugin">
+                    <div class="card-header">
+                        <h3 class="card-title"><?php echo Text::_('COM_ECSKCCUSTOM_SYSTEM_PLUGIN'); ?></h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-0">
+                            <?php echo Text::_('COM_ECSKCCUSTOM_SYSTEM_PLUGIN_NAME'); ?>
+                            <span class="badge <?php echo $enabled ? 'bg-success' : 'bg-danger'; ?>"><?php echo Text::_($label); ?></span>
+                        </p>
+                        <?php if ($plugin->outcome === SystemPluginCheck::UNKNOWN) : ?>
+                            <p class="mt-2 mb-0 small"><?php echo $this->escape($plugin->reason); ?></p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>

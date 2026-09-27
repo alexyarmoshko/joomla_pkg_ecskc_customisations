@@ -43,7 +43,7 @@ final class TargetReport
     ];
 
     /** What the outcome field says for a run that performs nothing. */
-    public const NOT_ATTEMPTED = 'this run performed no operation at this target';
+    public const NOT_ATTEMPTED = 'this run did not change this file';
 
     /**
      * @param list<PlannedOperation> $plan

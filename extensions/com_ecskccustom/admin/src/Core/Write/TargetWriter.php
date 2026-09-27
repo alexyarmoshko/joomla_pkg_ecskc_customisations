@@ -192,7 +192,7 @@ final class TargetWriter
         $pre      = $this->state($resolved, $reason);
 
         if ($pre === EventRecord::ABSENT) {
-            return WriteOutcome::unchanged('the target is already absent, so nothing was removed');
+            return WriteOutcome::unchanged('the file is already gone, so nothing was removed');
         }
 
         if ($pre === null) {
@@ -307,7 +307,7 @@ final class TargetWriter
         }
 
         if ($post === $pre) {
-            return WriteOutcome::unchanged('the target already holds the payload, so nothing was written');
+            return WriteOutcome::unchanged('the file already has this content, so nothing was written');
         }
 
         $backup = null;

@@ -39,12 +39,10 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\TargetStatus;
  */
 final class ApplyExecutor
 {
-    private const NOT_REACHED = 'an earlier operation in this chain did not complete, so this '
-        . 'one was not attempted';
+    private const NOT_REACHED = 'not tried: an earlier step for this file did not finish';
 
-    private const INTENT_OUTSTANDING = 'the write intent published for %s is still outstanding, '
-        . 'so this run went no further: a second intent would replace the only record from which '
-        . 'that mutation can be recovered';
+    private const INTENT_OUTSTANDING = 'a write to %s did not finish and has to be recovered '
+        . 'first, so this run stopped there';
 
     private readonly TargetWriter $writer;
 
@@ -107,8 +105,7 @@ final class ApplyExecutor
 
         if ($state->status === TargetStatus::BLOCKED) {
             return $this->refuse($state, WriteOutcome::refused(\sprintf(
-                'the bytes at %s match neither a shipped payload nor an expected original, so '
-                . 'nothing was written: %s',
+                '%s matches no version the package knows, so nothing was written: %s',
                 $state->targetPath,
                 $state->reason
             )));
@@ -268,7 +265,7 @@ final class ApplyExecutor
     {
         if ($operation === $reached) {
             return \sprintf(
-                '%s already holds the payload this operation writes, so nothing was written',
+                '%s already has this content, so nothing was written',
                 $operation->targetPath
             );
         }
@@ -362,7 +359,7 @@ final class ApplyExecutor
         if (!$operation->isCopy()) {
             if ($displaced === null) {
                 return WriteOutcome::unchanged(\sprintf(
-                    '%s is already absent, so nothing was removed',
+                    '%s is already gone, so nothing was removed',
                     $operation->targetPath
                 ));
             }
