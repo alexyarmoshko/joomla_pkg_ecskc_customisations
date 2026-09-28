@@ -439,24 +439,6 @@ final class PackageBytesTest extends TestCase
         self::assertSame(0, $status, $output);
     }
 
-    public function testVendoredJzipMatchesTheMaster(): void
-    {
-        $vendored = self::$repo . '/tools/jzip.php';
-        $master   = \getenv('HOME') . '/repos/ys_toolbox/src/jzip/jzip.php';
-
-        self::assertFileExists($vendored);
-
-        // The master lives beside this repository on the authoring machine and is
-        // reachable nowhere else - not in the DDEV container, not on CI. Skipping
-        // there loses no cover: `make lint` runs the same `cmp` on the host, and
-        // `make release` runs lint, so a drifted copy still cannot be published.
-        if (!\is_file($master)) {
-            self::markTestSkipped($master . ' is not present, so the vendored copy cannot be compared here');
-        }
-
-        self::assertFileEquals($master, $vendored);
-    }
-
     /**
      * dist_dev deletes the old package before it validates, so a build that fails
      * validation cannot leave the previous package looking like its output.

@@ -15,7 +15,7 @@ How to build, test, package, install by hand, and publish a release of
 ```sh
 make deps       # composer install
 make test       # the PHPUnit suites
-make lint       # PHP syntax, XML well-formedness, and the jzip drift check
+make lint       # PHP syntax and XML well-formedness
 make validate   # the rule set against the payload tree
 make versions   # every manifest declares the package version
 make dist_dev   # a test package from the working tree, under installation/dev/

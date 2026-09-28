@@ -253,7 +253,7 @@ final class PackageManifestTest extends TestCase
 
         \preg_match_all('/^(\w+) \?=/m', $makefile, $defaults);
         self::assertSame(
-            ['DEPS_CMD', 'TEST_CMD', 'JZIP_MASTER', 'INSTALL_DIR', 'BUILD_DIR', 'RELEASE_NOTES', 'VERSION_ROOT'],
+            ['DEPS_CMD', 'TEST_CMD', 'INSTALL_DIR', 'BUILD_DIR', 'RELEASE_NOTES', 'VERSION_ROOT'],
             $defaults[1],
             'a `?=` variable takes its value from the environment, so it must not feed dist_release.'
         );

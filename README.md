@@ -91,7 +91,8 @@ result once; reloading runs a fresh check.
 
 Joomla deletes the component's `backup/` and `state/` folders on uninstall. When they hold any
 history, uninstalling first copies them to a protected archive in the site's temporary folder.
-Nothing restores that archive, and in some cases none is written; the uninstall limits in
+Nothing restores that archive, and the message naming it comes only after the deletion. In some
+cases, such as a write holding the run lock, none is written; the uninstall limits in
 [`docs/RELEASE.md`](docs/RELEASE.md) list them.
 
 ## Status

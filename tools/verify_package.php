@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * Build gate: check the payload bytes inside a built package, work item 2 of Phase 5.
+ * Build gate: check the payload bytes inside a built package.
  *
  * tools/validate.php checks the authored tree before staging. This runs the same
  * BuildValidator on the rules and payloads the component archive inside the
