@@ -4,15 +4,15 @@
 declare(strict_types=1);
 
 /**
- * Build gate: validate the authored rule set and payload tree.
+ * Build gate: validate the authored rule set, payload tree and extension registry.
  *
  * Warnings print and the process exits 0, so the artefact is still produced.
  * Errors print and the process exits 1, and the Makefile removes any previous
  * artefact before calling this, so a failed check leaves no zip behind.
  *
- * Usage: php tools/validate.php [--rules DIR] [--payload DIR]
+ * Usage: php tools/validate.php [--rules DIR] [--payload DIR] [--registry FILE]
  *
- * Defaults are data/rules and data/payload under the repository root.
+ * Defaults are data/rules, data/payload and data/registry.xml under the repository root.
  */
 
 $root = \dirname(__DIR__);
@@ -26,9 +26,11 @@ if (!\is_file($autoload)) {
 require $autoload;
 
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Build\BuildValidator;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
 
-$rules   = $root . '/data/rules';
-$payload = $root . '/data/payload';
+$rules    = $root . '/data/rules';
+$payload  = $root . '/data/payload';
+$registry = $root . '/data/registry.xml';
 
 for ($i = 1; $i < $argc; $i++) {
     if ($argv[$i] === '--rules' && isset($argv[$i + 1])) {
@@ -41,23 +43,40 @@ for ($i = 1; $i < $argc; $i++) {
         continue;
     }
 
-    \fwrite(\STDERR, "Usage: php tools/validate.php [--rules DIR] [--payload DIR]\n");
+    if ($argv[$i] === '--registry' && isset($argv[$i + 1])) {
+        $registry = $argv[++$i];
+        continue;
+    }
+
+    \fwrite(\STDERR, "Usage: php tools/validate.php [--rules DIR] [--payload DIR] [--registry FILE]\n");
     exit(1);
 }
 
 $check = (new BuildValidator($root . '/extensions/com_ecskccustom/admin/schema/patch.xsd'))
     ->check($rules, $payload);
 
+// Keeps a registry the Plugins screen would refuse out of the package.
+if (!\is_file($registry)) {
+    $registryErrors = [$registry . ': the registry file does not exist'];
+} elseif (($registryBytes = \file_get_contents($registry)) === false) {
+    $registryErrors = [$registry . ': the registry file could not be read'];
+} else {
+    $registryErrors = (new SchemaValidator($root . '/extensions/com_ecskccustom/admin/schema/registry.xsd'))
+        ->validateString($registryBytes, $registry);
+}
+
+$errors = \array_merge($check->errors, $registryErrors);
+
 foreach ($check->warnings as $warning) {
     \fwrite(\STDERR, 'WARNING: ' . $warning . "\n");
 }
 
-foreach ($check->errors as $error) {
+foreach ($errors as $error) {
     \fwrite(\STDERR, 'FAIL: ' . $error . "\n");
 }
 
-if (!$check->ok()) {
-    \fwrite(\STDERR, 'build: ' . \count($check->errors) . " error(s); no artefact\n");
+if ($errors !== []) {
+    \fwrite(\STDERR, 'build: ' . \count($errors) . " error(s); no artefact\n");
     exit(1);
 }
 

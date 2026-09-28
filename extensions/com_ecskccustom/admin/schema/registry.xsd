@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The registry of our extensions that the Plugins screen lists.
+
+    XSD 1.0 only, because DOMDocument::schemaValidate implements nothing later. That is
+    why each kind of entry is its own element: XSD 1.0 cannot make an attribute
+    required depending on another attribute's value.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+    <xs:simpleType name="name">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="\S+"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="repo">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="https://github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Maps to client_id as ApplicationHelper::getClientInfo does: site 0, administrator 1. -->
+    <xs:simpleType name="client">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="site"/>
+            <xs:enumeration value="administrator"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- A language pack can also be installed for the API application, client_id 3. -->
+    <xs:simpleType name="languageClient">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="site"/>
+            <xs:enumeration value="administrator"/>
+            <xs:enumeration value="api"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- package, library and file: Joomla installs these for the site client only. -->
+    <xs:complexType name="siteEntry">
+        <xs:attribute name="element" type="name" use="required"/>
+        <xs:attribute name="repo" type="repo" use="required"/>
+    </xs:complexType>
+
+    <!-- component, module and template: Joomla installs these in either client. -->
+    <xs:complexType name="clientEntry">
+        <xs:attribute name="element" type="name" use="required"/>
+        <xs:attribute name="client" type="client" use="required"/>
+        <xs:attribute name="repo" type="repo" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="languageEntry">
+        <xs:attribute name="element" type="name" use="required"/>
+        <xs:attribute name="client" type="languageClient" use="required"/>
+        <xs:attribute name="repo" type="repo" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="pluginEntry">
+        <xs:attribute name="folder" type="name" use="required"/>
+        <xs:attribute name="element" type="name" use="required"/>
+        <xs:attribute name="repo" type="repo" use="required"/>
+    </xs:complexType>
+
+    <!-- A #__comprofiler_plugin row: type is the Community Builder group. -->
+    <xs:complexType name="cbpluginEntry">
+        <xs:attribute name="type" type="name" use="required"/>
+        <xs:attribute name="folder" type="name" use="required"/>
+        <xs:attribute name="element" type="name" use="required"/>
+        <xs:attribute name="repo" type="repo" use="required"/>
+    </xs:complexType>
+
+    <xs:element name="registry">
+        <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element name="component" type="clientEntry"/>
+                <xs:element name="module" type="clientEntry"/>
+                <xs:element name="template" type="clientEntry"/>
+                <xs:element name="language" type="languageEntry"/>
+                <xs:element name="plugin" type="pluginEntry"/>
+                <xs:element name="package" type="siteEntry"/>
+                <xs:element name="library" type="siteEntry"/>
+                <xs:element name="file" type="siteEntry"/>
+                <xs:element name="cbplugin" type="cbpluginEntry"/>
+            </xs:choice>
+        </xs:complexType>
+
+        <!-- Joomla keys a row on type, element, folder and client_id. -->
+        <xs:unique name="uniqueComponent">
+            <xs:selector xpath="component"/>
+            <xs:field xpath="@element"/>
+            <xs:field xpath="@client"/>
+        </xs:unique>
+        <xs:unique name="uniqueModule">
+            <xs:selector xpath="module"/>
+            <xs:field xpath="@element"/>
+            <xs:field xpath="@client"/>
+        </xs:unique>
+        <xs:unique name="uniqueTemplate">
+            <xs:selector xpath="template"/>
+            <xs:field xpath="@element"/>
+            <xs:field xpath="@client"/>
+        </xs:unique>
+        <xs:unique name="uniqueLanguage">
+            <xs:selector xpath="language"/>
+            <xs:field xpath="@element"/>
+            <xs:field xpath="@client"/>
+        </xs:unique>
+        <xs:unique name="uniquePlugin">
+            <xs:selector xpath="plugin"/>
+            <xs:field xpath="@folder"/>
+            <xs:field xpath="@element"/>
+        </xs:unique>
+        <xs:unique name="uniquePackage">
+            <xs:selector xpath="package"/>
+            <xs:field xpath="@element"/>
+        </xs:unique>
+        <xs:unique name="uniqueLibrary">
+            <xs:selector xpath="library"/>
+            <xs:field xpath="@element"/>
+        </xs:unique>
+        <xs:unique name="uniqueFile">
+            <xs:selector xpath="file"/>
+            <xs:field xpath="@element"/>
+        </xs:unique>
+        <!-- Community Builder keys a plugin on its group, folder and element. -->
+        <xs:unique name="uniqueCbplugin">
+            <xs:selector xpath="cbplugin"/>
+            <xs:field xpath="@type"/>
+            <xs:field xpath="@folder"/>
+            <xs:field xpath="@element"/>
+        </xs:unique>
+    </xs:element>
+</xs:schema>

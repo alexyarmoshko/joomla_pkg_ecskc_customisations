@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Our extensions, listed on the Plugins screen. Schema: extensions/com_ecskccustom/admin/schema/registry.xsd -->
+<registry>
+    <package element="pkg_ecskc_customisations" repo="https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations"/>
+    <component element="com_ecskccustom" client="administrator" repo="https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations"/>
+    <plugin folder="system" element="ecskccustom" repo="https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations"/>
+    <plugin folder="installer" element="ecskccustom" repo="https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations"/>
+
+    <package element="pkg_cbuseronlinestatus" repo="https://github.com/alexyarmoshko/joomla_pkg_cbuseronlinestatus"/>
+    <plugin folder="system" element="cbuseronlinestatus" repo="https://github.com/alexyarmoshko/joomla_pkg_cbuseronlinestatus"/>
+    <module element="mod_cbuseronlinestatus" client="site" repo="https://github.com/alexyarmoshko/joomla_pkg_cbuseronlinestatus"/>
+
+    <component element="com_yscbcalendar" client="administrator" repo="https://github.com/alexyarmoshko/joomla_com_yscbcalendar"/>
+    <component element="com_yscbsubs_saleslist" client="administrator" repo="https://github.com/alexyarmoshko/joomla_com_yscbsubs_saleslist"/>
+    <component element="com_ysinventory" client="administrator" repo="https://github.com/alexyarmoshko/joomla_com_ysinventory"/>
+
+    <module element="mod_yscbsubs_expiredlist" client="site" repo="https://github.com/alexyarmoshko/joomla_mod_yscbsubs_expiredlist"/>
+    <module element="mod_ystides" client="site" repo="https://github.com/alexyarmoshko/joomla_mod_ystides"/>
+    <module element="mod_ystipoftheday" client="site" repo="https://github.com/alexyarmoshko/joomla_mod_ystipoftheday"/>
+
+    <plugin folder="system" element="cbgjguestaccess" repo="https://github.com/alexyarmoshko/joomla_plg_cbgjguestaccess"/>
+    <plugin folder="system" element="cbgjvisibility" repo="https://github.com/alexyarmoshko/joomla_plg_cbgjvisibility"/>
+    <plugin folder="system" element="kunenastickycollapse" repo="https://github.com/alexyarmoshko/joomla_plg_kunena_stickycollapse"/>
+
+    <cbplugin type="user" folder="plug_yakshavercbbeforeregistrationemailverify" element="cbbeforeregverify" repo="https://github.com/alexyarmoshko/joomla_plug_cbbeforeregverify"/>
+    <cbplugin type="user" folder="plug_yakshavercbgjeventmanager" element="cbgjeventmanager" repo="https://github.com/alexyarmoshko/joomla_plug_cbgjeventmanager"/>
+</registry>

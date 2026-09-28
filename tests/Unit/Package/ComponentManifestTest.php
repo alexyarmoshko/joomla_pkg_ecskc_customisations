@@ -115,6 +115,32 @@ final class ComponentManifestTest extends TestCase
         }
     }
 
+    /**
+     * Joomla installs only the files the manifest names, so the staged
+     * `admin/registry.xml` needs its own `<filename>`. The schema ships under `schema`.
+     */
+    public function testTheManifestAndTheBuildShipTheRegistryAndItsSchema(): void
+    {
+        $shipped = [];
+
+        foreach (self::xml('com_ecskccustom.xml')->administration->files->filename as $file) {
+            $shipped[] = (string) $file;
+        }
+
+        $folders = [];
+
+        foreach (self::xml('com_ecskccustom.xml')->administration->files->folder as $folder) {
+            $folders[] = (string) $folder;
+        }
+
+        self::assertContains('registry.xml', $shipped);
+        self::assertContains('schema', $folders);
+        self::assertContains('admin/schema/registry.xsd', self::componentFiles());
+        // source(), not read(): without make, read() returns the lists unexpanded.
+        self::assertSame(['registry.xml'], MakefileList::source('REGISTRY_FILE'));
+        self::assertContains('admin/$(REGISTRY_FILE)', MakefileList::source('COMPONENT_ARCHIVE_FILES'));
+    }
+
     public function testTheBuildShipsTheWritePermissionCheck(): void
     {
         self::assertContains('admin/src/Access/WritePermission.php', self::componentFiles());

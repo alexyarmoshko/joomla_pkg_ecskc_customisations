@@ -38,6 +38,71 @@ final class ValidateScriptTest extends TestCase
         return ChildProcess::run([\PHP_BINARY, $script, '--rules', $rules, '--payload', $payload]);
     }
 
+    /**
+     * @return array{int, string, string}
+     */
+    private function runValidateWithRegistry(string $registry): array
+    {
+        $repo   = \dirname(__DIR__, 3);
+        $script = $repo . '/tools/validate.php';
+
+        return ChildProcess::run([
+            \PHP_BINARY,
+            $script,
+            '--rules',
+            $repo . '/data/rules',
+            '--payload',
+            $repo . '/data/payload',
+            '--registry',
+            $registry,
+        ]);
+    }
+
+    public function testTheCommittedRegistryExitsZero(): void
+    {
+        [$status, $stdout, $stderr] = $this->runValidateWithRegistry(\dirname(__DIR__, 3) . '/data/registry.xml');
+
+        self::assertSame(0, $status, $stderr);
+        self::assertSame('', $stderr);
+        self::assertSame("build: ok\n", $stdout);
+    }
+
+    public function testARegistryThatFailsTheSchemaExitsOneAndNamesTheFile(): void
+    {
+        $registry = $this->tree->write(
+            'registry.xml',
+            '<?xml version="1.0" encoding="UTF-8"?><registry><package element="pkg_a"/></registry>'
+        );
+
+        [$status, $stdout, $stderr] = $this->runValidateWithRegistry($registry);
+
+        self::assertSame(1, $status);
+        self::assertSame('', $stdout);
+        self::assertStringContainsString('FAIL: ' . $registry, $stderr);
+        self::assertStringContainsString("'repo'", $stderr);
+        self::assertStringContainsString('no artefact', $stderr);
+    }
+
+    public function testAMalformedRegistryExitsOne(): void
+    {
+        $registry = $this->tree->write('registry.xml', '<registry><package');
+
+        [$status, , $stderr] = $this->runValidateWithRegistry($registry);
+
+        self::assertSame(1, $status);
+        self::assertStringContainsString('FAIL: ' . $registry, $stderr);
+    }
+
+    public function testAMissingRegistryExitsOne(): void
+    {
+        $registry = $this->tree->path('absent.xml');
+
+        [$status, , $stderr] = $this->runValidateWithRegistry($registry);
+
+        self::assertSame(1, $status);
+        self::assertStringContainsString('FAIL: ' . $registry . ': the registry file does not exist', $stderr);
+    }
+
     public function testTheAuthoredInventoryExitsZero(): void
     {
         $repo = \dirname(__DIR__, 3);

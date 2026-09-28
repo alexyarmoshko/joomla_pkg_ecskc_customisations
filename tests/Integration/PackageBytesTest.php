@@ -93,6 +93,18 @@ final class PackageBytesTest extends TestCase
                 );
             }
 
+            $registry = $archive->getFromName('admin/registry.xml');
+            self::assertNotFalse($registry, 'admin/registry.xml is missing from the package');
+            self::assertSame(
+                \hash_file('sha256', self::$repo . '/data/registry.xml'),
+                \hash('sha256', $registry),
+                'data/registry.xml changed in the package'
+            );
+            self::assertNotFalse(
+                $archive->getFromName('admin/schema/registry.xsd'),
+                'admin/schema/registry.xsd is missing from the package'
+            );
+
             self::assertNotFalse($archive->getFromName('LICENSE'), 'LICENSE is missing from the package');
             self::assertNotFalse($archive->getFromName('script.php'), 'script.php is missing from the archive root');
             self::assertFalse(

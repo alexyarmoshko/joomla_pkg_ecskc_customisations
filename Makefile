@@ -39,6 +39,7 @@ COMPONENT_FILES := \
 	admin/payload/index.html \
 	admin/rules/index.html \
 	admin/schema/patch.xsd \
+	admin/schema/registry.xsd \
 	admin/services/provider.php \
 	admin/src/Access/WritePermission.php \
 	admin/src/Controller/DisplayController.php \
@@ -163,6 +164,9 @@ RULE_FILES := \
 	40-et-tennis.xml \
 	50-site-icons.xml
 
+# The extension registry the Plugins screen reads, staged from data/ to admin/.
+REGISTRY_FILE := registry.xml
+
 PAYLOAD_FILES := \
 	apple-touch-icon.png.v1 \
 	apple-touch-icon-precomposed.png.v1 \
@@ -187,6 +191,7 @@ COMPONENT_ARCHIVE_FILES := \
 	script.php \
 	$(COMPONENT_FILES) \
 	$(addprefix admin/rules/,$(RULE_FILES)) \
+	admin/$(REGISTRY_FILE) \
 	$(addprefix admin/payload/,$(PAYLOAD_FILES))
 
 # The child archives in the order the package manifest installs them: the
@@ -232,7 +237,7 @@ LINT_CMD := set -e; \
 	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES)) $(addprefix $(SYSTEM_PLUGIN_ROOT)/,$(SYSTEM_PLUGIN_FILES)) $(addprefix $(INSTALLER_PLUGIN_ROOT)/,$(INSTALLER_PLUGIN_FILES))) $(PKG_ROOT)/script.php $(JZIP) $(COPY) $(VALIDATE) $(VERIFY) tools/hash.php; do \
 		php -l "$$f" >/dev/null || exit 1; \
 	done; \
-	for f in $(VERSIONED_MANIFESTS) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)); do \
+	for f in $(VERSIONED_MANIFESTS) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)) data/$(REGISTRY_FILE); do \
 		php -r 'libxml_use_internal_errors(true); if (simplexml_load_file($$argv[1]) === false) { fwrite(STDERR, "FAIL: malformed XML in $$argv[1]\n"); exit(1); }' "$$f" || exit 1; \
 	done; \
 	echo "lint: ok"
@@ -371,7 +376,7 @@ lint:
 	@$(LINT_CMD)
 
 validate:
-	php "$(VALIDATE)"
+	php "$(VALIDATE)" --registry data/$(REGISTRY_FILE)
 
 # Check the manifests under VERSION_ROOT, the repository unless given.
 VERSION_ROOT ?= .
@@ -396,6 +401,7 @@ define stage_component
 		mkdir -p "$$dest/admin/rules"; \
 		php "$(COPY)" "$$src/data/rules/$$f" "$$dest/admin/rules/$$f"; \
 	done; \
+	php "$(COPY)" "$$src/data/$(REGISTRY_FILE)" "$$dest/admin/$(REGISTRY_FILE)"; \
 	for f in $(PAYLOAD_FILES); do \
 		mkdir -p "$$dest/admin/payload/$$(dirname "$$f")"; \
 		php "$(COPY)" "$$src/data/payload/$$f" "$$dest/admin/payload/$$f"; \
@@ -482,7 +488,7 @@ dist_release:
 	@mkdir -p "$(RELEASE_STAGE)"
 	@git -c core.autocrlf=false archive "$(VERSION)" | tar -x -C "$(RELEASE_STAGE)"
 	$(call check_versions,$(RELEASE_STAGE))
-	php "$(VALIDATE)" --rules "$(RELEASE_STAGE)/data/rules" --payload "$(RELEASE_STAGE)/data/payload"
+	php "$(VALIDATE)" --rules "$(RELEASE_STAGE)/data/rules" --payload "$(RELEASE_STAGE)/data/payload" --registry "$(RELEASE_STAGE)/data/$(REGISTRY_FILE)"
 	@rm -rf "$(RELEASE_STAGE)/.stage"
 	@mkdir -p "$(RELEASE_STAGE)/.stage"
 	$(call stage_package,$(RELEASE_STAGE)/.stage,$(RELEASE_STAGE))

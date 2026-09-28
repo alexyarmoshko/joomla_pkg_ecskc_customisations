@@ -24,6 +24,8 @@
         <files folder="admin">
             <filename>access.xml</filename>
             <filename>config.xml</filename>
+            <!-- Staged from data/registry.xml by the build. -->
+            <filename>registry.xml</filename>
             <filename>script.php</filename>
             <folder>forms</folder>
             <folder>language</folder>
