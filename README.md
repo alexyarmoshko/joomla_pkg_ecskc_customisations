@@ -97,7 +97,9 @@ cases, such as a write holding the run lock, none is written; the uninstall limi
 
 ## Status
 
-Pre-release, and there is no published release.
+Version 0.1.0, released 2026-09-28. The package ZIP is attached to the
+[0.1.0 GitHub release](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/tag/0.1.0),
+and a site that has it installed is offered later versions under System, Update, Extensions.
 
 ## Documentation
 
