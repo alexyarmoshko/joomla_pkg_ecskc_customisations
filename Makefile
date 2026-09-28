@@ -12,13 +12,13 @@ INSTALLER_PLUGIN_ROOT := extensions/plg_installer_ecskccustom
 GITHUB_OWNER := alexyarmoshko
 GITHUB_REPO := joomla_pkg_ecskc_customisations
 
-# The tracked update descriptor template, decision 52. It never ships in an
+# The tracked update descriptor template. It never ships in an
 # archive; dist_release writes the publishable copy beside the package ZIP.
 UPDATE_TEMPLATE := $(PKG_NAME).update.xml
 SHA256_PLACEHOLDER := 0000000000000000000000000000000000000000000000000000000000000000
 
-# Every file whose <version> must equal the package's, decision 13, and the
-# update descriptor template, decision 52.
+# Every file whose <version> must equal the package's, and the update
+# descriptor template.
 VERSIONED_MANIFESTS := \
 	$(MANIFEST) \
 	$(COM_MANIFEST) \
@@ -267,11 +267,10 @@ define package
 	echo "$(1): $(words $(3)) entries, $$(wc -c < "$(1)") bytes, $$how, sha256 $$sum"
 endef
 
-# Stages 2 and 3 of the plan's build: package the three staged children under
-# staging root $(1) into its pkg/packages/, then package pkg/ into $(2). All
-# four archives take the one epoch that shell expression $(3) yields. Then check
-# the payload bytes inside $(2) against its own rules, work item 2 of Phase 5,
-# and delete $(2) if they differ.
+# Package the three staged children under staging root $(1) into its
+# pkg/packages/, then package pkg/ into $(2). All four archives take the one
+# epoch that shell expression $(3) yields. Then check the payload bytes inside
+# $(2) against its own rules, and delete $(2) if they differ.
 define build_package
 	@set -e; \
 	stamp="$(3)"; \
@@ -293,14 +292,14 @@ define check_versions
 		if [ "$$declared" != "$(VERSION)" ]; then \
 			echo "FAIL: $(1)/$$m declares version '$$declared', but the package is $(VERSION) from $(MANIFEST)"; \
 			echo "      every manifest in the package and the update descriptor template must declare"; \
-			echo "      the package manifest's version (decisions 13 and 52)"; \
+			echo "      the package manifest's version"; \
 			exit 1; \
 		fi; \
 	done
 endef
 
 # Delete <updateservers> from staged manifest $(1), and fail if any survives.
-# Decision 52: a dev package must not register the release update site.
+# A dev package must not register the release update site.
 define strip_updateservers
 	@set -e; \
 	sed '/<updateservers>/,/<\/updateservers>/d' "$(1)" > "$(1).tmp"; \
@@ -491,8 +490,8 @@ dist_release:
 	@rm -rf "$(RELEASE_STAGE)"
 	$(MAKE) update_manifest
 
-# Write $(UPDATE_ARTIFACT) from $(UPDATE_TEMPLATE) for the ZIP at $(RELEASE_ZIP),
-# decision 52. dist_release runs this last. The template is read from the
+# Write $(UPDATE_ARTIFACT) from $(UPDATE_TEMPLATE) for the ZIP at $(RELEASE_ZIP).
+# dist_release runs this last. The template is read from the
 # checkout, which dist_release has already proved is the clean tag.
 update_manifest:
 	$(refuse_release_overrides)
