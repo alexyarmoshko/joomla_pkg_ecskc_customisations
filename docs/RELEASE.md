@@ -8,7 +8,7 @@ is in [`RELEASE.md`](../RELEASE.md) at the repository root.
 
 ## 0.1.0
 
-**Release date:** not yet released.
+**Release date:** 2026-09-28.
 
 The first release. One Joomla package, `pkg_ecskc_customisations`, installs three extensions:
 
@@ -28,10 +28,19 @@ overrides, three NTS KBee Kunena template files, the et_tennis `options.xml`, an
 controller), and five files the package owns (two Apple touch icons, the CBSubs language override
 and its stub, and `templates/et_tennis/css/override.css`).
 
+### Download
+
+`pkg_ecskc_customisations-v0-1-0.zip`, SHA-256
+`e2bc10076e0eb5dde3ab48be489af1cc3bbb3a882206ecffc5985802a9e8470c`. Two builds of tag `0.1.0`
+from separate clones give this same hash.
+
 ### Requirements
 
 - Joomla 5.4 or a later 5.x release.
 - PHP 8.3 or later.
+
+Tested on a copy of the club site running Joomla 5.4.7 and PHP 8.3: a first install, an update
+over an earlier build, an uninstall, and every action in the component.
 
 ### Install and update
 
@@ -42,6 +51,13 @@ and its stub, and `templates/et_tennis/css/override.css`).
 - The component and the plugins cannot be uninstalled on their own. Uninstall the package.
 - The package registers its update site, so later versions appear under System, Update,
   Extensions as one package update.
+
+### Known limits
+
+- Revert one step needs the file's earlier content, from the package or from a backup that
+  Apply wrote. Where neither holds it, the revert is refused and the file is left as it is. For
+  example, the two Kunena layouts' versions ship the same content, so they cannot be reverted
+  from one to the other.
 
 ### Uninstall limits
 
