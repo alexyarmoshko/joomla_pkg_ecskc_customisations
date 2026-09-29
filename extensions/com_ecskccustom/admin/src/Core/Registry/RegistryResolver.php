@@ -27,8 +27,8 @@ final class RegistryResolver
 
     public const DEFAULT_DIRECTION = 'ASC';
 
-    /** The columns that sort, work item 11. Update server, Description and Repository do not. */
-    public const SORTABLE = ['name', 'type', 'version', 'status', 'update', 'package'];
+    /** The columns that sort, work item 11. Update server, Package, Description and Repository do not. */
+    public const SORTABLE = ['name', 'type', 'version', 'status', 'update'];
 
     /** The Update cells without a version, in the order they sort after every version. */
     private const UPDATE_ORDER = [UpdateStatus::NoneRecorded, UpdateStatus::NotChecked, UpdateStatus::NotApplicable];
@@ -155,7 +155,6 @@ final class RegistryResolver
             'version' => $this->compareVersions($a->version, $b->version),
             'status'  => $this->statusRank($a->status) <=> $this->statusRank($b->status),
             'update'  => $this->compareUpdates($a, $b),
-            'package' => \strcmp($this->fold($a->package), $this->fold($b->package)),
             default   => 0,
         };
     }
@@ -175,7 +174,7 @@ final class RegistryResolver
     }
 
     /**
-     * Available and Recorded by their version, then None recorded, Not checked and the
+     * Available and Recorded by their version, then No update found, Not checked and the
      * dash, in that order.
      */
     private function compareUpdates(RegistryRow $a, RegistryRow $b): int
@@ -199,7 +198,7 @@ final class RegistryResolver
         $rank = \array_search($update, self::UPDATE_ORDER, true);
 
         // Available or Recorded without a version breaks the row contract; it sorts
-        // with None recorded rather than among the versions.
+        // with No update found rather than among the versions.
         return $rank === false ? 1 : $rank + 1;
     }
 

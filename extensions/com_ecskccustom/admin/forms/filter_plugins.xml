@@ -32,8 +32,6 @@
             <option value="status DESC">JSTATUS_DESC</option>
             <option value="update ASC">COM_ECSKCCUSTOM_PLUGINS_SORT_UPDATE_ASC</option>
             <option value="update DESC">COM_ECSKCCUSTOM_PLUGINS_SORT_UPDATE_DESC</option>
-            <option value="package ASC">COM_ECSKCCUSTOM_PLUGINS_SORT_PACKAGE_ASC</option>
-            <option value="package DESC">COM_ECSKCCUSTOM_PLUGINS_SORT_PACKAGE_DESC</option>
         </field>
         <field
             name="limit"

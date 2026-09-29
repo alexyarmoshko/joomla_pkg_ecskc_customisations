@@ -97,6 +97,24 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             );
         }
 
+        public function testTheFeatureListNamesThePluginsScreen(): void
+        {
+            $xpath = self::dom(self::render(
+                new OperationalCheck('system_plugin_enabled', 'enabled', false, 'the plugin is enabled')
+            ));
+            $features = self::texts($xpath, '//div[contains(@class, "col-lg-8")]//ul/li');
+
+            self::assertCount(6, $features);
+            self::assertSame(
+                'Lists the ECSKC extensions: whether each is installed and enabled, its version, any update Joomla has recorded, and its source repository',
+                $features[5]
+            );
+
+            foreach ($features as $feature) {
+                self::assertStringNotContainsString('COM_ECSKCCUSTOM_', $feature);
+            }
+        }
+
         private static function render(OperationalCheck $check): string
         {
             $view = new class ($check) {

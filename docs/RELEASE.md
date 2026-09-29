@@ -6,6 +6,60 @@ version. `make release` refuses to tag a version without its heading here.
 This file says what changed in each version. How to build, test, package and publish a release
 is in [`RELEASE.md`](../RELEASE.md) at the repository root.
 
+## 0.2.0
+
+**Release date:** 2026-09-29.
+
+Adds a Plugins screen to the component. The managed files, their rules and their payloads are
+the same as in 0.1.0.
+
+### Plugins screen
+
+Components, ECSKC Customisations now has a third entry, Plugins, after Customisations. It lists
+the 18 ECSKC extensions named in the package's registry, `registry.xml`: this package and its
+three extensions, `pkg_cbuseronlinestatus` and its two, and three components, three modules,
+three system plugins and two Community Builder plugins, each with a repository under
+`github.com/alexyarmoshko`.
+
+- Each row shows the name, type, version, status, recorded update and update server. A Details
+  section below it, closed until clicked, shows the package, the description and the
+  repository. The status is `Enabled`, `Disabled`, `Not installed` or `Manifest missing`.
+- An installed extension's name links to its own screen: a plugin's edit form, a module or
+  template list filtered to it, Extensions: Manage filtered to it, or Community Builder's plugin
+  editor.
+- The list sorts on name, type, version, status and update, searches by name, and
+  pages with the site's list limit. The sort and the limit are kept for the session.
+- An extension inside a package reports the package's update and update server, because the
+  package carries the update server.
+- The screen needs the component's Access Administration Interface permission. It reads the
+  database and changes no extension, database row or file.
+- If the registry cannot be read, or a database read fails, the screen shows the error and no
+  list, so it never reports an extension as missing that it did not look for.
+
+### Known limits
+
+- An update shows only after Joomla's Find Updates has recorded it. `No update found` does not
+  prove an extension is current.
+- An installed Community Builder plugin shows `Not checked` for update and update server.
+  Community Builder keeps its own update data, which this version does not read. A row that is
+  `Not installed` shows `—` in both columns.
+- The registry ships in the package. Adding an extension to the list needs a new release.
+
+### Requirements
+
+- Joomla 5.4 or a later 5.x release.
+- PHP 8.3 or later.
+
+Tested on a copy of the club site running Joomla 5.4.8 and PHP 8.3: an update over 0.1.0, every
+row of the Plugins screen, each name link, sorting, searching and paging, and probes for a
+disabled plugin, a recorded update, an empty manifest and a malformed registry.
+
+### Install and update
+
+- Update from 0.1.0 under System, Update, Extensions, or upload the ZIP. The update adds the
+  Plugins entry and writes no managed file.
+- An update leaves each plugin enabled or disabled as the site had it.
+
 ## 0.1.0
 
 **Release date:** 2026-09-28.

@@ -62,9 +62,12 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
     #[CoversNothing]
     final class PluginsLayoutTest extends TestCase
     {
-        private const HEADINGS = [
-            'Name', 'Type', 'Version', 'Status', 'Update', 'Update server', 'Package', 'Description', 'Repository',
-        ];
+        private const HEADINGS = ['Name', 'Type', 'Version', 'Status', 'Update', 'Update server'];
+
+        /**
+         * An entry's own row. The Details row below it has no heading cell.
+         */
+        private const ROWS = '//tbody/tr[th]';
 
         protected function setUp(): void
         {
@@ -83,7 +86,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             Text::$strings = [];
         }
 
-        public function testTheTableHasTheNineColumnsAndSixSort(): void
+        public function testTheTableHasTheSixColumnsAndFiveSort(): void
         {
             $xpath = self::dom(self::render([self::plugin()], [], 'version', 'DESC'));
 
@@ -97,7 +100,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                 self::assertSame('version', $link->getAttribute('data-current'), 'The headers follow the page ordering.');
             }
 
-            self::assertSame(['name', 'type', 'version', 'status', 'update', 'package'], $sorted);
+            self::assertSame(['name', 'type', 'version', 'status', 'update'], $sorted);
             self::assertSame(1, $xpath->query('//*[@id="stub-joomla-searchtools-default"]')->length);
             self::assertSame(['FOOTER'], self::texts($xpath, '//*[@id="stub-footer"]'));
         }
@@ -127,16 +130,48 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                 'Enabled',
                 '1.3.0 available',
                 'Registered',
-                'CB User Online Status Package',
-                'Shows who is online.',
-                'alexyarmoshko/joomla_pkg_cbuseronlinestatus',
-            ], self::texts($xpath, '//tbody/tr[1]/*'));
+            ], self::texts($xpath, self::ROWS . '[1]/*'));
+            self::assertSame(
+                ['Package', 'CB User Online Status Package', 'Description', 'Shows who is online.', 'Repository', 'alexyarmoshko/joomla_pkg_cbuseronlinestatus'],
+                self::texts($xpath, '//tbody/tr[2]//details/dl/*')
+            );
+        }
+
+        public function testEachRowIsFollowedByItsClosedDetailsSection(): void
+        {
+            $rows  = [self::plugin(), self::row(new RegistryEntry('module', 'mod_gone', '', 0, '', 'https://github.com/o/g'), null, EntryStatus::NotInstalled)];
+            $xpath = self::dom(self::render($rows));
+            $trs   = $xpath->query('//tbody/tr');
+
+            self::assertSame(4, $trs->length);
+
+            foreach ([1, 3] as $index) {
+                $details = $xpath->query('td/details', $trs->item($index));
+
+                self::assertSame(1, $details->length, 'Each entry row is followed by a Details row.');
+                self::assertFalse($details->item(0)->hasAttribute('open'), 'Details starts closed.');
+                self::assertSame('6', $xpath->query('td', $trs->item($index))->item(0)->getAttribute('colspan'));
+            }
+
+            self::assertSame(
+                ['Details: Name of kunenastickycollapse', 'Details: mod_gone (site)'],
+                self::texts($xpath, '//tbody/tr/td/details/summary/span[contains(@class, "visually-hidden")]')
+            );
+            self::assertSame(
+                ['Details', 'Details'],
+                self::texts($xpath, '//tbody/tr/td/details/summary/span[@aria-hidden="true"]')
+            );
+            self::assertSame(
+                ['Repository', 'o/g'],
+                self::texts($xpath, '//tbody/tr[4]//details/dl/*'),
+                'An empty Package or Description is left out; Repository is always there.'
+            );
         }
 
         public function testTheRepositoryLinksToTheFullUrlAndShowsItWithoutTheGithubPrefix(): void
         {
             $xpath = self::dom(self::render([self::plugin()]));
-            $link  = $xpath->query('//tbody/tr[1]/td[last()]/a')->item(0);
+            $link  = $xpath->query('//tbody/tr[2]//details/dl/dd[last()]/a')->item(0);
 
             self::assertNotNull($link);
             self::assertSame('https://github.com/alexyarmoshko/joomla_plg_kunena_stickycollapse', $link->getAttribute('href'));
@@ -163,7 +198,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             $xpath = self::dom(self::render($rows));
             $hrefs = [];
 
-            foreach ($xpath->query('//tbody/tr/th') as $cell) {
+            foreach ($xpath->query(self::ROWS . '/th') as $cell) {
                 $link    = $xpath->query('a', $cell)->item(0);
                 $hrefs[] = $link?->getAttribute('href');
             }
@@ -177,12 +212,13 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
                 'index.php?option=com_comprofiler&view=editrow&table=pluginsbrowser&action=editrow&cid=12',
                 null,
             ], $hrefs);
-            self::assertSame('mod_gone (site)', \trim($xpath->query('//tbody/tr[7]/th')->item(0)->textContent));
+            self::assertSame('mod_gone (site)', \trim($xpath->query(self::ROWS . '[7]/th')->item(0)->textContent));
             self::assertSame(
                 ['Enabled', 'Enabled', 'Enabled', 'Disabled', 'Manifest missing', 'Enabled', 'Not installed'],
-                self::texts($xpath, '//tbody/tr/td[3]/span[contains(@class, "badge")]')
+                self::texts($xpath, self::ROWS . '/td[3]/span[contains(@class, "badge")]')
             );
-            self::assertSame('—', self::texts($xpath, '//tbody/tr[7]/td[4]')[0]);
+            self::assertSame('No update found', self::texts($xpath, self::ROWS . '[1]/td[4]')[0]);
+            self::assertSame('—', self::texts($xpath, self::ROWS . '[7]/td[4]')[0]);
         }
 
         public function testEveryValueIsEscaped(): void
@@ -205,9 +241,13 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\View {
             $xpath = self::dom($html);
 
             self::assertSame(0, $xpath->query('//tbody//b | //tbody//p')->length, $html);
-            self::assertSame('<b>name</b>', self::texts($xpath, '//tbody/tr/th')[0]);
-            self::assertSame('<b>2</b> recorded', self::texts($xpath, '//tbody/tr/td[4]')[0]);
-            self::assertSame('<p>description</p>', self::texts($xpath, '//tbody/tr/td[7]')[0]);
+            self::assertSame('<b>name</b>', self::texts($xpath, self::ROWS . '/th')[0]);
+            self::assertSame('<b>2</b> recorded', self::texts($xpath, self::ROWS . '/td[4]')[0]);
+            self::assertSame('Details: <b>name</b>', self::texts($xpath, '//details/summary/span[contains(@class, "visually-hidden")]')[0]);
+            self::assertSame(
+                ['<b>package</b>', '<p>description</p>', 'o/r"><b>repo</b>'],
+                self::texts($xpath, '//details/dl/dd')
+            );
         }
 
         /**

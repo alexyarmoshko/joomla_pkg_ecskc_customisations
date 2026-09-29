@@ -32,6 +32,7 @@ Out of scope is what the site says, along with server and SEO configuration. Sit
 | `extensions/plg_system_ecskccustom/` | System plugin that serves `override.css` on the site |
 | `extensions/plg_installer_ecskccustom/` | Installer plugin that checks after extension work |
 | `data/rules/` | The rule set, one XML file per extension |
+| `data/registry.xml` | The ECSKC extensions the Plugins screen lists, each with its repository |
 | `data/payload/` | The customised files a rule installs |
 | `tests/` | PHPUnit suites |
 | `tools/` | Build helpers: deterministic packager, validator, package check, hashing |
@@ -95,10 +96,19 @@ Nothing restores that archive, and the message naming it comes only after the de
 cases, such as a write holding the run lock, none is written; the uninstall limits in
 [`docs/RELEASE.md`](docs/RELEASE.md) list them.
 
+The Plugins entry lists the ECSKC extensions named in `data/registry.xml`, installed or not. Each
+row shows the extension's name, type, version, status, recorded update and update server, with
+a closed Details section below it for the package, description and repository. An installed
+extension's name links to its own Joomla or Community Builder screen. The list can be sorted,
+searched by name and paged. The screen reads the database and changes nothing. An update shows
+only after Joomla's Find Updates has recorded it, so `No update found` does not prove an
+extension is current. An installed Community Builder
+plugin shows `Not checked` in both update columns, and a `Not installed` row shows `—`.
+
 ## Status
 
-Version 0.1.0, released 2026-09-28. The package ZIP is attached to the
-[0.1.0 GitHub release](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/tag/0.1.0),
+Version 0.2.0, released 2026-09-29. The package ZIP is attached to the
+[0.2.0 GitHub release](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/tag/0.2.0),
 and a site that has it installed is offered later versions under System, Update, Extensions.
 
 ## Documentation

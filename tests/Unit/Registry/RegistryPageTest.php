@@ -72,7 +72,6 @@ final class RegistryPageTest extends TestCase
         EntryStatus $status = EntryStatus::Enabled,
         UpdateStatus $update = UpdateStatus::NoneRecorded,
         ?string $updateVersion = null,
-        string $package = '',
     ): RegistryRow {
         return new RegistryRow(
             new RegistryEntry($kind, \strtolower($name), '', 0, '', self::REPO),
@@ -84,7 +83,7 @@ final class RegistryPageTest extends TestCase
             $update,
             $updateVersion,
             UpdateServerStatus::None,
-            $package,
+            '',
             ''
         );
     }
@@ -213,13 +212,6 @@ final class RegistryPageTest extends TestCase
         );
     }
 
-    public function testPackageSortsAsTextWithoutCase(): void
-    {
-        $rows = [self::row('A', package: 'zulu'), self::row('B', package: 'Alpha'), self::row('C', package: '')];
-
-        self::assertSame(['C', 'B', 'A'], self::names(self::page($rows, 'package')));
-    }
-
     public function testEqualKeysFallBackToNameSoDescendingIsTheExactReverse(): void
     {
         $rows = [self::row('b', version: '1.0'), self::row('C', version: '1.0'), self::row('a', version: '1.0')];
@@ -250,6 +242,7 @@ final class RegistryPageTest extends TestCase
     {
         return [
             'update server' => ['update_server'],
+            'package'       => ['package'],
             'description'   => ['description'],
             'repository'    => ['repository'],
             'unknown'       => ['nonsense'],

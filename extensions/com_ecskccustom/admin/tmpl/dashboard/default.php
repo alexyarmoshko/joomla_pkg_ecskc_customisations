@@ -44,6 +44,7 @@ $label   = match ($plugin?->outcome) {
                         <li><?php echo Text::_('COM_ECSKCCUSTOM_FEATURE_DRY_RUN'); ?></li>
                         <li><?php echo Text::_('COM_ECSKCCUSTOM_FEATURE_HISTORY'); ?></li>
                         <li><?php echo Text::_('COM_ECSKCCUSTOM_FEATURE_FREEZE'); ?></li>
+                        <li><?php echo Text::_('COM_ECSKCCUSTOM_FEATURE_PLUGINS'); ?></li>
                     </ul>
                 </div>
             </div>
