@@ -2,15 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Joomla\Database {
-    final class ParameterType
-    {
-        public const INTEGER = 'int';
-
-        public const STRING = 'string';
-    }
-}
-
 namespace {
     require_once \dirname(__DIR__, 2) . '/Support/joomla_stubs.php';
     require_once \dirname(__DIR__, 3) . '/extensions/pkg_ecskc_customisations/script.php';

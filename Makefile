@@ -150,6 +150,11 @@ COMPONENT_FILES := \
 	admin/src/Model/TargetsModel.php \
 	admin/src/Model/WriteResult.php \
 	admin/src/Operational/JoomlaOperationalCheckProvider.php \
+	admin/src/Registry/DatabaseRead.php \
+	admin/src/Registry/DriverValue.php \
+	admin/src/Registry/ExtensionLanguageLoader.php \
+	admin/src/Registry/JoomlaCommunityBuilderReader.php \
+	admin/src/Registry/JoomlaExtensionReader.php \
 	admin/src/View/Dashboard/HtmlView.php \
 	admin/src/View/Targets/HtmlView.php \
 	admin/tmpl/dashboard/default.php \

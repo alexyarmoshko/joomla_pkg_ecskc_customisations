@@ -49,6 +49,13 @@ namespace Joomla\Database {
     interface DatabaseInterface
     {
     }
+
+    final class ParameterType
+    {
+        public const INTEGER = 'int';
+
+        public const STRING = 'string';
+    }
 }
 
 namespace Joomla\CMS\Language {

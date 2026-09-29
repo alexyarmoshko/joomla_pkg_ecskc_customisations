@@ -21,7 +21,9 @@ use Joomla\CMS\Dispatcher\ComponentDispatcherFactoryInterface;
 use Joomla\CMS\Extension\ComponentInterface;
 use Joomla\CMS\Extension\Service\Provider\ComponentDispatcherFactory;
 use Joomla\CMS\Extension\Service\Provider\MVCFactory;
+use Joomla\CMS\Factory;
 use Joomla\CMS\MVC\Factory\MVCFactoryInterface;
+use Joomla\Database\DatabaseInterface;
 use Joomla\DI\Container;
 use Joomla\DI\ServiceProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Condition\ConditionEvaluator;
@@ -31,6 +33,8 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Hash\Hasher;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Operational\OperationalCheckProviderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\CommunityBuilderReaderInterface;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\ExtensionReaderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
@@ -42,6 +46,9 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Walk\ObjectWalker;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Environment\JoomlaEnvironmentProvider;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Extension\ECSKCCustomisationComponent;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Operational\JoomlaOperationalCheckProvider;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Registry\ExtensionLanguageLoader;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Registry\JoomlaCommunityBuilderReader;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Registry\JoomlaExtensionReader;
 
 return new class () implements ServiceProviderInterface {
     /**
@@ -77,6 +84,30 @@ return new class () implements ServiceProviderInterface {
         $container->set(
             OperationalCheckProviderInterface::class,
             static fn (): OperationalCheckProviderInterface => new JoomlaOperationalCheckProvider()
+        );
+
+        // The Plugins screen's readers. The driver comes from Joomla's container, the
+        // parent of this one. The language is the application's, the one Text::_()
+        // translates with.
+        $container->set(
+            ExtensionReaderInterface::class,
+            static fn (Container $container): ExtensionReaderInterface => new JoomlaExtensionReader(
+                $container->get(DatabaseInterface::class),
+                new ExtensionLanguageLoader(
+                    JPATH_SITE,
+                    JPATH_ADMINISTRATOR,
+                    JPATH_PLUGINS,
+                    static fn (string $file, string $path): bool => Factory::getApplication()->getLanguage()->load($file, $path)
+                )
+            )
+        );
+
+        $container->set(
+            CommunityBuilderReaderInterface::class,
+            static fn (Container $container): CommunityBuilderReaderInterface => new JoomlaCommunityBuilderReader(
+                $container->get(DatabaseInterface::class),
+                JPATH_SITE
+            )
         );
 
         $container->set(
