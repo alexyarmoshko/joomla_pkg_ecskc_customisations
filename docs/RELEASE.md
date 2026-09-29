@@ -8,7 +8,7 @@ is in [`RELEASE.md`](../RELEASE.md) at the repository root.
 
 ## 0.2.0
 
-**Release date:** 2026-09-29.
+**Release date:** 2026-09-30.
 
 Adds a Plugins screen to the component. The managed files, their rules and their payloads are
 the same as in 0.1.0.

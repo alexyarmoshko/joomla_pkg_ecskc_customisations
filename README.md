@@ -107,7 +107,7 @@ plugin shows `Not checked` in both update columns, and a `Not installed` row sho
 
 ## Status
 
-Version 0.2.0, released 2026-09-29. The package ZIP is attached to the
+Version 0.2.0, released 2026-09-30. The package ZIP is attached to the
 [0.2.0 GitHub release](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/tag/0.2.0),
 and a site that has it installed is offered later versions under System, Update, Extensions.
 
