@@ -23,6 +23,16 @@ final class RegistryResolver
 {
     public const TYPE_KEY_PREFIX = 'COM_ECSKCCUSTOM_PLUGINS_TYPE_';
 
+    public const DEFAULT_ORDERING = 'name';
+
+    public const DEFAULT_DIRECTION = 'ASC';
+
+    /** The columns that sort, work item 11. Update server, Description and Repository do not. */
+    public const SORTABLE = ['name', 'type', 'version', 'status', 'update', 'package'];
+
+    /** The Update cells without a version, in the order they sort after every version. */
+    private const UPDATE_ORDER = [UpdateStatus::NoneRecorded, UpdateStatus::NotChecked, UpdateStatus::NotApplicable];
+
     private const COMMUNITY_BUILDER = 'com_comprofiler';
 
     /** The kinds whose identity includes a client, work item 1. */
@@ -48,6 +58,162 @@ final class RegistryResolver
         } catch (RegistryReadFailure $failure) {
             return RegistryResolution::fault([$failure->getMessage()]);
         }
+    }
+
+    /**
+     * One page of the rows, sorted and searched over the whole list first, work item 11.
+     *
+     * The state is checked here, as `ListModel::populateState` checks it: a column that
+     * does not sort means Name, and a direction that is not ASC or DESC means ASC, each
+     * on its own. A start past the end gives the last page, as `ListModel::getStart`
+     * does, and a limit of 0 gives the whole filtered list, as `InstallerModel` does.
+     *
+     * @param list<RegistryRow>        $rows      A resolution's rows.
+     * @param \Closure(string): string $typeLabel The Type cell's text for its language
+     *                                            key; Type sorts on what the screen shows.
+     */
+    public function page(array $rows, RegistryListState $state, \Closure $typeLabel): RegistryPage
+    {
+        $ordering  = \in_array($state->ordering, self::SORTABLE, true) ? $state->ordering : self::DEFAULT_ORDERING;
+        $direction = \strtoupper($state->direction);
+        $direction = \in_array($direction, ['ASC', 'DESC'], true) ? $direction : self::DEFAULT_DIRECTION;
+
+        $rows  = $this->sorted($this->searched($rows, $state->search), $ordering, $typeLabel);
+        $rows  = $direction === 'DESC' ? \array_reverse($rows) : $rows;
+        $total = \count($rows);
+        $limit = \max(0, $state->limit);
+        $start = $limit === 0 ? 0 : \max(0, $state->start);
+
+        if ($limit > 0 && $start > $total - $limit) {
+            $start = \max(0, ((int) \ceil($total / $limit) - 1) * $limit);
+        }
+
+        return new RegistryPage(
+            \array_slice($rows, $start, $limit === 0 ? null : $limit),
+            $total,
+            $start,
+            $ordering,
+            $direction
+        );
+    }
+
+    /**
+     * The rows whose Name contains the search, ignoring case. The search is literal
+     * text, not a pattern.
+     *
+     * @param list<RegistryRow> $rows
+     *
+     * @return list<RegistryRow>
+     */
+    private function searched(array $rows, string $search): array
+    {
+        $search = \trim($search);
+
+        if ($search === '') {
+            return $rows;
+        }
+
+        return \array_values(\array_filter(
+            $rows,
+            static fn (RegistryRow $row): bool => \mb_stripos($row->name, $search, 0, 'UTF-8') !== false
+        ));
+    }
+
+    /**
+     * The rows in ascending order on the column. Equal keys fall back to Name, then to
+     * the input order, so the order is total and descending is its exact reverse.
+     *
+     * @param list<RegistryRow>        $rows
+     * @param \Closure(string): string $typeLabel
+     *
+     * @return list<RegistryRow>
+     */
+    private function sorted(array $rows, string $ordering, \Closure $typeLabel): array
+    {
+        $keyed = [];
+
+        foreach ($rows as $position => $row) {
+            $keyed[] = [$row, $position, $this->fold($row->name)];
+        }
+
+        \usort($keyed, function (array $a, array $b) use ($ordering, $typeLabel): int {
+            return $this->compare($a[0], $b[0], $ordering, $typeLabel)
+                ?: \strcmp($a[2], $b[2])
+                ?: $a[1] <=> $b[1];
+        });
+
+        return \array_map(static fn (array $item): RegistryRow => $item[0], $keyed);
+    }
+
+    /**
+     * @param \Closure(string): string $typeLabel
+     */
+    private function compare(RegistryRow $a, RegistryRow $b, string $ordering, \Closure $typeLabel): int
+    {
+        return match ($ordering) {
+            'type'    => \strcmp($this->fold($typeLabel($a->typeKey)), $this->fold($typeLabel($b->typeKey))),
+            'version' => $this->compareVersions($a->version, $b->version),
+            'status'  => $this->statusRank($a->status) <=> $this->statusRank($b->status),
+            'update'  => $this->compareUpdates($a, $b),
+            'package' => \strcmp($this->fold($a->package), $this->fold($b->package)),
+            default   => 0,
+        };
+    }
+
+    /**
+     * `version_compare` order, with no version after every version. An empty version
+     * never reaches `version_compare`, which would put it first.
+     */
+    private function compareVersions(string $a, string $b): int
+    {
+        return match (true) {
+            $a === '' && $b === '' => 0,
+            $a === ''              => 1,
+            $b === ''              => -1,
+            default                => \version_compare($a, $b),
+        };
+    }
+
+    /**
+     * Available and Recorded by their version, then None recorded, Not checked and the
+     * dash, in that order.
+     */
+    private function compareUpdates(RegistryRow $a, RegistryRow $b): int
+    {
+        $aVersion = (string) $a->updateVersion;
+        $bVersion = (string) $b->updateVersion;
+
+        if ($aVersion !== '' && $bVersion !== '') {
+            return \version_compare($aVersion, $bVersion);
+        }
+
+        return $this->updateRank($aVersion, $a->update) <=> $this->updateRank($bVersion, $b->update);
+    }
+
+    private function updateRank(string $version, UpdateStatus $update): int
+    {
+        if ($version !== '') {
+            return 0;
+        }
+
+        $rank = \array_search($update, self::UPDATE_ORDER, true);
+
+        // Available or Recorded without a version breaks the row contract; it sorts
+        // with None recorded rather than among the versions.
+        return $rank === false ? 1 : $rank + 1;
+    }
+
+    private function statusRank(EntryStatus $status): int
+    {
+        return (int) \array_search($status, EntryStatus::cases(), true);
+    }
+
+    /**
+     * Text folded for a comparison that ignores case.
+     */
+    private function fold(string $text): string
+    {
+        return \mb_strtolower($text, 'UTF-8');
     }
 
     /**

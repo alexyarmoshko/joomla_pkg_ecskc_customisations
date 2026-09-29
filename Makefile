@@ -73,8 +73,10 @@ COMPONENT_FILES := \
 	admin/src/Core/Registry/ExtensionReaderInterface.php \
 	admin/src/Core/Registry/ExtensionRow.php \
 	admin/src/Core/Registry/RegistryEntry.php \
+	admin/src/Core/Registry/RegistryListState.php \
 	admin/src/Core/Registry/RegistryLoader.php \
 	admin/src/Core/Registry/RegistryLoadResult.php \
+	admin/src/Core/Registry/RegistryPage.php \
 	admin/src/Core/Registry/RegistryReadFailure.php \
 	admin/src/Core/Registry/RegistryResolution.php \
 	admin/src/Core/Registry/RegistryResolver.php \
