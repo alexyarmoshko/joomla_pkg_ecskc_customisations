@@ -87,6 +87,32 @@ after its descriptor is published.
 The exact commands run for each release, both rebuild hashes, the ZIP's SHA-256, and the
 `joomla_update_system` commit.
 
+### 0.2.0, 2026-09-30
+
+Commands, in the development repository and then a second clone of its tag:
+
+```sh
+make release
+make dist_release
+git clone --branch 0.2.0 <development repository> <second path>
+cd <second path>
+make deps
+(umask 077; TZ=Pacific/Kiritimati LC_ALL=C make dist_release)
+sha256sum installation/release/pkg_ecskc_customisations-v0-2-0.zip
+```
+
+- Both builds: `7d850fa33ef24af45bf1302340e2f74e3ad15a7faea61b137f8fff1b70693cf8`, and the two
+  update descriptors are identical.
+- GitHub release `0.2.0`, asset `pkg_ecskc_customisations-v0-2-0.zip`, 1082862 bytes, SHA-256
+  `7d850fa33ef24af45bf1302340e2f74e3ad15a7faea61b137f8fff1b70693cf8`. The downloaded asset has
+  that hash.
+- `joomla_update_system` commit `8720a4e`, "Update pkg_ecskc_customisations.update.xml manifest
+  for release 0.2.0". Its `<sha256>` is the asset's, and the raw descriptor URL serves the file
+  byte for byte.
+- The development tag is on `289f852`, and the public tag `0.2.0` is on `b9e2f0b`, its copy in
+  the public repository with the same commit date. A build from the public tag gives the same
+  hash, so step 1 of Cut a release worked.
+
 ### 0.1.0, 2026-09-28
 
 Commands, in the development repository and then a second clone of its tag:
