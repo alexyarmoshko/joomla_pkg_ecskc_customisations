@@ -36,6 +36,9 @@ three system plugins and two Community Builder plugins, each with a repository u
 - If the registry cannot be read, or a database read fails, the screen shows the error and no
   list, so it never reports an extension as missing that it did not look for.
 
+The Customisations and Plugins screens now carry their names in the page title, as the
+Dashboard does: "ECSKC Customisations: Customisations" and "ECSKC Customisations: Plugins".
+
 ### Known limits
 
 - An update shows only after Joomla's Find Updates has recorded it. `No update found` does not

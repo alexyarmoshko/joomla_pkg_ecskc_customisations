@@ -149,7 +149,7 @@ class HtmlView extends BaseHtmlView
 
     private function addToolbar(): void
     {
-        ToolbarHelper::title(Text::_('COM_ECSKCCUSTOM'), 'wrench');
+        ToolbarHelper::title(Text::_('COM_ECSKCCUSTOM_TARGETS_TITLE'), 'wrench');
 
         $toolbar = $this->getDocument()->getToolbar();
 
