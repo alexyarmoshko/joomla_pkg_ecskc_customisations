@@ -66,6 +66,9 @@ COMPONENT_FILES := \
 	admin/src/Core/Package/StateArchiveFailure.php \
 	admin/src/Core/Path/PathDecision.php \
 	admin/src/Core/Path/PathPolicy.php \
+	admin/src/Core/Registry/RegistryEntry.php \
+	admin/src/Core/Registry/RegistryLoader.php \
+	admin/src/Core/Registry/RegistryLoadResult.php \
 	admin/src/Core/Report/OperationalCheck.php \
 	admin/src/Core/Report/OperationalChecks.php \
 	admin/src/Core/Report/ReportedValue.php \
