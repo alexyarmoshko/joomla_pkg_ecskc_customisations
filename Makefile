@@ -66,9 +66,23 @@ COMPONENT_FILES := \
 	admin/src/Core/Package/StateArchiveFailure.php \
 	admin/src/Core/Path/PathDecision.php \
 	admin/src/Core/Path/PathPolicy.php \
+	admin/src/Core/Registry/CommunityBuilderPluginRow.php \
+	admin/src/Core/Registry/CommunityBuilderReaderInterface.php \
+	admin/src/Core/Registry/CommunityBuilderXmlManifest.php \
+	admin/src/Core/Registry/EntryStatus.php \
+	admin/src/Core/Registry/ExtensionReaderInterface.php \
+	admin/src/Core/Registry/ExtensionRow.php \
 	admin/src/Core/Registry/RegistryEntry.php \
 	admin/src/Core/Registry/RegistryLoader.php \
 	admin/src/Core/Registry/RegistryLoadResult.php \
+	admin/src/Core/Registry/RegistryReadFailure.php \
+	admin/src/Core/Registry/RegistryResolution.php \
+	admin/src/Core/Registry/RegistryResolver.php \
+	admin/src/Core/Registry/RegistryRow.php \
+	admin/src/Core/Registry/UpdateRow.php \
+	admin/src/Core/Registry/UpdateServerStatus.php \
+	admin/src/Core/Registry/UpdateSiteLink.php \
+	admin/src/Core/Registry/UpdateStatus.php \
 	admin/src/Core/Report/OperationalCheck.php \
 	admin/src/Core/Report/OperationalChecks.php \
 	admin/src/Core/Report/ReportedValue.php \
