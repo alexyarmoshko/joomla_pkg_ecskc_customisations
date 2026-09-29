@@ -33,6 +33,7 @@ COMPONENT_FILES := \
 	admin/access.xml \
 	admin/config.xml \
 	admin/script.php \
+	admin/forms/filter_plugins.xml \
 	admin/forms/filter_targets.xml \
 	admin/language/en-GB/com_ecskccustom.ini \
 	admin/language/en-GB/com_ecskccustom.sys.ini \
@@ -145,6 +146,8 @@ COMPONENT_FILES := \
 	admin/src/Extension/ECSKCCustomisationComponent.php \
 	admin/src/Field/TargetStatusField.php \
 	admin/src/Model/DashboardModel.php \
+	admin/src/Model/PluginLink.php \
+	admin/src/Model/PluginsModel.php \
 	admin/src/Model/RunRequest.php \
 	admin/src/Model/TargetFilter.php \
 	admin/src/Model/TargetsModel.php \
@@ -156,8 +159,12 @@ COMPONENT_FILES := \
 	admin/src/Registry/JoomlaCommunityBuilderReader.php \
 	admin/src/Registry/JoomlaExtensionReader.php \
 	admin/src/View/Dashboard/HtmlView.php \
+	admin/src/View/Plugins/HtmlView.php \
 	admin/src/View/Targets/HtmlView.php \
 	admin/tmpl/dashboard/default.php \
+	admin/tmpl/plugins/default.php \
+	admin/tmpl/plugins/default_fault.php \
+	admin/tmpl/plugins/default_list.php \
 	admin/tmpl/targets/default.php \
 	admin/tmpl/targets/default_counts.php \
 	admin/tmpl/targets/default_rows.php \
@@ -261,7 +268,7 @@ LINT_CMD := set -e; \
 	for f in $(filter %.php,$(addprefix $(COM_ROOT)/,$(COMPONENT_FILES)) $(addprefix $(SYSTEM_PLUGIN_ROOT)/,$(SYSTEM_PLUGIN_FILES)) $(addprefix $(INSTALLER_PLUGIN_ROOT)/,$(INSTALLER_PLUGIN_FILES))) $(PKG_ROOT)/script.php $(JZIP) $(COPY) $(VALIDATE) $(VERIFY) tools/hash.php; do \
 		php -l "$$f" >/dev/null || exit 1; \
 	done; \
-	for f in $(VERSIONED_MANIFESTS) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)) data/$(REGISTRY_FILE); do \
+	for f in $(VERSIONED_MANIFESTS) $(COM_ROOT)/admin/access.xml $(COM_ROOT)/admin/config.xml $(COM_ROOT)/admin/forms/filter_plugins.xml $(COM_ROOT)/admin/forms/filter_targets.xml $(addprefix data/rules/,$(RULE_FILES)) data/$(REGISTRY_FILE); do \
 		php -r 'libxml_use_internal_errors(true); if (simplexml_load_file($$argv[1]) === false) { fwrite(STDERR, "FAIL: malformed XML in $$argv[1]\n"); exit(1); }' "$$f" || exit 1; \
 	done; \
 	echo "lint: ok"

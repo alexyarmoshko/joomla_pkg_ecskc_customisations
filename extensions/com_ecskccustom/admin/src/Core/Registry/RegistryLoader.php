@@ -46,6 +46,31 @@ final class RegistryLoader
     {
     }
 
+    /**
+     * Loads the registry against the schema at $schemaPath. A missing schema is a load
+     * fault, as a missing registry is, rather than the exception SchemaValidator throws,
+     * so a damaged install shows the Plugins screen's fault and not an error page.
+     */
+    public static function loadWithSchema(string $schemaPath, string $registryPath): RegistryLoadResult
+    {
+        // Refused for the reason load() refuses a linked registry.
+        if (\is_link($schemaPath)) {
+            return RegistryLoadResult::fault([\sprintf(
+                '%s: is a symbolic link. The registry schema is only ever read from the installed '
+                . 'package, so it has to be a file.',
+                $schemaPath
+            )]);
+        }
+
+        if (!\is_file($schemaPath)) {
+            return RegistryLoadResult::fault(
+                [\sprintf('%s: the registry schema file does not exist', $schemaPath)]
+            );
+        }
+
+        return (new self(new SchemaValidator($schemaPath)))->load($registryPath);
+    }
+
     public function load(string $registryPath): RegistryLoadResult
     {
         if (\is_link($registryPath)) {

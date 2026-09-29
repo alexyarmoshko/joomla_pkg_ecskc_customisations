@@ -84,7 +84,7 @@ final class ComponentManifestTest extends TestCase
      * The top-level entry opens the controller's default view, so the dashboard
      * entry and the controller have to agree on which view that is.
      */
-    public function testTheSubmenuOpensTheDashboardAndTheTargetReport(): void
+    public function testTheSubmenuOpensTheDashboardTheTargetReportAndThePluginsScreen(): void
     {
         $entries = [];
 
@@ -95,6 +95,7 @@ final class ComponentManifestTest extends TestCase
         self::assertSame([
             'COM_ECSKCCUSTOM_SUBMENU_DASHBOARD' => 'dashboard',
             'COM_ECSKCCUSTOM_SUBMENU_TARGETS'   => 'targets',
+            'COM_ECSKCCUSTOM_SUBMENU_PLUGINS'   => 'plugins',
         ], $entries);
 
         $controller = (string) \file_get_contents(self::component() . '/admin/src/Controller/DisplayController.php');
@@ -184,6 +185,8 @@ final class ComponentManifestTest extends TestCase
 
         self::assertContains('admin/tmpl/targets/default.php', $files);
         self::assertContains('admin/tmpl/dashboard/default.php', $files);
+        self::assertContains('admin/tmpl/plugins/default_list.php', $files);
+        self::assertContains('admin/forms/filter_plugins.xml', $files);
         self::assertContains('admin/src/Core/Runner.php', $files);
         self::assertSame([], \array_values(\array_diff($files, self::componentFiles())));
     }
@@ -272,6 +275,7 @@ final class ComponentManifestTest extends TestCase
             'admin/config.xml'    => ['//@label | //@description', 'com_ecskccustom.ini'],
             // The filter form renders in the component's own view, which loads the .ini.
             'admin/forms/filter_targets.xml' => ['//@label | //@description | //@hint | //option', 'com_ecskccustom.ini'],
+            'admin/forms/filter_plugins.xml' => ['//@label | //@description | //@hint | //option', 'com_ecskccustom.ini'],
         ];
 
         foreach ($sources as $file => [$xpath, $language]) {
@@ -333,5 +337,10 @@ final class ComponentManifestTest extends TestCase
         self::assertContains('COM_ECSKCCUSTOM_SYSTEM_PLUGIN_UNKNOWN', $keys);
         self::assertContains('COM_ECSKCCUSTOM_SUBMENU_TARGETS', $keys);
         self::assertContains('COM_ECSKCCUSTOM_DASHBOARD_TITLE', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_SUBMENU_PLUGINS', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_PLUGINS_FILTER_SEARCH_HINT', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_PLUGINS_SORT_VERSION_DESC', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_PLUGINS_HEADING_REPOSITORY', $keys);
+        self::assertContains('COM_ECSKCCUSTOM_PLUGINS_FAULT_HEADING', $keys);
     }
 }

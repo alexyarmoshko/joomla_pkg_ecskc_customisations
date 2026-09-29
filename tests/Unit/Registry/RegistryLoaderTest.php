@@ -77,6 +77,45 @@ final class RegistryLoaderTest extends TestCase
         self::assertSame([$path . ': the registry file does not exist'], $result->violations);
     }
 
+    /**
+     * A damaged install without its schema shows the Plugins screen's fault, not the
+     * exception SchemaValidator throws for a missing schema.
+     */
+    public function testAMissingSchemaIsALoadFaultNamingIt(): void
+    {
+        $schema = $this->tree->path('registry.xsd');
+        $result = RegistryLoader::loadWithSchema($schema, self::repositoryRoot() . '/data/registry.xml');
+
+        self::assertFalse($result->isValid());
+        self::assertSame([$schema . ': the registry schema file does not exist'], $result->violations);
+    }
+
+    public function testALinkedSchemaIsALoadFaultEvenToTheRealSchema(): void
+    {
+        $schema = $this->tree->path('registry.xsd');
+        self::assertTrue(\symlink(
+            self::repositoryRoot() . '/extensions/com_ecskccustom/admin/schema/registry.xsd',
+            $schema
+        ));
+
+        $result = RegistryLoader::loadWithSchema($schema, self::repositoryRoot() . '/data/registry.xml');
+
+        self::assertFalse($result->isValid());
+        self::assertSame([], $result->entries);
+        self::assertStringStartsWith($schema . ': is a symbolic link.', $result->violations[0]);
+    }
+
+    public function testLoadWithSchemaLoadsTheCommittedRegistry(): void
+    {
+        $result = RegistryLoader::loadWithSchema(
+            self::repositoryRoot() . '/extensions/com_ecskccustom/admin/schema/registry.xsd',
+            self::repositoryRoot() . '/data/registry.xml'
+        );
+
+        self::assertSame([], $result->violations);
+        self::assertCount(18, $result->entries);
+    }
+
     public function testADirectoryInPlaceOfTheFileIsALoadFault(): void
     {
         $this->tree->write('registry.xml/index.html', '');

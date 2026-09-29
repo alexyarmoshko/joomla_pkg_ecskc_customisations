@@ -20,6 +20,7 @@
         <submenu>
             <menu view="dashboard">COM_ECSKCCUSTOM_SUBMENU_DASHBOARD</menu>
             <menu view="targets">COM_ECSKCCUSTOM_SUBMENU_TARGETS</menu>
+            <menu view="plugins">COM_ECSKCCUSTOM_SUBMENU_PLUGINS</menu>
         </submenu>
         <files folder="admin">
             <filename>access.xml</filename>

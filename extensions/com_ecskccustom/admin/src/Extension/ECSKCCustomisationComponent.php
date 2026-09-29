@@ -16,6 +16,8 @@ use Closure;
 use Joomla\CMS\Extension\MVCComponent;
 use LogicException;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\ReadOnlyRunnerInterface;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\RegistryLoadResult;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\RegistryResolver;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
 
 \defined('_JEXEC') or die;
@@ -26,12 +28,19 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Runner;
  * The runner lives in the component's child container, which neither this class
  * nor the MVC factory exposes. The service provider hands over a closure that
  * resolves it there, so a model asks the booted component and constructs nothing
- * of the core itself (plan decision 5).
+ * of the core itself (plan decision 5). The Plugins screen reaches the registry and
+ * its resolver the same way.
  */
 class ECSKCCustomisationComponent extends MVCComponent
 {
     /** @var (Closure(): Runner)|null */
     private ?Closure $runnerFactory = null;
+
+    /** @var (Closure(): RegistryLoadResult)|null */
+    private ?Closure $registryFactory = null;
+
+    /** @var (Closure(): RegistryResolver)|null */
+    private ?Closure $resolverFactory = null;
 
     /**
      * @param Closure(): Runner $factory
@@ -60,5 +69,37 @@ class ECSKCCustomisationComponent extends MVCComponent
     public function readOnlyRunner(): ReadOnlyRunnerInterface
     {
         return $this->runner();
+    }
+
+    /**
+     * @param Closure(): RegistryLoadResult $registry The installed registry, loaded.
+     * @param Closure(): RegistryResolver   $resolver
+     */
+    public function setRegistryFactories(Closure $registry, Closure $resolver): void
+    {
+        $this->registryFactory = $registry;
+        $this->resolverFactory = $resolver;
+    }
+
+    /**
+     * The installed registry, loaded and validated. The Plugins screen is its only
+     * runtime reader.
+     */
+    public function registry(): RegistryLoadResult
+    {
+        if ($this->registryFactory === null) {
+            throw new LogicException('The service provider set no registry factory on the component.');
+        }
+
+        return ($this->registryFactory)();
+    }
+
+    public function registryResolver(): RegistryResolver
+    {
+        if ($this->resolverFactory === null) {
+            throw new LogicException('The service provider set no registry resolver factory on the component.');
+        }
+
+        return ($this->resolverFactory)();
     }
 }

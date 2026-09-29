@@ -35,6 +35,9 @@ use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePat
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Path\PathPolicy;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\CommunityBuilderReaderInterface;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\ExtensionReaderInterface;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\RegistryLoader;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\RegistryLoadResult;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Registry\RegistryResolver;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\MergedSetValidator;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\RuleLoader;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Rule\SchemaValidator;
@@ -54,7 +57,8 @@ return new class () implements ServiceProviderInterface {
     /**
      * Registers the service provider with a DI container.
      *
-     * The runner is the only one of these an adapter resolves. It is registered
+     * An adapter resolves only the runner, and for the Plugins screen the registry
+     * resolver. The runner is registered
      * against its own class rather than an interface because there is one of it;
      * what a test replaces is a collaborator underneath it, above all the
      * environment provider and the write history.
@@ -107,6 +111,14 @@ return new class () implements ServiceProviderInterface {
             static fn (Container $container): CommunityBuilderReaderInterface => new JoomlaCommunityBuilderReader(
                 $container->get(DatabaseInterface::class),
                 JPATH_SITE
+            )
+        );
+
+        $container->set(
+            RegistryResolver::class,
+            static fn (Container $container): RegistryResolver => new RegistryResolver(
+                $container->get(ExtensionReaderInterface::class),
+                $container->get(CommunityBuilderReaderInterface::class)
             )
         );
 
@@ -203,6 +215,14 @@ return new class () implements ServiceProviderInterface {
                 $component->setMVCFactory($container->get(MVCFactoryInterface::class));
                 $component->setRunnerFactory(
                     static fn (): Runner => $container->get(Runner::class)
+                );
+                // Not the SchemaValidator service, which is built with patch.xsd.
+                $component->setRegistryFactories(
+                    static fn (): RegistryLoadResult => RegistryLoader::loadWithSchema(
+                        $container->get(PackagePaths::class)->registrySchema(),
+                        $container->get(PackagePaths::class)->registry()
+                    ),
+                    static fn (): RegistryResolver => $container->get(RegistryResolver::class)
                 );
 
                 return $component;

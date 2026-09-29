@@ -181,6 +181,17 @@ final class PackagePaths
         return $this->root . '/payload';
     }
 
+    /** The extension registry the Plugins screen lists, staged by the build. */
+    public function registry(): string
+    {
+        return $this->root . '/registry.xml';
+    }
+
+    public function registrySchema(): string
+    {
+        return $this->root . '/schema/registry.xsd';
+    }
+
     public function backup(): string
     {
         return $this->root . '/backup';

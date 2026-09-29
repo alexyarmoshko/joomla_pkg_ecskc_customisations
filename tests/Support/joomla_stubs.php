@@ -141,8 +141,19 @@ namespace Joomla\CMS\MVC\Model {
         /** @var array<string, mixed> */
         private array $state = [];
 
+        /** @var list<string> The columns the list may sort on, as Joomla's ListModel keeps them. */
+        protected $filter_fields = [];
+
+        /** The user state prefix; Joomla derives `option.model` when the config names none. */
+        protected $context = '';
+
         public function __construct($config = [], $factory = null)
         {
+            if (isset($config['filter_fields'])) {
+                $this->filter_fields = $config['filter_fields'];
+            }
+
+            $this->context = $config['context'] ?? '';
         }
 
         public function setState($property, $value = null)

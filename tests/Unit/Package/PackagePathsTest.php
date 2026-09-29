@@ -62,6 +62,8 @@ final class PackagePathsTest extends TestCase
         return [
             'rules'     => ['rules', self::ROOT . '/rules'],
             'payload'   => ['payload', self::ROOT . '/payload'],
+            'registry'  => ['registry', self::ROOT . '/registry.xml'],
+            'registrySchema' => ['registrySchema', self::ROOT . '/schema/registry.xsd'],
             'backup'    => ['backup', self::ROOT . '/backup'],
             'staging'   => ['staging', self::ROOT . '/staging'],
             'state'     => ['state', self::ROOT . '/state'],
