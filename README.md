@@ -45,7 +45,8 @@ passes every structural check and then matches nothing on disk.
 
 ## Build
 
-Requires PHP 8.3 and Composer.
+Requires PHP 8.3 with the `zip` extension, Composer, GNU make, git, and `sha256sum` or
+`shasum`.
 
 ```sh
 make deps       # composer install
@@ -59,12 +60,56 @@ make info       # version, package contents, output paths
 
 `make dist_dev` builds from the working tree and strips the update server, so a test install
 registers no update site. Every build checks the payloads inside the package it has just written
-against the package's own rules. Releases are cut with `make release` and `make dist_release`;
-[`RELEASE.md`](RELEASE.md) has the steps, the reproducibility check, and the publication order.
+against the package's own rules, and deletes the package if any payload differs. Never publish
+a `dist_dev` build.
+
+## Release
+
+The package manifest `extensions/pkg_ecskc_customisations/pkg_ecskc_customisations.xml` owns the
+version. The tag is the bare version, `0.2.0`, and the ZIP is
+`pkg_ecskc_customisations-v0-2-0.zip`. A release build packs with `tools/jzip.php`, the
+deterministic packager in this repository, and never falls back to `zip`.
+
+1. Set `<version>` in the package, component and both plugin manifests and in
+   `pkg_ecskc_customisations.update.xml`, and add a `## <version>` heading with the release date
+   to [`docs/RELEASE.md`](docs/RELEASE.md). Commit. That commit becomes the tag. It has to change
+   `docs/RELEASE.md`, which the public GitHub copy keeps. A tag on a commit that changes only
+   files the public copy leaves out lands there on an earlier commit, and a build from that
+   public tag then has different timestamps.
+2. `make release` refuses a dirty tree, an existing tag, a version mismatch, a descriptor
+   template with anything but its one placeholder checksum, and missing release notes. It runs
+   the tests and lint, then tags.
+3. `make dist_release` builds the tag into `installation/release/` and writes the update
+   descriptor beside the ZIP. It refuses unless the tree is clean and `HEAD` is the tag. Both
+   release targets refuse any variable set on the command line except `INSTALL_DIR` and
+   `BUILD_DIR`.
+4. Rebuild the tag in a second clone, under another timezone, umask and locale:
+
+   ```sh
+   git clone --branch <version> <repository> <second path>
+   cd <second path> && make deps
+   (umask 077; TZ=Pacific/Kiritimati LC_ALL=C make dist_release)
+   sha256sum installation/release/pkg_ecskc_customisations-v<dashed-version>.zip
+   ```
+
+   Without `sha256sum`, use `shasum -a 256` on the same file. The hash must equal the first
+   build's; do not publish otherwise. Both builds run on one host, so this shows that the path,
+   timezone, umask and locale do not reach the archive. It does not cover a different PHP or
+   zlib build.
+5. Publish the ZIP before its descriptor, because a descriptor published first announces a
+   download that fails. Publish the tag to the GitHub copy, which is a filtered copy of this
+   history: the tag there names a different commit, with the same date and the same shipped
+   files, so a build from it gives the same hash. Upload the exact ZIP from
+   `installation/release/` to the GitHub release for that tag. Then copy the descriptor over
+   `manifests/pkg_ecskc_customisations.update.xml` in
+   [`joomla_update_system`](https://github.com/alexyarmoshko/joomla_update_system), commit and
+   push. That repository does not tag its descriptors. Joomla rejects a download whose hash
+   differs from the descriptor's, so never rebuild or replace a ZIP once its descriptor is
+   published.
 
 ## Install
 
-Download `pkg_ecskc_customisations-v<version>.zip` from the
+Download `pkg_ecskc_customisations-v<dashed-version>.zip` from the
 [GitHub releases](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases). In
 the Joomla administrator, go to System, Install, Extensions, and upload it. It installs the
 component and both plugins, and enables the plugins on the first install only. Installing writes
@@ -114,7 +159,6 @@ and a site that has it installed is offered later versions under System, Update,
 ## Documentation
 
 - [`docs/RELEASE.md`](docs/RELEASE.md): release notes, one section per version.
-- [`RELEASE.md`](RELEASE.md): how to build, test, package, install and publish a release.
 
 ## Licence
 

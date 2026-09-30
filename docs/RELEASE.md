@@ -4,7 +4,7 @@ Release notes for the ECSKC customisation package, newest first, one `## <versio
 version. `make release` refuses to tag a version without its heading here.
 
 This file says what changed in each version. How to build, test, package and publish a release
-is in [`RELEASE.md`](../RELEASE.md) at the repository root.
+is in [`README.md`](../README.md).
 
 ## 0.2.0
 
