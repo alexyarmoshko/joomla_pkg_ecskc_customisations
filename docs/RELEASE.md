@@ -8,7 +8,7 @@ is in [`README.md`](../README.md).
 
 ## 0.2.1
 
-**Release date:** not released yet. Prepared 2026-10-27.
+**Release date:** 2026-10-27.
 
 Adds one managed file: the CB Activity controller.
 
