@@ -152,6 +152,9 @@ plugin shows `Not checked` in both update columns, and a `Not installed` row sho
 
 ## Status
 
+Version 0.2.1 is prepared but not released. It adds the CB Activity controller fix described in
+[`docs/RELEASE.md`](docs/RELEASE.md).
+
 Version 0.2.0, released 2026-09-30. The package ZIP is attached to the
 [0.2.0 GitHub release](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/tag/0.2.0),
 and a site that has it installed is offered later versions under System, Update, Extensions.

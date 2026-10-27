@@ -203,6 +203,7 @@ PAYLOAD_FILES := \
 	apple-touch-icon-precomposed.png.v1 \
 	components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/language.php.v1 \
 	components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/override.php.v1 \
+	components/com_comprofiler/plugin/user/plug_cbactivity/library/Controller/ActivityController.php.v1 \
 	components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v1 \
 	components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v2 \
 	components/com_kunena/template/nts_kbee/config/config.xml.v1 \

@@ -1,0 +1,3885 @@
+<?php
+/**
+* Community Builder (TM)
+* @version $Id: $
+* @package CommunityBuilder
+* @copyright (C) 2004-2026 www.joomlapolis.com / Lightning MultiCom SA - and its licensors, all rights reserved
+* @license http://www.gnu.org/licenses/old-licenses/gpl-2.0.html GNU/GPL version 2
+*/
+
+namespace CB\Plugin\Activity\Controller;
+
+use CB\Database\Table\UserTable;
+use CB\Plugin\Activity\Entity\ActionEntity;
+use CB\Plugin\Activity\Entity\ActivityEntity;
+use CB\Plugin\Activity\Entity\AssetEntity;
+use CB\Plugin\Activity\Entity\FilterEntity;
+use CB\Plugin\Activity\Entity\LocationEntity;
+use CB\Plugin\Activity\Entity\NotificationEntity;
+use CB\Plugin\Activity\Helper\ActionsHelper;
+use CB\Plugin\Activity\Helper\ActivityHelper;
+use CB\Plugin\Activity\Helper\ArrayHelper;
+use CB\Plugin\Activity\Helper\BookmarkHelper;
+use CB\Plugin\Activity\Helper\CaptchaHelper;
+use CB\Plugin\Activity\Helper\CommentsHelper;
+use CB\Plugin\Activity\Helper\EmojiHelper;
+use CB\Plugin\Activity\Helper\FlairHelper;
+use CB\Plugin\Activity\Helper\FollowingHelper;
+use CB\Plugin\Activity\Helper\GalleryHelper;
+use CB\Plugin\Activity\Helper\HashtagsHelper;
+use CB\Plugin\Activity\Helper\HtmlHelper;
+use CB\Plugin\Activity\Helper\LikesHelper;
+use CB\Plugin\Activity\Helper\LinksHelper;
+use CB\Plugin\Activity\Helper\LocationsHelper;
+use CB\Plugin\Activity\Helper\MentionsHelper;
+use CB\Plugin\Activity\Helper\NotificationsHelper;
+use CB\Plugin\Activity\Helper\PollsHelper;
+use CB\Plugin\Activity\Helper\PrefetchHelper;
+use CB\Plugin\Activity\Helper\PrivacyHelper;
+use CB\Plugin\Activity\Helper\QueryHelper;
+use CB\Plugin\Activity\Helper\ReactionsHelper;
+use CB\Plugin\Activity\Helper\ShareHelper;
+use CB\Plugin\Activity\Helper\StickersHelper;
+use CB\Plugin\Activity\Helper\TagsHelper;
+use CB\Plugin\Activity\Helper\ThemesHelper;
+use CB\Plugin\Activity\Helper\UsersHelper;
+use CB\Plugin\Activity\Params\ActivityLogParams;
+use CB\Plugin\Activity\Params\GlobalParams;
+use CB\Plugin\Activity\Params\NotificationLogParams;
+use CB\Plugin\Activity\Parser;
+use CB\Plugin\Activity\Table\ActivityBookmarkedTable;
+use CB\Plugin\Activity\Table\ActivityFlairTable;
+use CB\Plugin\Activity\Table\ActivityHashtagTable;
+use CB\Plugin\Activity\Table\ActivityMentionTable;
+use CB\Plugin\Activity\Table\ActivityStreamTable;
+use CB\Plugin\Activity\Table\ActivityTable;
+use CB\Plugin\Activity\Table\FollowTable;
+use CB\Plugin\Activity\Table\HiddenTable;
+use CB\Plugin\Activity\Table\StreamTable;
+use CB\Plugin\Activity\Table\TagTable;
+use CBLib\Application\Application;
+use CBLib\Database\Table\Table;
+use CBLib\Input\Get;
+use CBLib\Input\Input;
+use CBLib\Language\CBTxt;
+use CBLib\Registry\GetterInterface;
+use CBLib\Registry\ParamsInterface;
+use CBuser;
+
+\defined( '_JEXEC' ) or die;
+
+\defined( 'CBLIB' ) or die;
+
+class ActivityController extends BaseController
+{
+	/** @var null|ActivityStreamTable */
+	protected ?StreamTable $stream		=	null;
+	/** @var null|ActivityTable */
+	protected ?Table $row				=	null;
+	/** @var null|ActivityStreamTable */
+	protected ?StreamTable $rowStream	=	null;
+
+	/**
+	 * @param null|Input       $input
+	 * @param bool             $raw
+	 * @param null|StreamTable $stream
+	 * @param null|AssetEntity $asset
+	 * @param null|Table       $row
+	 */
+	public function __construct( ?Input $input = null, bool $raw = false, ?StreamTable $stream = null, ?AssetEntity $asset = null, ?Table $row = null )
+	{
+		parent::__construct( $input, $raw, $stream, $asset, $row );
+
+		if ( ( ! $this->stream )
+			 && $input
+			 && \in_array( $this->input->getString( 'action', '' ), [ 'activity.reported', 'activity.pending', 'activity.liked', 'activity.bookmarked', 'activity.tagged', 'activity.mentioned', 'activity.flair' ], true )
+			 && $this->myId
+		) {
+			// These views don't technically require a stream, but we'll use one anyway for it's various parameters and it's missing so default to Recent Activity
+			$this->stream	=	ActivityHelper::getStream( 1 );
+		}
+	}
+
+	/**
+	 * @param string $view
+	 * @return bool
+	 */
+	public function authorized( string $view = '' ): bool
+	{
+		return (bool) $this->stream;
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedEdit(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->rowStream->canEditActivity( $this->row ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function edit(): void
+	{
+		global $_CB_database, $_CB_framework;
+
+		if ( ! $this->row ) {
+			$stream							=	$this->stream;
+
+			if ( preg_match( '/^activity_stream\.(\d+)$/', $this->stream->getInitialAsset(), $matches ) ) {
+				$inheritStream				=	ActivityHelper::getStream( (int) ( $matches[1] ?? 0 ) );
+
+				if ( $inheritStream ) {
+					$stream					=	$inheritStream;
+				}
+			}
+
+			$this->row						=	new ActivityTable();
+
+			$this->row->setStreamId( $stream->getId() );
+			$this->row->setAsset( (string) $stream->getAsset() );
+			$this->row->setUserId( $this->myId );
+
+			$this->rowStream				=	$stream;
+		}
+
+		$canModerate						=	Application::MyUser()->isGlobalModerator();
+		$form								=	[	'id'				=>	\hash( 'adler32', \uniqid( $this->stream->getId() . '.' . $this->row->getId() . '.', true ) ),
+													'url'				=>	$_CB_framework->pluginClassUrl( 'cbactivity', true, [ 'action' => 'activity.save', 'id' => $this->row->getId(), 'stream' => $this->rowStream->getId(), 'asset' => $this->rowStream->getAsset()->getEncoded(), 'Itemid' => ActivityHelper::getStreamMenuId( $this->rowStream->getId() ) ], 'raw', 0, true ),
+													'menu'				=>	[],
+													'inputs'			=>	[],
+													'buttons'			=>	[],
+													'actions'			=>	[],
+													'features'			=>	[],
+													'message_required'	=>	$this->rowStream->getParams()->getRequireMessage(),
+													'message_limit'		=>	( $canModerate ? 0 : $this->rowStream->getParams()->getMessageLimit() ),
+													'new'				=>	( ! $this->row->getId() ),
+													'collapsed'			=>	( ( ! $this->row->getId() ) && ( $this->rowStream->getParams()->getCollapsed() ) ),
+													'captcha'			=>	'',
+													'captcha_invisible'	=>	false,
+													'reactions'			=>	'',
+													'stickers'			=>	'',
+													'emotes'			=>	'',
+													'themes'			=>	'',
+													'themes_classes'	=>	'',
+													'themes_styles'		=>	'',
+													'links_preview'		=>	'',
+													'no_comments'		=>	$this->rowStream->getParams()->canAccessCommentsToggle( $this->row->getUserId() ),
+													'system'			=>	$this->rowStream->getParams()->canAccessCreateSystem( $this->row->getUserId() ),
+												];
+
+		if ( $this->rowStream->getParams()->canAccessCaptcha( $this->myId, ( ! $this->row->getId() ) ) ) {
+			$captcha						=	CaptchaHelper::getCaptcha( $this->row, $this->rowStream );
+
+			if ( $captcha ) {
+				$form['captcha']			=	$captcha->getCaptcha();
+				$form['captcha_invisible']	=	\in_array( $captcha->getMode(), [ 'honeypot', 'recaptcha_score', 'recaptcha_invisible', 'honeypot', 'timer' ], true );
+				$form['features'][]			=	'captcha';
+			}
+		}
+
+		if ( $this->rowStream->getParams()->canAccessMentions( $this->row->getUserId() ) ) {
+			$form['features'][]				=	'mentions';
+			$form['inputs'][]				=	MentionsHelper::renderButton( [ 'stream_type' => 'activity', 'stream' => $this->rowStream->getId(), 'asset' => $this->rowStream->getAsset()->getEncoded() ] );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessHashtags( $this->row->getUserId() ) ) {
+			$form['features'][]				=	'hashtags';
+			$form['inputs'][]				=	HashtagsHelper::renderButton( [ 'stream_type' => 'activity', 'stream' => $this->rowStream->getId(), 'asset' => $this->rowStream->getAsset()->getEncoded() ] );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessReactions( $this->row->getUserId() ) ) {
+			$form['features'][]				=	'reactions';
+			$form['reactions']				=	ReactionsHelper::renderButton( [ 'stream_type' => 'activity', 'stream' => $this->rowStream->getId(), 'asset' => $this->rowStream->getAsset()->getEncoded() ] );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessStickers( $this->row->getUserId() ) && StickersHelper::getByProfile( $this->row->getUserId() ) ) {
+			$form['features'][]				=	'stickers';
+			$form['stickers']				=	StickersHelper::renderButton( $this->row->getUserId(), [ 'stream_type' => 'activity', 'stream' => $this->rowStream->getId(), 'asset' => $this->rowStream->getAsset()->getEncoded() ] );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessEmotes( $this->row->getUserId() ) ) {
+			$form['features'][]				=	'emotes';
+			$form['emotes']					=	EmojiHelper::renderButton( [ 'stream_type' => 'activity', 'stream' => $this->rowStream->getId(), 'asset' => $this->rowStream->getAsset()->getEncoded() ] );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessLinks( $this->row->getUserId() ) ) {
+			$form['features'][]				=	'links';
+
+			if ( $this->rowStream->getParams()->canAccessLinksPreviews( $this->row->getUserId() ) ) {
+				$form['features'][]			=	'links_previews';
+
+				if ( $this->row->getId() && $this->row->getLink() ) {
+					$form['links_preview']	=	LinksHelper::renderPreview( $this->row->getParams()->getLinkURL(), $this->row->getLink(), $this->row->getParams()->getLinkThumbnail(), $this->row->getParams()->getLinkDetails() );
+				}
+			}
+		}
+
+		$template							=	$this->template;
+		$stream								=	$this->stream;
+		$row								=	$this->row;
+		$rowStream							=	$this->rowStream;
+		$actions							=	( $this->rowStream->getParams()->canAccessActions( $this->row->getUserId() ) ? ActionsHelper::getActionsByProfile( $this->row->getUserId() ) : [] );
+
+		if ( $actions ) {
+			$action							=	$this->row->getAction();
+			$actionRequired					=	$this->rowStream->getParams()->getRequireAction();
+
+			if ( $actionRequired && ( ! $action ) ) {
+				$action						=	new ActionEntity( $this->row, ArrayHelper::arrayFirst( $actions ), '' );
+			}
+
+			if ( ( ! $actionRequired ) || ( \count( $actions ) > 1 ) ) {
+				ob_start();
+				require HtmlHelper::getTemplate( 'actions/button', $this->template );
+				$form['menu'][]				=	ob_get_clean();
+			}
+
+			ob_start();
+			require HtmlHelper::getTemplate( 'actions/form', $this->template );
+			$form['inputs'][]				=	ob_get_clean();
+		}
+
+		$locations							=	( $this->rowStream->getParams()->canAccessLocations( $this->row->getUserId() ) ? LocationsHelper::getActionsByProfile( $this->row->getUserId() ) : [] );
+
+		if ( $locations ) {
+			$location						=	$this->row->getLocation();
+			$locationRequired				=	$this->rowStream->getParams()->getRequireLocation();
+
+			if ( $locationRequired && ( ! $location ) ) {
+				$location					=	new LocationEntity( $this->row, ArrayHelper::arrayFirst( $locations ), '', '', '', '', 0, 0 );
+			}
+
+			if ( ( ! $locationRequired ) || ( \count( $locations ) > 1 ) ) {
+				ob_start();
+				require HtmlHelper::getTemplate( 'locations/button', $this->template );
+				$form['menu'][]				=	ob_get_clean();
+			}
+
+			$locationSource					=	GlobalParams::getLocationsSource();
+			$locationDefault				=	GlobalParams::getLocationsDefault();
+			$locationKey					=	( $locationSource === 'google' ? GlobalParams::getLocationsGoogle() : '' );
+			$locationSearch					=	GlobalParams::getLocationsSearch();
+
+			ob_start();
+			require HtmlHelper::getTemplate( 'locations/form', $this->template );
+			$form['inputs'][]				=	ob_get_clean();
+		}
+
+		$themes								=	( $this->rowStream->getParams()->canAccessThemes( $this->row->getUserId() ) ? ThemesHelper::getByProfile( $this->row->getUserId() ) : [] );
+
+		if ( $themes ) {
+			$themeRequired					=	$this->rowStream->getParams()->getRequireTheme();
+			$selectedTheme					=	$this->row->getTheme();
+
+			if ( $selectedTheme ) {
+				$form['themes_classes']		=	' ' . trim( 'streamMessageTheme ' . htmlspecialchars( $selectedTheme->getBackgroundClass() ) );
+				$form['themes_styles']		=	$selectedTheme->getBackgroundStyle();
+			}
+
+			$themeId						=	$this->row->getParams()->getTheme();
+
+			ob_start();
+			require HtmlHelper::getTemplate( 'themes/button', $this->template );
+			$form['themes']					=	ob_get_clean();
+		}
+
+		if ( $this->rowStream->getParams()->canAccessGallery( $this->row->getUserId() ) ) {
+			$gallery						=	GalleryHelper::getMediaGallery( $this->row, $this->rowStream );
+
+			if ( $gallery ) {
+				$galleryHasMedia			=	( $row->getParams()->getGalleryMedia() || ( ( ! $this->row->getId() ) && $gallery->hasHold() ) );
+				$galleryRequired			=	$this->rowStream->getParams()->getRequireGallery();
+
+				if ( ! $galleryRequired ) {
+					ob_start();
+					require HtmlHelper::getTemplate( 'gallery/button', $this->template );
+					$form['menu'][]			=	ob_get_clean();
+				}
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'gallery/form', $this->template );
+				$form['inputs'][]			=	ob_get_clean();
+			}
+		}
+
+		if ( $this->rowStream->getParams()->canAccessPrivacy( $this->row->getUserId() ) ) {
+			$privacy						=	PrivacyHelper::getPrivacy( $this->row, $this->rowStream );
+
+			if ( $privacy ) {
+				$form['buttons'][]			=	$privacy->privacy( 'edit' );
+			}
+		}
+
+		$flair								=	( $this->rowStream->getParams()->canAccessFlair( $this->row->getUserId() ) ? FlairHelper::getByProfile( $this->row->getUserId() ) : [] );
+
+		if ( $flair ) {
+			$flairRequired					=	$this->rowStream->getParams()->getRequireFlair();
+			$selectedFlair					=	$this->row->getFlair();
+
+			foreach ( $flair as $k => $f ) {
+				if ( ! $f->getHidden() ) {
+					continue;
+				}
+
+				if ( \array_key_exists( $k, $selectedFlair ) ) {
+					continue;
+				}
+
+				unset( $flair[$k] );
+			}
+
+			ob_start();
+			require HtmlHelper::getTemplate( 'flair/button', $this->template );
+			$form['buttons'][]				=	ob_get_clean();
+		}
+
+		if ( $this->rowStream->getParams()->canAccessPolls( $this->row->getUserId() ) ) {
+			$poll							=	$this->row->getParams()->getPoll();
+			$pollLocked						=	( $poll && PollsHelper::getVotesByActivity( $this->row->getId() ) );
+			$pollDays						=	$this->row->getParams()->getPollDays();
+			$pollHours						=	$this->row->getParams()->getPollHours();
+			$pollMinutes					=	$this->row->getParams()->getPollMinutes();
+			$pollRequired					=	$this->rowStream->getParams()->getRequirePoll();
+
+			if ( $pollRequired && ( ! $poll ) ) {
+				$poll						=	[ '', '', '' ];
+			}
+
+			if ( ( ! $pollDays ) && ( ! $pollHours ) && ( ! $pollMinutes ) ) {
+				$pollDays					=	1;
+			}
+
+			if ( ! $pollRequired ) {
+				ob_start();
+				require HtmlHelper::getTemplate( 'polls/button', $this->template );
+				$form['menu'][]				=	ob_get_clean();
+			}
+
+			$pollLimit						=	( $canModerate ? 0 : $this->rowStream->getParams()->getPollsLimit() );
+
+			ob_start();
+			require HtmlHelper::getTemplate( 'polls/form', $this->template );
+			$form['inputs'][]				=	ob_get_clean();
+		}
+
+		if ( $this->rowStream->getParams()->canAccessTags( $this->row->getUserId() ) ) {
+			$tags							=	[];
+			$tagsSuggestions				=	false;
+			$tagsRequired					=	$this->rowStream->getParams()->getRequireTag();
+
+			if ( $this->row->getId() ) {
+				$query						=	"SELECT *"
+											.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_tags' )
+											.	"\n WHERE " . $_CB_database->NameQuote( 'activity_id' ) . " = " . $this->row->getId()
+											.	"\n ORDER BY " . $_CB_database->NameQuote( 'id' ) . " ASC";
+				$_CB_database->setQuery( $query );
+				$tags						=	$_CB_database->loadObjectList( 'id', TagTable::class, [ $_CB_database ] );
+
+				PrefetchHelper::prefetchRows( $tags );
+			}
+
+			if ( ! $tagsRequired ) {
+				ob_start();
+				require HtmlHelper::getTemplate( 'tags/button', $this->template );
+				$form['menu'][]				=	ob_get_clean();
+			}
+
+			ob_start();
+			require HtmlHelper::getTemplate( 'tags/form', $this->template );
+			$form['inputs'][]				=	ob_get_clean();
+		}
+
+		if ( $this->row->getId() ) {
+			$form['integrations']			=	HtmlHelper::getIntegrations( 'onDisplayActivityStreamEdit', [ $this->rowStream, &$this->row, &$form ] );
+		} else {
+			$form['integrations']			=	HtmlHelper::getIntegrations( 'onDisplayActivityStreamNew', [ $this->rowStream, &$this->row, &$form ] );
+		}
+
+		if ( $this->row->getId() ) {
+			ob_start();
+			require HtmlHelper::getTemplate( 'activity/edit', $this->template );
+
+			echo $this->headers();
+			$html				=	ob_get_clean();
+
+			$this->ajax( $html );
+		} else {
+			require HtmlHelper::getTemplate( 'activity/new', $this->template );
+		}
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedCaptcha(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->rowStream->getParams()->canAccessCaptcha( $this->myId, ( ! $this->row ) ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function captcha(): void
+	{
+		$captcha	=	CaptchaHelper::getCaptcha( $this->row, $this->rowStream );
+
+		if ( ! $captcha ) {
+			return;
+		}
+
+		ob_start();
+		echo $captcha->getCaptcha();
+		echo $this->headers();
+		$html		=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace_into', 'self' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedSave(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && ( ! $this->row ? $this->stream : $this->rowStream )->canCreateOrEditActivity( $this->row ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function save(): void
+	{
+		global $_CB_database, $_CB_framework, $_PLUGINS;
+
+		$isNew								=	false;
+		$isNowPending						=	false;
+
+		if ( ! $this->row ) {
+			$stream							=	$this->stream;
+
+			if ( preg_match( '/^activity_stream\.(\d+)$/', $this->stream->getInitialAsset(), $matches ) ) {
+				$inheritStream				=	ActivityHelper::getStream( (int) ( $matches[1] ?? 0 ) );
+
+				if ( $inheritStream ) {
+					$stream					=	$inheritStream;
+				}
+			}
+
+			$this->row						=	new ActivityTable();
+
+			$this->row->setStreamId( $stream->getId() );
+			$this->row->setAccess( ( $stream->getAsset()->getAccess() ?: $stream->getAccess() ) );
+			$this->row->setAsset( (string) $stream->getAsset() );
+			$this->row->setUserId( $this->myId );
+
+			$this->rowStream				=	$stream;
+
+			if ( $this->rowStream->getParams()->getCreateApproval() && ( ! $this->rowStream->canModerate( $this->row ) ) ) {
+				$this->row->setPublished( 2 );
+			} else {
+				$this->row->setPublished( 1 );
+			}
+
+			$isNew							=	true;
+		} elseif ( $this->rowStream->getParams()->getEditApproval() && ( ! $this->row->isPending() ) && ( ! $this->rowStream->canModerate( $this->row ) ) ) {
+			$this->row->setPublished( 2 );
+
+			$isNowPending					=	true;
+		}
+
+		if ( $this->rowStream->getParams()->canAccessCaptcha( $this->myId, ( ! $this->row->getId() ) ) ) {
+			$captcha						=	CaptchaHelper::getCaptcha( $this->row, $this->rowStream );
+
+			if ( ( ! $captcha ) || ( ! $captcha->load() ) || ( ! $captcha->validateValue() ) ) {
+				$this->ajax( ( $captcha->getError() ?: CBTxt::T( 'Invalid Captcha Code' ) ), 'error' );
+			}
+		}
+
+		$canModerate						=	Application::MyUser()->isGlobalModerator();
+
+		if ( $this->rowStream->getParams()->canAccessCreateSystem( $this->row->getUserId() ) && $this->input->getBool( 'system', false ) ) {
+			$systemUser						=	GlobalParams::getSystemUser();
+
+			if ( $systemUser ) {
+				$this->row->setUserId( $systemUser );
+			}
+
+			$this->row->setSystem( 1 );
+		} else {
+			$this->row->setSystem( 0 );
+		}
+
+		$messageLimit						=	( $canModerate ? 0 : $this->rowStream->getParams()->getMessageLimit() );
+
+		if ( $this->row->getSystem() ) {
+			$message						=	trim( $this->input->getHtml( 'message', $this->row->getMessage() ) );
+		} else {
+			$message						=	trim( $this->input->getString( 'message', $this->row->getMessage() ) );
+		}
+
+		// Remove duplicate spaces:
+		$message							=	preg_replace( '/ {2,}/', ' ', $message );
+		// Remove duplicate tabs:
+		$message							=	preg_replace( '/\t{2,}/i', "\t", $message );
+		// Remove duplicate linebreaks:
+		$message							=	preg_replace( '/((?:\r\n|\r|\n){2})(?:\r\n|\r|\n)*/i', '$1', $message );
+		// Replace non-breaking spaces:
+		$message							=	str_replace( html_entity_decode( '&nbsp;', ENT_COMPAT, 'UTF-8' ), ' ', $message );
+
+		if ( $messageLimit && ( $this->rowStream->getParser( $message )->asLength() > $messageLimit ) ) {
+			$this->ajax( CBTxt::T( 'Post is too long.' ), 'warning' );
+		}
+
+		$this->row->setMessage( $message );
+
+		if ( $this->rowStream->getParams()->canAccessCommentsToggle( $this->row->getUserId() ) ) {
+			$this->row->getParams()->setComments( ( ! $this->input->getInt( 'no_comments', false ) ) );
+		} else {
+			$this->row->getParams()->setComments( true );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessThemes( $this->row->getUserId() ) ) {
+			$themeId						=	$this->input->getInt( 'theme', 0 );
+
+			if ( ! \array_key_exists( $themeId, ThemesHelper::getByProfile( $this->row->getUserId() ) ) ) {
+				$themeId					=	0;
+			}
+
+			$this->row->getParams()->setTheme( $themeId );
+
+			if ( $this->rowStream->getParams()->getRequireTheme() && ( ! $themeId ) ) {
+				$this->ajax( CBTxt::T( 'Please select a theme for your post.' ), 'warning' );
+			}
+		} else {
+			$this->row->getParams()->setTheme( 0 );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessActions( $this->row->getUserId() ) ) {
+			$actions						=	ActionsHelper::getActionsByProfile( $this->row->getUserId() );
+			$actionId						=	$this->input->getInt( 'actions.id', 0 );
+
+			if ( ! \array_key_exists( $actionId, $actions ) ) {
+				$actionId					=	0;
+			}
+
+			$actionMessage					=	( $actionId ? trim( cbutf8_substr( $this->input->getString( 'actions.message', '' ), 0, 200 ) ) : '' );
+			// Remove linebreaks:
+			$actionMessage					=	str_replace( [ "\n", "\r\n" ], ' ', $actionMessage );
+			// Remove duplicate spaces:
+			$actionMessage					=	preg_replace( '/ {2,}/', ' ', $actionMessage );
+			// Remove duplicate tabs:
+			$actionMessage					=	preg_replace( '/\t{2,}/i', "\t", $actionMessage );
+
+			$actionId						=	( $actionMessage ? $actionId : 0 );
+
+			if ( $actionId ) {
+				$this->row->setRequiresMessage( false );
+			}
+
+			$this->row->getParams()->setActionId( $actionId );
+			$this->row->getParams()->setActionMessage( ( $actionId ? $actionMessage : '' ) );
+
+			if ( $this->rowStream->getParams()->getRequireAction() && ( ! $actionId ) ) {
+				$this->ajax( CBTxt::T( 'Please provide what you are doing or how you are feeling.' ), 'warning' );
+			}
+		} else {
+			$this->row->getParams()->setActionId( 0 );
+			$this->row->getParams()->setActionMessage( '' );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessLocations( $this->row->getUserId() ) ) {
+			$locationId						=	$this->input->getInt( 'locations.id', 0 );
+
+			if ( ! \array_key_exists( $locationId, LocationsHelper::getActionsByProfile( $this->row->getUserId() ) ) ) {
+				$locationId					=	0;
+			}
+
+			$locationReference				=	( $locationId ? $this->input->getString( 'locations.ref', '' ) : '' );
+			$locationPlace					=	( $locationId ? trim( cbutf8_substr( $this->input->getString( 'locations.place', '' ), 0, 200 ) ) : '' );
+			$locationAddress				=	( $locationId ? trim( cbutf8_substr( $this->input->getString( 'locations.address', '' ), 0, 200 ) ) : '' );
+			$locationLatitude				=	( $locationId ? $this->input->getFloat( 'locations.lat', 0 ) : 0 );
+			$locationLongitude				=	( $locationId ? $this->input->getFloat( 'locations.lng', 0 ) : 0 );
+
+			$locationId						=	( $locationAddress || ( $locationLatitude && $locationLongitude ) ? $locationId : 0 );
+
+			if ( $locationId ) {
+				$this->row->setRequiresMessage( false );
+			}
+
+			if ( ( $locationAddress !== $this->row->getParams()->getLocationAddress() )
+				 || ( $locationLatitude !== $this->row->getParams()->getLocationLatitude() )
+				 || ( $locationLongitude !== $this->row->getParams()->getLocationLongitude() )
+				 || ( ! $this->row->getParams()->getLocationSource() )
+			) {
+				$this->row->getParams()->setLocationSource( ( $locationId ? GlobalParams::getLocationsSource() : '' ) );
+			}
+
+			if ( $locationId && $locationAddress && ( ! $locationLatitude ) && ( ! $locationLongitude ) && preg_match( '/^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/', $locationAddress, $locationMatch ) ) {
+				// We have an address, but no latitude and longitude so lets see if address IS a latitude and longitude
+				$locationLatitude			=	(float) $locationMatch[1];
+				$locationLongitude			=	(float) $locationMatch[2];
+			}
+
+			$this->row->getParams()->setLocationId( $locationId );
+			$this->row->getParams()->setLocationReference( ( $locationId ? $locationReference : '' ) );
+			$this->row->getParams()->setLocationPlace( ( $locationId ? $locationPlace : '' ) );
+			$this->row->getParams()->setLocationAddress( ( $locationId ? $locationAddress : '' ) );
+			$this->row->getParams()->setLocationLatitude( ( $locationId ? $locationLatitude : 0 ) );
+			$this->row->getParams()->setLocationLongitude( ( $locationId ? $locationLongitude : 0 ) );
+
+			if ( $this->rowStream->getParams()->getRequireLocation() && ( ! $locationId ) ) {
+				$this->ajax( CBTxt::T( 'Please provide a location for your post.' ), 'warning' );
+			}
+		} else {
+			$this->row->getParams()->setLocationSource( '' );
+			$this->row->getParams()->setLocationId( 0 );
+			$this->row->getParams()->setLocationReference( '' );
+			$this->row->getParams()->setLocationPlace( '' );
+			$this->row->getParams()->setLocationAddress( '' );
+			$this->row->getParams()->setLocationLatitude( 0 );
+			$this->row->getParams()->setLocationLongitude( 0 );
+		}
+
+		if ( GlobalParams::getInlineLinksReplace() ) {
+			$message						=	Parser::replaceInlineLinks( $message, 'shortcode' );
+
+			$this->row->setMessage( $message );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessLinks( $this->row->getUserId() ) ) {
+			if ( $this->rowStream->getParams()->canAccessLinksPreviews( $this->row->getUserId() ) ) {
+				$linkUrl					=	$this->input->getString( 'link.url', '' );
+
+				$this->row->getParams()->setLinkURL( $linkUrl );
+				$this->row->getParams()->setLinkMedia( ( LinksHelper::getMedia( $linkUrl ) ?: [] ) );
+
+				if ( ( ( $this->row->getParams()->getLinkMedia()['type'] ?? '' ) === 'url' ) && ( $this->row->getParams()->getLinkMedia()['thumbnail'] ?? '' ) ) {
+					$this->row->getParams()->setLinkThumbnail( $this->input->getBool( 'link.thumbnail', false ) );
+					$this->row->getParams()->setLinkDetails( $this->input->getBool( 'link.details', false ) );
+				} else {
+					$this->row->getParams()->setLinkThumbnail( true );
+					$this->row->getParams()->setLinkDetails( true );
+				}
+
+				if ( $this->rowStream->getParams()->getRequireLink() && ( ! $linkUrl ) ) {
+					$this->ajax( CBTxt::T( 'Please provide a link in your post.' ), 'warning' );
+				}
+			} else {
+				$this->row->getParams()->setLinkURL( '' );
+				$this->row->getParams()->setLinkMedia( [] );
+				$this->row->getParams()->setLinkThumbnail( false );
+				$this->row->getParams()->setLinkDetails( false );
+			}
+		} else {
+			$message						=	preg_replace( ( Parser::getRegexp()['link'] ?? '' ), '', $message );
+
+			$this->row->setMessage( $message );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessFlair( $this->row->getUserId() ) ) {
+			$flair							=	$this->input->getRaw( 'flair', [] );
+
+			if ( ! \is_array( $flair ) ) {
+				$flair						=	explode( '|*|', $flair );
+			}
+
+			$currentFlair					=	$this->row->getParams()->getFlair();
+			$availableFlair					=	FlairHelper::getByProfile( $this->row->getUserId() );
+			$selectedExclusive				=	[];
+			$selectedFlair					=	[];
+
+			foreach ( $flair as $v ) {
+				if ( ! \array_key_exists( $v, $availableFlair ) ) {
+					continue;
+				}
+
+				if ( $availableFlair[$v]->getHidden() && ( ! \in_array( $v, $currentFlair, true ) ) ) {
+					continue;
+				}
+
+				if ( $availableFlair[$v]->getCategory()->getExclusive() ) {
+					if ( \in_array( $availableFlair[$v]->getCategoryId(), $selectedExclusive, true ) ) {
+						continue;
+					}
+
+					$selectedExclusive[]	=	$availableFlair[$v]->getCategoryId();
+				}
+
+				$selectedFlair[]			=	(int) $v;
+			}
+
+			$this->row->getParams()->setFlair( $selectedFlair );
+
+			if ( $this->rowStream->getParams()->getRequireFlair() && ( ! $selectedFlair ) ) {
+				$this->ajax( CBTxt::T( 'Please select flair for your post.' ), 'warning' );
+			}
+		} else {
+			$this->row->getParams()->setFlair( [] );
+		}
+
+		$hadPoll							=	false;
+
+		if ( $this->rowStream->getParams()->canAccessPolls( $this->row->getUserId() ) ) {
+			$poll							=	$this->input->getRaw( 'poll', [] );
+
+			if ( ! \is_array( $poll ) ) {
+				$poll						=	explode( '|*|', $poll );
+			}
+
+			if ( ( ! $this->row->getParams()->getPoll() ) || ( ! PollsHelper::getVotesByActivity( $this->row->getId() ) ) ) {
+				if ( $poll ) {
+					foreach ( $poll as $i => $v ) {
+						$poll[$i]			=	trim( cbutf8_substr( Get::clean( $v, GetterInterface::STRING ), 0, 200 ) );
+					}
+
+					$poll					=	\array_slice( \array_filter( $poll ), 0, $this->rowStream->getParams()->getPollsLimit() );
+
+					if ( \count( $poll ) < 2 ) {
+						$this->ajax( CBTxt::T( 'Please provide at least 2 poll options.' ), 'warning' );
+					}
+				} elseif ( $this->row->getParams()->getPoll() ) {
+					$hadPoll				=	true;
+				}
+
+				$pollDays					=	( $poll ? max( 0, min( 6, $this->input->getInt( 'poll_days', 1 ) ) ) : 1 );
+				$pollHours					=	( $poll ? max( 0, min( 23, $this->input->getInt( 'poll_hours', 0 ) ) ) : 0 );
+				$pollMinutes				=	( $poll ? max( 0, min( 59, $this->input->getInt( 'poll_minutes', 0 ) ) ) : 0 );
+
+				if ( ( ! $pollDays ) && ( ! $pollHours ) && ( ! $pollMinutes ) ) {
+					$pollDays				=	1;
+				}
+
+				$this->row->getParams()->setPoll( $poll );
+				$this->row->getParams()->setPollDays( $pollDays );
+				$this->row->getParams()->setPollHours( $pollHours );
+				$this->row->getParams()->setPollMinutes( $pollMinutes );
+			} elseif ( ! $this->input->getBool( 'poll_locked', true ) ) {
+				if ( $this->row->getParams()->getPoll() ) {
+					$hadPoll				=	true;
+				}
+
+				$this->row->getParams()->setPoll( [] );
+				$this->row->getParams()->setPollDays( 1 );
+				$this->row->getParams()->setPollHours( 0 );
+				$this->row->getParams()->setPollMinutes( 0 );
+			}
+
+			if ( $this->rowStream->getParams()->getRequirePoll() && ( ! $this->row->getParams()->getPoll() ) ) {
+				$this->ajax( CBTxt::T( 'Please include a poll in your post.' ), 'warning' );
+			}
+		} else {
+			if ( $this->row->getParams()->getPoll() ) {
+				$hadPoll					=	true;
+			}
+
+			$this->row->getParams()->setPoll( [] );
+			$this->row->getParams()->setPollDays( 1 );
+			$this->row->getParams()->setPollHours( 0 );
+			$this->row->getParams()->setPollMinutes( 0 );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessGallery( $this->row->getUserId() ) ) {
+			$gallery						=	GalleryHelper::getMediaGallery( $this->row, $this->rowStream );
+
+			if ( $gallery ) {
+				$galleryShared				=	$this->input->getRaw( 'cbgallery.shared', $this->row->getParams()->getGalleryMedia() );
+				$galleryMedia				=	[];
+
+				if ( $galleryShared ) {
+					cbArrayToInts( $galleryShared );
+
+					foreach ( GalleryHelper::getItems( $galleryShared ) as $sharedMedia ) {
+						if ( ! $gallery->canDeleteMedia( $sharedMedia ) ) {
+							continue;
+						}
+
+						$galleryMedia[]		=	$sharedMedia->getId();
+					}
+				}
+
+				if ( $galleryMedia ) {
+					$this->row->setRequiresMessage( false );
+				}
+
+				$this->row->getParams()->setGalleryMedia( $galleryMedia );
+
+				if ( $this->rowStream->getParams()->getRequireGallery() && ( ! $galleryMedia ) ) {
+					$this->ajax( CBTxt::T( 'Please include media in your post.' ), 'warning' );
+				}
+			}
+		} else {
+			$this->row->getParams()->setGalleryMedia( [] );
+		}
+
+		$old								=	new ActivityTable();
+		$source								=	$this->row->getSource();
+
+		if ( $this->rowStream->getParams()->canAccessStickers( $this->row->getUserId() ) ) {
+			$stickers						=	$this->rowStream->getParser( $message )->getStickers();
+
+			foreach ( $stickers as $sticker ) {
+				if ( \array_key_exists( $sticker, StickersHelper::getByProfile( $this->row->getUserId() ) ) ) {
+					continue;
+				}
+
+				$message					=	str_replace( '(sticker:' . $sticker . ')', '', $message );
+
+				$this->row->setMessage( $message );
+			}
+
+			if ( $this->rowStream->getParams()->getRequireSticker() && ( ! $stickers ) ) {
+				$this->ajax( CBTxt::T( 'Please provide a sticker in your post.' ), 'warning' );
+			}
+		} else {
+			$message						=	preg_replace( ( Parser::getRegexp()['sticker'] ?? '' ), '', $message );
+
+			$this->row->setMessage( $message );
+		}
+
+		if ( GlobalParams::getInlineMentionsReplace() ) {
+			$message						=	Parser::replaceInlineMentions( $message, 'shortcode' );
+
+			$this->row->setMessage( $message );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessMentions( $this->row->getUserId() ) ) {
+			$mentions						=	$this->rowStream->getParser( $message )->getMentions();
+
+			foreach ( $mentions as $mention ) {
+				switch ( GlobalParams::getMentionsWho() ) {
+					case 5: // Likes Only
+						if ( LikesHelper::isUserLiked( $mention, $this->row->getUserId() ) ) {
+							continue 2;
+						}
+						break;
+					case 4: // Follows Only
+						if ( FollowingHelper::isUserFollowed( $mention, $this->row->getUserId() ) ) {
+							continue 2;
+						}
+						break;
+					case 3: // Moderators Only
+						if ( \in_array( $mention, UsersHelper::getModerators(), true ) ) {
+							continue 2;
+						}
+						break;
+					case 2: // Connections Only
+						if ( \in_array( $mention, UsersHelper::getConnections( $this->row->getUserId() ), true ) ) {
+							continue 2;
+						}
+						break;
+					case 1: // All Users
+					default:
+						if ( CBuser::getUserDataInstance( $mention )->getInt( 'id', 0 ) ) {
+							continue 2;
+						}
+						break;
+				}
+
+				$message					=	str_replace( '(mention:' . $mention . ')', '', $message );
+
+				$this->row->setMessage( $message );
+			}
+
+			if ( $this->rowStream->getParams()->getRequireMention() && ( ! $mentions ) ) {
+				$this->ajax( CBTxt::T( 'Please provide a @mention in your post.' ), 'warning' );
+			}
+		} else {
+			$message						=	preg_replace( ( Parser::getRegexp()['mention'] ?? '' ), '', $message );
+
+			$this->row->setMessage( $message );
+		}
+
+		if ( GlobalParams::getInlineHashtagsReplace() ) {
+			$message						=	Parser::replaceInlineHashtags( $message, 'shortcode' );
+
+			$this->row->setMessage( $message );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessHashtags( $this->row->getUserId() ) ) {
+			if ( $this->rowStream->getParams()->getRequireHashtag() && ( ! $this->rowStream->getParser( $message )->getHashtags() ) ) {
+				$this->ajax( CBTxt::T( 'Please provide a #hashtag in your post.' ), 'warning' );
+			}
+		} else {
+			$message						=	preg_replace( ( Parser::getRegexp()['hashtag'] ?? '' ), '', $message );
+
+			$this->row->setMessage( $message );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessTags( $this->row->getUserId() )
+			 && $this->rowStream->getParams()->getRequireTag()
+			 && ( ! $this->input->getRaw( 'tags', [] ) )
+		) {
+			$this->ajax( CBTxt::T( 'Please tag someone in your post.' ), 'warning' );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessReactions( $this->row->getUserId() )
+			 && $this->rowStream->getParams()->getRequireAction()
+			 && ( ! $this->rowStream->getParser( $message )->getReactions() )
+		) {
+			$this->ajax( CBTxt::T( 'Please provide a reaction GIF in your post.' ), 'warning' );
+		}
+
+		if ( $this->row->getRequiresMessage() && (
+			 $this->row->getAsset()->isObjectOf( 'activity' )
+			 || $this->row->getAsset()->isObjectOf( 'comment' )
+			 || $this->row->getAsset()->isObjectOf( 'blog' )
+			 || $this->row->getAsset()->isObjectOf( 'article' )
+			 || $this->row->getAsset()->isObjectOf( 'page' )
+			 || $this->row->getAsset()->isObjectOf( 'kunena' )
+			 || $this->row->getAsset()->isObjectOriginOf( 'gallery' )
+			 || $this->row->getAsset()->isObjectFirstOf( [ 'event', 'file', 'video', 'photo', 'wall' ], 'groupjive' )
+		) ) {
+			// bypass requiring a message if we're a known type that already includes attached content
+			$this->row->setRequiresMessage( false );
+		}
+
+		if ( ! $isNew ) {
+			$old->load( $this->row->getId() );
+
+			if ( Application::Date( $this->row->getDate(), 'UTC' )->modify( '+5 MINUTES' )->getTimestamp() < Application::Date( 'now', 'UTC' )->getTimestamp() ) {
+				$this->row->setDateModified( Application::Database()->getUtcDateTime() );
+			}
+
+			$_PLUGINS->trigger( 'activity_onBeforeUpdateStreamActivity', [ $this->rowStream, $source, &$this->row, $old ] );
+		} else {
+			$_PLUGINS->trigger( 'activity_onBeforeCreateStreamActivity', [ $this->rowStream, $source, &$this->row ] );
+		}
+
+		if ( ( $message === '' ) && ( $this->row->getRequiresMessage() || $this->rowStream->getParams()->getRequireMessage() ) ) {
+			$this->ajax( CBTxt::T( 'Please provide a post.' ), 'warning' );
+		}
+
+		if ( $this->row->getError() || ( ! $this->row->check() ) || ( ! $this->row->store() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_EDIT_FAILED_TO_SAVE', 'Post failed to save! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessTags( $this->row->getUserId() ) ) {
+			$this->saveTags( $isNew );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessMentions( $this->row->getUserId() ) ) {
+			$this->saveMentions( $isNew );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessHashtags( $this->row->getUserId() ) ) {
+			$this->saveHashtags( $isNew );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessFlair( $this->row->getUserId() ) ) {
+			$this->saveFlairs( $isNew );
+		}
+
+		if ( $this->rowStream->getParams()->canAccessPrivacy( $this->row->getUserId() ) ) {
+			$this->savePrivacy( $isNew );
+		}
+
+		if ( $isNew && $this->rowStream->getParams()->canAccessGallery( $this->row->getUserId() ) ) {
+			$gallery						=	GalleryHelper::getMediaGallery( $this->row, $this->rowStream );
+
+			if ( $gallery ) {
+				$gallery->updateHold( 'activity.' . $this->row->getId(), $this->row->getParams()->getGalleryMedia() );
+			}
+		}
+
+		if ( $hadPoll ) {
+			$query							=	"DELETE"
+											.	" FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_votes' )
+											.	" WHERE " . $_CB_database->NameQuote( 'activity_id' ) . " = " . $this->row->getId();
+			$_CB_database->setQuery( $query );
+			$_CB_database->query();
+		}
+
+		if ( $isNew ) {
+			if ( NotificationLogParams::getActivityCreate( $this->row->getUserId() ) ) {
+				( new NotificationEntity( $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() ) )
+													->setUserId( $this->row->getUserId() )
+													->setSystem( $this->row->getSystem() )
+													->setRelationRecipients( NotificationLogParams::getActivityCreateRecipients(), NotificationLogParams::getActivityCreateRecipient() )
+													->store();
+			}
+
+			if ( $this->row->getSystem() && NotificationLogParams::getSystemActivityCreate( $this->row->getUserId() ) ) {
+				( new NotificationEntity( $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() ) )
+													->setUserId( $this->row->getUserId() )
+													->setSystem( $this->row->getSystem() )
+													->setRelationRecipients( NotificationLogParams::getSystemActivityCreateRecipients(), NotificationLogParams::getSystemActivityCreateRecipient() )
+													->store();
+			} elseif ( Application::MyUser()->isGlobalModerator() && NotificationLogParams::getModeratorActivityCreate( $this->row->getUserId() ) ) {
+				( new NotificationEntity( $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() ) )
+													->setUserId( $this->row->getUserId() )
+													->setSystem( $this->row->getSystem() )
+													->setRelationRecipients( NotificationLogParams::getModeratorActivityCreateRecipients(), NotificationLogParams::getModeratorActivityCreateRecipient() )
+													->store();
+			}
+
+			$profileId						=	$this->stream->getAsset()->getObjectIdOf( 'profile' );
+
+			if ( $profileId ) {
+				if ( NotificationLogParams::getProfileActivityCreate( $this->row->getUserId() ) ) {
+					( new NotificationEntity( 'activity.' . $this->row->getId() ) )
+													->setUserId( $this->row->getUserId() )
+													->setSystem( $this->row->getSystem() )
+													->setRelationRecipients( NotificationLogParams::getProfileActivityCreateRecipients(), NotificationLogParams::getProfileActivityCreateRecipient() )
+													->store();
+				}
+
+				if ( ( $profileId === $this->row->getUserId() ) && NotificationLogParams::getMyProfileActivityCreate( $this->row->getUserId() ) ) {
+					( new NotificationEntity( 'activity.' . $this->row->getId() ) )
+													->setUserId( $this->row->getUserId() )
+													->setSystem( $this->row->getSystem() )
+													->setRelationRecipients( NotificationLogParams::getMyProfileActivityCreateRecipients(), NotificationLogParams::getMyProfileActivityCreateRecipient() )
+													->store();
+				}
+
+				if ( ( $profileId !== $this->row->getUserId() ) && NotificationLogParams::getOwnProfileActivityCreate( $profileId ) ) {
+					( new NotificationEntity( 'activity.' . $this->row->getId() ) )
+														->setUserId( $this->row->getUserId() )
+														->setSystem( $this->row->getSystem() )
+														->setRecipients( [ $profileId ] )
+														->store();
+				}
+			}
+		}
+
+		if ( ! $isNew ) {
+			$_PLUGINS->trigger( 'activity_onAfterUpdateStreamActivity', [ $this->rowStream, $source, $this->row, $old ] );
+		} else {
+			$_PLUGINS->trigger( 'activity_onAfterCreateStreamActivity', [ $this->rowStream, $source, $this->row ] );
+		}
+
+		if ( $this->row->getError() ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_EDIT_PARTIAL_SAVE', 'Post partially saved! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		if ( ( $isNew || $isNowPending ) && $this->row->isPending() ) {
+			$notifyBy						=	$this->rowStream->getParams()->getCreateApprovalNotify();
+
+			if ( $notifyBy ) {
+				$cbUser						=	CBuser::getInstance( $this->row->getUserId(), false );
+
+				$extraStrings				=	[	'activity'			=>	'<a href="' . $_CB_framework->pluginClassUrl( 'cbactivity', true, [ 'action' => 'activity', 'id' => $this->row->getId(), 'Itemid' => ActivityHelper::getStreamMenuId( $this->row->getStreamId() ) ] ) . '">' . $this->row->getNotificationTitle() . '</a>',
+													'activity_id'		=>	$this->row->getId(),
+													'activity_title'	=>	$this->row->getTitle(),
+													'activity_message'	=>	$this->row->getMessage(),
+													'activity_url'		=>	$_CB_framework->pluginClassUrl( 'cbactivity', true, [ 'action' => 'activity', 'id' => $this->row->getId(), 'Itemid' => ActivityHelper::getStreamMenuId( $this->row->getStreamId() ) ] ),
+													'user'				=>	'<a href="' . $_CB_framework->viewUrl( 'userprofile', true, [ 'user' => $this->row->getUserId() ] ) . '">' . $this->row->getOwnerName( false, true, false ) . '</a>',
+													'user_name'			=>	$this->row->getOwnerName( false, true, false ),
+													'user_url'			=>	$_CB_framework->viewUrl( 'userprofile', true, [ 'user' => $this->row->getUserId() ] )
+												];
+
+				$subject					=	$cbUser->replaceUserVars( CBTxt::T( 'ACTIVITY_PENDING_NOTIFY_SUBJ', 'Post - Pending Approval!' ), false, true, $extraStrings, false );
+				$message					=	$cbUser->replaceUserVars( CBTxt::T( 'ACTIVITY_PENDING_NOTIFY_MSG', '[user] posted "[activity]" and requires approval.' ), false, true, $extraStrings, false );
+
+				NotificationsHelper::sendNotification( $notifyBy, $this->rowStream->getModerators( $this->row ), $this->row->getUserId(), $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() . '.pending', $subject, $message, $this->row->getSystem() );
+			}
+		}
+
+		$template							=	$this->template;
+		$stream								=	$this->stream;
+		$row								=	$this->row;
+		$rowStream							=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html								=	ob_get_clean();
+
+		$this->ajax( $html );
+	}
+
+	/**
+	 * @param bool $isNew
+	 * @return void
+	 */
+	private function saveTags( bool $isNew = true ): void
+	{
+		global $_CB_database, $_PLUGINS;
+
+		$tags						=	$this->input->getRaw( 'tags', [] );
+		$limit						=	$this->rowStream->getParams()->getTagsLimit();
+
+		if ( $limit ) {
+			$tags					=	\array_slice( $tags, 0, $limit );
+		}
+
+		if ( ! $isNew ) {
+			$query					=	"SELECT *"
+									.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_tags' )
+									.	"\n WHERE " . $_CB_database->NameQuote( 'activity_id' ) . " = " . $this->row->getId();
+			$_CB_database->setQuery( $query );
+			$rows					=	$_CB_database->loadObjectList( 'id', TagTable::class, [ $_CB_database ] );
+
+			foreach ( $rows as $tag ) {
+				/** @var TagTable $tag */
+				if ( ! \in_array( $tag->getTag(), $tags, true ) ) {
+					$_PLUGINS->trigger( 'activity_onBeforeDeleteActivityStreamTag', [ $this->rowStream, $this->row, &$tag ] );
+
+					if ( $tag->getError() || ( ! $tag->canDelete() ) || ( ! $tag->delete() ) ) {
+						continue;
+					}
+
+					$_PLUGINS->trigger( 'activity_onAfterDeleteActivityStreamTag', [ $this->rowStream, $this->row, $tag ] );
+				} else {
+					$key			=	array_search( $tag->getTag(), $tags, true );
+
+					if ( $key !== false ) {
+						unset( $tags[$key] );
+					}
+				}
+			}
+		}
+
+		foreach ( $tags as $tagUser ) {
+			if ( is_numeric( $tagUser ) ) {
+				$tagUser	=	(int) $tagUser;
+
+				switch ( $this->rowStream->getParams()->getTagsWho() ) {
+					case 6: // Specific Usergroups
+						if ( ! array_intersect( Application::User( $tagUser )->getAuthorisedGroups(), $this->rowStream->getParams()->getTagsWhoUsergroups() ) ) {
+							continue 2;
+						}
+						break;
+					case 5: // Likes Only
+						if ( ! LikesHelper::isUserLiked( $tagUser, $this->row->getUserId() ) ) {
+							continue 2;
+						}
+						break;
+					case 4: // Follows Only
+						if ( ! FollowingHelper::isUserFollowed( $tagUser, $this->row->getUserId() ) ) {
+							continue 2;
+						}
+						break;
+					case 3: // Moderators Only
+						if ( ! \in_array( $tagUser, UsersHelper::getModerators(), true ) ) {
+							continue 2;
+						}
+						break;
+					case 2: // Connections Only
+						if ( ! \in_array( $tagUser, UsersHelper::getConnections( $this->row->getUserId() ), true ) ) {
+							continue 2;
+						}
+						break;
+				}
+			} else {
+				$tagUser	=	Get::clean( $tagUser, GetterInterface::STRING );
+			}
+
+			$tag			=	new TagTable();
+
+			$tag->setUserId( $this->row->getUserId() );
+			$tag->setActivityId( $this->row->getId() );
+			$tag->setTag( $tagUser );
+
+			$_PLUGINS->trigger( 'activity_onBeforeCreateActivityStreamTag', [ $this->rowStream, $this->row, &$tag ] );
+
+			if ( $tag->getError() || ( ! $tag->check() ) || ( ! $tag->store() ) ) {
+				continue;
+			}
+
+			$_PLUGINS->trigger( 'activity_onAfterCreateActivityStreamTag', [ $this->rowStream, $this->row, $tag ] );
+
+			if ( $tag->getTagUserId() && ( $this->row->getUserId() !== $tag->getTagUserId() ) ) {
+				if ( NotificationLogParams::getActivityTag( $this->row->getUserId() ) ) {
+					( new NotificationEntity( $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() . '.tag' ) )
+							->setUserId( $tag->getTagUserId() )
+							->setAccess( $this->row->getAccess() )
+							->setPublished( $this->row->getPublished() )
+							->setConditionedRecipients( NotificationLogParams::getActivityTagOwner(),
+														$tag->getTagUserId(),
+														NotificationLogParams::getActivityTagRecipients(),
+														NotificationLogParams::getActivityTagRecipient() )
+							->store();
+				}
+
+				if ( ActivityLogParams::getActivityTag( $tag->getTagUserId() ) ) {
+					( new ActivityEntity( $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() . '.tag' ) )
+							->setUserId( $tag->getTagUserId() )
+							->setAccess( $this->row->getAccess() )
+							->setPublished( $this->row->getPublished() )
+							->setCommentsStreamId( ( $this->row->getAsset()->isObjectOf( 'profile' ) ? 2 : 0 ) )
+							->store();
+				}
+			}
+		}
+
+		TagsHelper::resetTotals( $this->row->getId() );
+	}
+
+	/**
+	 * @param bool $isNew
+	 * @return void
+	 */
+	private function saveMentions( bool $isNew = true ): void
+	{
+		global $_CB_database, $_PLUGINS;
+
+		$mentions			=	$this->rowStream->getParser( $this->row->getMessage() )->getMentions();
+
+		if ( ! $isNew ) {
+			$query			=	"SELECT *"
+							.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_mentions' )
+							.	"\n WHERE " . $_CB_database->NameQuote( 'activity_id' ) . " = " . $this->row->getId();
+			$_CB_database->setQuery( $query );
+			$rows			=	$_CB_database->loadObjectList( null, ActivityMentionTable::class, [ $_CB_database ] );
+
+			foreach ( $rows as $mention ) {
+				/** @var ActivityMentionTable $mention */
+				if ( ! \in_array( $mention->getUserId(), $mentions, true ) ) {
+					$_PLUGINS->trigger( 'activity_onBeforeDeleteActivityStreamMention', [ $this->rowStream, $this->row, &$mention ] );
+
+					if ( $mention->getError() || ( ! $mention->canDelete() ) || ( ! $mention->delete() ) ) {
+						continue;
+					}
+
+					$_PLUGINS->trigger( 'activity_onAfterDeleteActivityStreamMention', [ $this->rowStream, $this->row, $mention ] );
+				} else {
+					$key	=	array_search( $mention->getUserId(), $mentions, true );
+
+					if ( $key !== false ) {
+						unset( $mentions[$key] );
+					}
+				}
+			}
+		}
+
+		foreach ( $mentions as $userId ) {
+			if ( ! CBuser::getUserDataInstance( $userId )->getInt( 'id', 0 ) ) {
+				continue;
+			}
+
+			$mention		=	new ActivityMentionTable();
+
+			$mention->setActivityId( $this->row->getId() );
+			$mention->setUserId( $userId );
+
+			$_PLUGINS->trigger( 'activity_onBeforeCreateActivityStreamMention', [ $this->rowStream, $this->row, &$mention ] );
+
+			if ( $mention->getError() || ( ! $mention->check() ) || ( ! $mention->store() ) ) {
+				continue;
+			}
+
+			$_PLUGINS->trigger( 'activity_onAfterCreateActivityStreamMention', [ $this->rowStream, $this->row, $mention ] );
+
+			if ( $mention->getUserId() && ( $this->row->getUserId() !== $mention->getUserId() ) ) {
+				if ( NotificationLogParams::getActivityMention( $this->row->getUserId() ) ) {
+					( new NotificationEntity( $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() . '.mention' ) )
+							->setUserId( $mention->getUserId() )
+							->setAccess( $this->row->getAccess() )
+							->setPublished( $this->row->getPublished() )
+							->setConditionedRecipients( NotificationLogParams::getActivityMentionOwner(),
+														$mention->getUserId(),
+														NotificationLogParams::getActivityMentionRecipients(),
+														NotificationLogParams::getActivityMentionRecipient() )
+							->store();
+				}
+
+				if ( $mention->getUserId() && ( $this->row->getUserId() !== $mention->getUserId() ) && ActivityLogParams::getActivityMention( $mention->getUserId() ) ) {
+					( new ActivityEntity( $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() . '.mention' ) )
+							->setUserId( $mention->getUserId() )
+							->setAccess( $this->row->getAccess() )
+							->setPublished( $this->row->getPublished() )
+							->setCommentsStreamId( ( $this->row->getAsset()->isObjectOf( 'profile' ) ? 2 : 0 ) )
+							->store();
+				}
+			}
+		}
+	}
+
+	/**
+	 * @param bool $isNew
+	 * @return void
+	 */
+	private function saveHashtags( bool $isNew = true ): void
+	{
+		global $_CB_database, $_PLUGINS;
+
+		$hashtags			=	$this->rowStream->getParser( $this->row->getMessage() )->getHashtags();
+
+		if ( ! $isNew ) {
+			$query			=	"SELECT *"
+							.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_hashtags' )
+							.	"\n WHERE " . $_CB_database->NameQuote( 'activity_id' ) . " = " . $this->row->getId();
+			$_CB_database->setQuery( $query );
+			$rows			=	$_CB_database->loadObjectList( null, ActivityHashtagTable::class, [ $_CB_database ] );
+
+			foreach ( $rows as $hashtag ) {
+				/** @var ActivityHashtagTable $hashtag */
+				if ( ! \in_array( $hashtag->getHashtag(), $hashtags, true ) ) {
+					$_PLUGINS->trigger( 'activity_onBeforeDeleteActivityStreamHashtag', [ $this->rowStream, $this->row, &$hashtag ] );
+
+					if ( $hashtag->getError() || ( ! $hashtag->canDelete() ) || ( ! $hashtag->delete() ) ) {
+						continue;
+					}
+
+					$_PLUGINS->trigger( 'activity_onAfterDeleteActivityStreamHashtag', [ $this->rowStream, $this->row, $hashtag ] );
+				} else {
+					$key	=	array_search( $hashtag->getHashtag(), $hashtags, true );
+
+					if ( $key !== false ) {
+						unset( $hashtags[$key] );
+					}
+				}
+			}
+		}
+
+		foreach ( $hashtags as $tag ) {
+			$hashtag		=	new ActivityHashtagTable();
+
+			$hashtag->setActivityId( $this->row->getId() );
+			$hashtag->setHashtag( $tag );
+
+			$_PLUGINS->trigger( 'activity_onBeforeCreateActivityStreamHashtag', [ $this->rowStream, $this->row, &$hashtag ] );
+
+			if ( $hashtag->getError() || ( ! $hashtag->check() ) || ( ! $hashtag->store() ) ) {
+				continue;
+			}
+
+			$_PLUGINS->trigger( 'activity_onAfterCreateActivityStreamHashtag', [ $this->rowStream, $this->row, $hashtag ] );
+		}
+	}
+
+	/**
+	 * @param bool $isNew
+	 * @return void
+	 */
+	private function saveFlairs( bool $isNew = true ): void
+	{
+		global $_CB_database, $_PLUGINS;
+
+		$flairs				=	array_keys( $this->row->getFlair() );
+
+		if ( ! $isNew ) {
+			$query			=	"SELECT *"
+							.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_flairs' )
+							.	"\n WHERE " . $_CB_database->NameQuote( 'activity_id' ) . " = " . $this->row->getId();
+			$_CB_database->setQuery( $query );
+			$rows			=	$_CB_database->loadObjectList( null, ActivityFlairTable::class, [ $_CB_database ] );
+
+			foreach ( $rows as $flair ) {
+				/** @var ActivityFlairTable $flair */
+				if ( ! \in_array( $flair->getFlairId(), $flairs, true ) ) {
+					$_PLUGINS->trigger( 'activity_onBeforeDeleteActivityStreamFlair', [ $this->rowStream, $this->row, &$flair ] );
+
+					if ( $flair->getError() || ( ! $flair->canDelete() ) || ( ! $flair->delete() ) ) {
+						continue;
+					}
+
+					$_PLUGINS->trigger( 'activity_onAfterDeleteActivityStreamFlair', [ $this->rowStream, $this->row, $flair ] );
+				} else {
+					$key	=	array_search( $flair->getFlairId(), $flairs, true );
+
+					if ( $key !== false ) {
+						unset( $flairs[$key] );
+					}
+				}
+			}
+		}
+
+		foreach ( $flairs as $flairId ) {
+			$flair			=	new ActivityFlairTable();
+
+			$flair->setActivityId( $this->row->getId() );
+			$flair->setFlairId( $flairId );
+
+			$_PLUGINS->trigger( 'activity_onBeforeCreateActivityStreamFlair', [ $this->rowStream, $this->row, &$flair ] );
+
+			if ( $flair->getError() || ( ! $flair->check() ) || ( ! $flair->store() ) ) {
+				continue;
+			}
+
+			$_PLUGINS->trigger( 'activity_onAfterCreateActivityStreamFlair', [ $this->rowStream, $this->row, $flair ] );
+		}
+	}
+
+	/**
+	 * @param bool $isNew
+	 * @return void
+	 */
+	private function savePrivacy( bool $isNew = true ): void
+	{
+		$privacy	=	PrivacyHelper::getPrivacy( $this->row, $this->rowStream );
+
+		if ( ! $privacy ) {
+			return;
+		}
+
+		if ( $isNew ) {
+			$privacy->name( 'activity_privacy_' . $this->rowStream->getId() . '_0' );
+		}
+
+		$privacy->privacy( 'save' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedDelete(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->rowStream->canDeleteActivity( $this->row ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function delete(): void
+	{
+		global $_PLUGINS;
+
+		$source		=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeActivityStreamDelete', [ $this->rowStream, $source, &$this->row ] );
+
+		if ( $this->row->getError() || ( ! $this->row->canDelete() ) || ( ! $this->row->delete() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_FAILED_TO_DELETE', 'Post failed to delete! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		$_PLUGINS->trigger( 'activity_onAfterActivityStreamDelete', [ $this->rowStream, $source, $this->row ] );
+
+		$template	=	$this->template;
+		$stream		=	$this->stream;
+		$row		=	$this->row;
+		$rowStream	=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container_deleted', $this->template );
+		$html		=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedPublish(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->rowStream->canPublishActivity( $this->row ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function publish(): void
+	{
+		global $_PLUGINS;
+
+		$source		=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeActivityStreamPublish', [ $this->rowStream, $source, &$this->row ] );
+
+		if ( $this->row->isReported() ) {
+			$this->row->setReports( 0 );
+		}
+
+		$this->row->setPublished( 1 );
+
+		if ( $this->row->getError() || ( ! $this->row->check() ) || ( ! $this->row->store() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_FAILED_TO_PUBLISH', 'Post failed to publish! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		$_PLUGINS->trigger( 'activity_onAfterActivityStreamPublish', [ $this->rowStream, $source, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$template	=	$this->template;
+		$stream		=	$this->stream;
+		$row		=	$this->row;
+		$rowStream	=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html		=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedHide(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->row && $this->row->isPublished() && ( $this->row->getUserId() !== $this->myId ) && GlobalParams::getHidden() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function hide(): void
+	{
+		global $_PLUGINS;
+
+		$type				=	$this->input->getString( 'type', 'activity' );
+		$hidden				=	new HiddenTable();
+
+		switch ( $type ) {
+			case 'user':
+				if ( $this->row->getSystem() || ( ! GlobalParams::getHiddenUser() ) ) {
+					$this->ajax( CBTxt::T( 'You do not have permission to hide this post.' ), 'error' );
+				}
+
+				$hideType	=	'activity.' . $type;
+				$hideItem	=	$this->row->getUserId();
+				break;
+			case 'asset':
+				if ( ! GlobalParams::getHiddenSimilar() ) {
+					$this->ajax( CBTxt::T( 'You do not have permission to hide this post.' ), 'error' );
+				}
+
+				$hideType	=	'activity.' . $type;
+				$hideItem	=	(string) $this->row->getAsset();
+				break;
+			case 'activity':
+			default:
+				if ( ! GlobalParams::getHiddenActivity() ) {
+					$this->ajax( CBTxt::T( 'You do not have permission to hide this post.' ), 'error' );
+				}
+
+				$hideType	=	'activity';
+				$hideItem	=	$this->row->getId();
+				break;
+		}
+
+		$hidden->load( [ 'user_id' => $this->myId, 'type' => $hideType, ( $type === 'asset' ? 'asset' : 'object' ) => $hideItem ] );
+
+		if ( $hidden->getId() ) {
+			$this->ajax( CBTxt::T( 'You have already hidden this post.' ), 'error' );
+		}
+
+		$hidden->setUserId( $this->myId );
+		$hidden->setType( $hideType );
+
+		if ( $type === 'asset' ) {
+			$hidden->setAsset( $hideItem );
+			$hidden->setObject( $this->row->getId() );
+		} else {
+			$hidden->setObject( $hideItem );
+		}
+
+		$source				=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeActivityStreamHide', [ $this->rowStream, $source, &$hidden, $this->row ] );
+
+		if ( $hidden->getError() || ( ! $hidden->check() ) || ( ! $hidden->store() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_HIDE_FAILED_TO_SAVE', 'Post failed to hide! Error: [error]', [ '[error]' => $hidden->getError() ] ), 'error' );
+		}
+
+		switch ( $type ) {
+			case 'user':
+				$this->row->set( '_hidden_user', $hidden->getObject() );
+				break;
+			case 'asset':
+				$this->row->set( '_hidden_asset', $hidden->getInitialAsset() );
+				break;
+			case 'activity':
+			default:
+				$this->row->set( '_hidden_id', $hidden->getObject() );
+				break;
+		}
+
+		$_PLUGINS->trigger( 'activity_onAfterActivityStreamHide', [ $this->rowStream, $source, $hidden, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$template			=	$this->template;
+		$stream				=	$this->stream;
+		$row				=	$this->row;
+		$rowStream			=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container_hidden', $this->template );
+		$html				=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedUnhide(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->row && $this->row->isPublished() && ( $this->row->getUserId() !== $this->myId ) && GlobalParams::getHidden() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function unhide(): void
+	{
+		global $_PLUGINS;
+
+		$hidden				=	new HiddenTable();
+
+		switch ( $this->input->getString( 'type', 'activity' ) ) {
+			case 'user':
+				$hidden->load( [ 'user_id' => $this->myId, 'type' => 'activity.user', 'object' => $this->row->getUserId() ] );
+				break;
+			case 'asset':
+				$hidden->load( [ 'user_id' => $this->myId, 'type' => 'activity.asset', 'asset' => (string) $this->row->getAsset() ] );
+				break;
+			case 'activity':
+			default:
+				$hidden->load( [ 'user_id' => $this->myId, 'type' => 'activity', 'object' => $this->row->getId() ] );
+				break;
+		}
+
+		if ( ! $hidden->getId() ) {
+			$this->ajax( CBTxt::T( 'You have not hidden this post.' ), 'error' );
+		}
+
+		$source				=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeActivityStreamUnhide', [ $this->rowStream, $source, &$hidden, $this->row ] );
+
+		if ( $hidden->getError() || ( ! $hidden->canDelete() ) || ( ! $hidden->delete() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_HIDE_FAILED_TO_DELETE', 'Post failed to unhide! Error: [error]', [ '[error]' => $hidden->getError() ] ), 'error' );
+		}
+
+		$this->row->set( '_hidden_id', null );
+		$this->row->set( '_hidden_user', null );
+		$this->row->set( '_hidden_asset', null );
+
+		$_PLUGINS->trigger( 'activity_onAfterActivityStreamUnhide', [ $this->rowStream, $source, $hidden, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$template			=	$this->template;
+		$stream				=	$this->stream;
+		$row				=	$this->row;
+		$rowStream			=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html				=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedFollow(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->row && $this->row->isPublished() && ( $this->row->getUserId() !== $this->myId ) && $this->rowStream->getParams()->getFollow() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function follow(): void
+	{
+		global $_PLUGINS;
+
+		$type			=	$this->input->getString( 'type', 'user' );
+		$follow			=	new FollowTable();
+
+		switch ( $type ) {
+			case 'asset':
+				if ( ! $this->rowStream->getParams()->getFollowSimilar() ) {
+					$this->ajax( CBTxt::T( 'You do not have permission to follow this post.' ), 'error' );
+				}
+
+				$asset	=	(string) $this->row->getAsset();
+				break;
+			case 'user':
+			default:
+				if ( ! $this->rowStream->getParams()->getFollowUser() ) {
+					$this->ajax( CBTxt::T( 'You do not have permission to follow this post.' ), 'error' );
+				}
+
+				$asset	=	'profile.' . $this->row->getUserId();
+				break;
+		}
+
+		$follow->load( [ 'user_id' => $this->myId, 'asset' => $asset ] );
+
+		if ( $follow->getId() ) {
+			$this->ajax( CBTxt::T( 'You have already followed this post.' ), 'error' );
+		}
+
+		$follow->setUserId( $this->myId );
+		$follow->setAsset( $asset );
+
+		$source			=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeFollowStreamActivity', [ $this->rowStream, $source, &$follow, $this->row ] );
+
+		if ( $follow->getError() || ( ! $follow->check() ) || ( ! $follow->store() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_FOLLOW_FAILED_TO_SAVE', 'Post failed to follow! Error: [error]', [ '[error]' => $follow->getError() ] ), 'error' );
+		}
+
+		switch ( $type ) {
+			case 'asset':
+				$this->row->set( '_following', true );
+				break;
+			case 'user':
+			default:
+				$this->row->set( '_following_user', true );
+				break;
+		}
+
+		$_PLUGINS->trigger( 'activity_onAfterFollowStreamActivity', [ $this->rowStream, $source, $follow, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$template		=	$this->template;
+		$stream			=	$this->stream;
+		$row			=	$this->row;
+		$rowStream		=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html			=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedUnfollow(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->row && $this->row->isPublished() && ( $this->row->getUserId() !== $this->myId ) && $this->rowStream->getParams()->getFollow() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function unfollow(): void
+	{
+		global $_PLUGINS;
+
+		$type			=	$this->input->getString( 'type', 'user' );
+		$follow			=	new FollowTable();
+
+		switch ( $type ) {
+			case 'asset':
+				$asset	=	(string) $this->row->getAsset();
+				break;
+			case 'user':
+			default:
+				$asset	=	'profile.' . $this->row->getUserId();
+				break;
+		}
+
+		$follow->load( [ 'user_id' => $this->myId, 'asset' => $asset ] );
+
+		if ( ! $follow->getId() ) {
+			$this->ajax( CBTxt::T( 'You have not followed this post.' ), 'error' );
+		}
+
+		$source			=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeUnfollowStreamActivity', [ $this->rowStream, $source, &$follow, $this->row ] );
+
+		if ( $follow->getError() || ( ! $follow->canDelete() ) || ( ! $follow->delete() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_FOLLOW_FAILED_TO_DELETE', 'Post failed to unfollow! Error: [error]', [ '[error]' => $follow->getError() ] ), 'error' );
+		}
+
+		switch ( $type ) {
+			case 'asset':
+				$this->row->set( '_following', false );
+				break;
+			case 'user':
+			default:
+				$this->row->set( '_following_user', false );
+				break;
+		}
+
+		$_PLUGINS->trigger( 'activity_onAfterUnfollowStreamActivity', [ $this->rowStream, $source, $follow, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$template		=	$this->template;
+		$stream			=	$this->stream;
+		$row			=	$this->row;
+		$rowStream		=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html			=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedBookmark(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->row && $this->row->isPublished() && ( $this->row->getUserId() !== $this->myId ) && $this->rowStream->getParams()->getBookmarks() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function bookmark(): void
+	{
+		global $_PLUGINS;
+
+		$bookmarked		=	new ActivityBookmarkedTable();
+
+		$bookmarked->load( [ 'activity_id' => $this->row->getId(), 'user_id' => $this->myId ] );
+
+		if ( $bookmarked->getActivityId() ) {
+			$this->ajax( CBTxt::T( 'You have already bookmarked this post.' ), 'error' );
+		}
+
+		$bookmarked->setActivityId( $this->row->getId() );
+		$bookmarked->setUserId( $this->myId );
+
+		$source			=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeBookmarkStreamActivity', [ $this->rowStream, $source, &$bookmarked, $this->row ] );
+
+		if ( $bookmarked->getError() || ( ! $bookmarked->check() ) || ( ! $bookmarked->store() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_BOOKMARK_FAILED_TO_SAVE', 'Post failed to bookmark! Error: [error]', [ '[error]' => $bookmarked->getError() ] ), 'error' );
+		}
+
+		$this->row->set( '_bookmarked', true );
+
+		$_PLUGINS->trigger( 'activity_onAfterBookmarkStreamActivity', [ $this->rowStream, $source, $bookmarked, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$template		=	$this->template;
+		$stream			=	$this->stream;
+		$row			=	$this->row;
+		$rowStream		=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html			=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedUnbookmark(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->row && $this->row->isPublished() && ( $this->row->getUserId() !== $this->myId ) && $this->rowStream->getParams()->getBookmarks() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function unbookmark(): void
+	{
+		global $_PLUGINS;
+
+		$bookmarked		=	new ActivityBookmarkedTable();
+
+		$bookmarked->load( [ 'activity_id' => $this->row->getId(), 'user_id' => $this->myId ] );
+
+		if ( ! $bookmarked->getActivityId() ) {
+			$this->ajax( CBTxt::T( 'You have not bookmarked this post.' ), 'error' );
+		}
+
+		$source			=	$this->row->getSource();
+
+		$_PLUGINS->trigger( 'activity_onBeforeUnbookmarkStreamActivity', [ $this->rowStream, $source, &$bookmarked, $this->row ] );
+
+		if ( $bookmarked->getError() || ( ! $bookmarked->canDelete() ) || ( ! $bookmarked->delete() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_BOOKMARK_FAILED_TO_DELETE', 'Post failed to unbookmark! Error: [error]', [ '[error]' => $bookmarked->getError() ] ), 'error' );
+		}
+
+		$this->row->set( '_bookmarked', false );
+
+		$_PLUGINS->trigger( 'activity_onAfterUnbookmarkStreamActivity', [ $this->rowStream, $source, $bookmarked, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$template		=	$this->template;
+		$stream			=	$this->stream;
+		$row			=	$this->row;
+		$rowStream		=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html			=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedControversial(): bool
+	{
+		return ( $this->authorizedShow() && GlobalParams::getReporting() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function controversial(): void
+	{
+		$this->show	=	'controversial';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedReported(): bool
+	{
+		return ( $this->authorizedShow() && GlobalParams::getReporting() && $this->myId );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function reported(): void
+	{
+		$this->show	=	'reported';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedReport(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->rowStream->canReportActivity( $this->row ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function report(): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$hidden					=	new HiddenTable();
+
+		$hidden->load( [ 'user_id' => $this->myId, 'type' => 'activity', 'object' => $this->row->getId() ] );
+
+		if ( $hidden->getId() ) {
+			$this->ajax( CBTxt::T( 'You have already reported this post.' ), 'error' );
+		}
+
+		$source					=	$this->row->getSource();
+
+		$this->row->setReports( ( $this->row->getReports() + 1 ) );
+
+		$reportLimit			=	GlobalParams::getReportingLimit();
+
+		if ( $reportLimit && ( $this->row->getReports() >= $reportLimit ) ) {
+			$this->row->setPublished( 0 );
+		}
+
+		if ( ! $hidden->getId() ) {
+			$hidden->setUserId( $this->myId );
+			$hidden->setType( 'activity' );
+			$hidden->setObject( $this->row->getId() );
+
+			$_PLUGINS->trigger( 'activity_onBeforeActivityStreamHide', [ $this->rowStream, $source, &$hidden, $this->row ] );
+
+			if ( $hidden->getError() || ( ! $hidden->check() ) || ( ! $hidden->store() ) ) {
+				$this->ajax( CBTxt::T( 'ACTIVITY_HIDE_FAILED_TO_SAVE', 'Post failed to hide! Error: [error]', [ '[error]' => $hidden->getError() ] ), 'error' );
+			}
+
+			$this->row->set( '_hidden_id', $hidden->getObject() );
+
+			$_PLUGINS->trigger( 'activity_onAfterActivityStreamHide', [ $this->rowStream, $source, $hidden, $this->row ] );
+		}
+
+		$_PLUGINS->trigger( 'activity_onBeforeActivityStreamReport', [ $this->rowStream, $source, &$this->row ] );
+
+		if ( $this->row->getError() || ( ! $this->row->check() ) || ( ! $this->row->store() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_REPORT_FAILED_TO_SAVE', 'Post failed to report! Error: [error]', [ '[error]' => $this->row->getError() ] ), 'error' );
+		}
+
+		$_PLUGINS->trigger( 'activity_onAfterActivityStreamReport', [ &$this->rowStream, $source, $this->row ] );
+
+		ActivityHelper::addActivityCache( $this->row );
+
+		$notifyBy				=	GlobalParams::getReportingNotify();
+
+		if ( $notifyBy ) {
+			$cbUser				=	CBuser::getInstance( $this->myId, false );
+
+			$extraStrings		=	[	'activity'			=>	'<a href="' . $_CB_framework->pluginClassUrl( 'cbactivity', true, [ 'action' => 'activity', 'id' => $this->row->getId(), 'Itemid' => ActivityHelper::getStreamMenuId( $this->row->getStreamId() ) ] ) . '">' . $this->row->getNotificationTitle() . '</a>',
+										'activity_id'		=>	$this->row->getId(),
+										'activity_title'	=>	$this->row->getTitle(),
+										'activity_message'	=>	$this->row->getMessage(),
+										'activity_url'		=>	$_CB_framework->pluginClassUrl( 'cbactivity', true, [ 'action' => 'activity', 'id' => $this->row->getId(), 'Itemid' => ActivityHelper::getStreamMenuId( $this->row->getStreamId() ) ] ),
+										'user'				=>	'<a href="' . $_CB_framework->viewUrl( 'userprofile', true, [ 'user' => $this->myId ] ) . '">' . HtmlHelper::getUserName( $this->myId, false, null, false ) . '</a>',
+										'user_name'			=>	HtmlHelper::getUserName( $this->myId, false, null, false ),
+										'user_url'			=>	$_CB_framework->viewUrl( 'userprofile', true, [ 'user' => $this->myId ] )
+									];
+
+			$subject			=	$cbUser->replaceUserVars( CBTxt::T( 'ACTIVITY_REPORTED_NOTIFY_SUBJ', 'Post - Reported!' ), false, true, $extraStrings, false );
+
+			if ( ! $this->row->getPublished() ) {
+				$message		=	$cbUser->replaceUserVars( CBTxt::T( 'ACTIVITY_REPORTED_NOTIFY_MSG_UNPUBLISHED', '[user] reported post "[activity]" as controversial and has now been unpublished!' ), false, true, $extraStrings, false );
+			} else {
+				$message		=	$cbUser->replaceUserVars( CBTxt::T( 'ACTIVITY_REPORTED_NOTIFY_MSG', '[user] reported post "[activity]" as controversial!' ), false, true, $extraStrings, false );
+			}
+
+			NotificationsHelper::sendNotification( $notifyBy, $this->rowStream->getModerators( $this->row ), $this->row->getUserId(), $this->row->getStream()->getAsset()->getPrefix() . 'activity.' . $this->row->getId() . '.reported', $subject, $message );
+		}
+
+		$template				=	$this->template;
+		$stream					=	$this->stream;
+		$row					=	$this->row;
+		$rowStream				=	$this->rowStream;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container_reported', $this->template );
+		$html					=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'replace', 'container' );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedRepost(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->rowStream->canShareActivity( $this->row ) && $this->rowStream->getParams()->getShareRepost() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function repost(): void
+	{
+		global $_PLUGINS;
+
+		$row					=	new ActivityTable();
+		$rowStream				=	ActivityHelper::getStream( $this->rowStream->getParams()->getShareRepostStream() );
+
+		$repostAsset			=	'activity.' . $this->row->getId() . '.repost';
+
+		$row->load( [ 'stream_id' => $rowStream->getId(), 'user_id' => $this->myId, 'asset' => $repostAsset ] );
+
+		if ( $row->getId() ) {
+			$this->ajax( CBTxt::T( 'You have already reposted this post.' ), 'error' );
+		}
+
+		$row->setStreamId( $rowStream->getId() );
+		$row->setUserId( $this->myId );
+		$row->setAsset( $repostAsset );
+
+		if ( $rowStream->getParams()->getCreateApproval() && ( ! $rowStream->canModerate( $row ) ) ) {
+			$row->setPublished( 2 );
+		} else {
+			$row->setPublished( 1 );
+		}
+
+		$_PLUGINS->trigger( 'activity_onBeforeCreateStreamActivity', [ $rowStream, $this->row, &$row ] );
+
+		if ( $row->getError() || ( ! $row->check() ) || ( ! $row->store() ) ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_FAILED_TO_REPOST', 'Post failed to repost! Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		if ( NotificationLogParams::getActivityShare( $this->myId ) ) {
+			( new NotificationEntity( 'activity.' . $this->row->getId() . '.repost' ) )
+					->setUserId( $this->myId )
+					->setConditionedRecipients( NotificationLogParams::getActivityShareOwner(),
+												$this->row->getUserId(),
+												NotificationLogParams::getActivityShareRecipients(),
+												NotificationLogParams::getActivityShareRecipient() )
+					->store();
+		}
+
+		$_PLUGINS->trigger( 'activity_onAfterCreateStreamActivity', [ $rowStream, $this->row, $row ] );
+
+		if ( $row->getError() ) {
+			$this->ajax( CBTxt::T( 'ACTIVITY_FAILED_TO_REPOST', 'Post failed to repost! Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		ActivityHelper::addActivityCache( $row );
+
+		$template				=	$this->template;
+		$stream					=	$this->stream;
+		$row					=	$this->row;
+
+		ob_start();
+		require HtmlHelper::getTemplate( 'activity/container', $this->template );
+
+		echo $this->headers();
+		$html					=	ob_get_clean();
+
+		$this->ajax( $html, 'html', 'prepend', 'items', 'stream', true );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedPending(): bool
+	{
+		return ( $this->authorizedShow() && $this->myId && ( $this->rowStream->getParams()->getCreateApproval() || $this->rowStream->getParams()->getEditApproval() ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function pending(): void
+	{
+		$this->show	=	'pending';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedVote(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->row && $this->row->getId() && $this->rowStream->getParams()->getPolls() && $this->row->getPoll() && $this->row->getPoll()->canVote() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function vote(): void
+	{
+		$poll	=	$this->row->getPoll();
+
+		PollsHelper::votePoll( $poll, $this->input->getInt( 'vote', 0 ) );
+
+		echo $poll->renderPoll();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedViewed(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->row->getId() && $this->rowStream->getParams()->getTrackViews() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function viewed(): void
+	{
+		$this->row->setViews( ( $this->row->getViews() + 1 ) );
+
+		$this->row->store();
+
+		ActivityHelper::addActivityCache( $this->row );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedMentioned(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getParams()->getMentions() && ( $this->stream->getParams()->canAccessSearchMention( $this->myId ) ? $this->input->getString( 'mentioned', $this->myId ) : $this->myId ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function mentioned(): void
+	{
+		$this->show	=	'mentioned';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedTagged(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getParams()->getTags() && $this->myId );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function tagged(): void
+	{
+		$this->show	=	'tagged';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedLikes(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getParams()->getLikes() && $this->myId );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function likes(): void
+	{
+		$this->show	=	'likes';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedLiked(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getParams()->getLikes() && $this->myId );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function liked(): void
+	{
+		$this->show	=	'liked';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedHashtag(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getParams()->getHashtags() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function hashtag(): void
+	{
+		$this->show	=	'hashtag';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedCommented(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getCommentStreamId() && $this->myId );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function commented(): void
+	{
+		$this->show	=	'commented';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedBookmarked(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getParams()->getBookmarks() && $this->myId );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function bookmarked(): void
+	{
+		$this->show	=	'bookmarked';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedFlair(): bool
+	{
+		return ( $this->authorizedShow() && $this->stream->getParams()->getFlair() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function flair(): void
+	{
+		$this->show	=	'flair';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedEmbed(): bool
+	{
+		return ( $this->row && $this->row->getId() && $this->rowStream->getParams()->getShareEmbed() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function embed(): void
+	{
+		$this->show	=	'embed';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedModal(): bool
+	{
+		return ( $this->isRaw && $this->csrf() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function modal(): void
+	{
+		$this->show	=	'modal';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedFilter(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && ( $this->getFilters()[$this->input->getInt( 'filter', 0 )] ?? null ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function filter(): void
+	{
+		$this->show	=	'filter';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedUpdate(): bool
+	{
+		return ( $this->isRaw && $this->csrf() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function update(): void
+	{
+		$this->show	=	'update';
+
+		$this->show();
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedShow(): bool
+	{
+		return ( ( $this->row && $this->row->getId() ) || ( ! $this->row ) );
+	}
+
+	/**
+	 * @param array $options
+	 * @return void
+	 */
+	public function show( array $options = [] ): void
+	{
+		global $_CB_framework;
+
+		$rowId					=	( $options['id'] ?? null );
+
+		if ( $rowId ) {
+			$this->row			=	ActivityHelper::getActivity( $rowId );
+
+			if ( ! $this->row->canAccess() ) {
+				return;
+			}
+		}
+
+		if ( $this->row ) {
+			$this->showRow( $options );
+			return;
+		}
+
+		$isRow					=	false;
+		$isModal				=	( $this->isRaw && ( $this->show === 'modal' ) );
+		$isInline				=	( $options['inline'] ?? false );
+		$isEmbed				=	( ( $options['embed'] ?? false ) || ( $this->show === 'embed' ) );
+		$isSimple				=	( ( $options['simple'] ?? false ) || $isEmbed );
+
+		$filter					=	( $options['filter'] ?? 0 );
+		$hashtag				=	( $options['hashtag'] ?? '' );
+		$mentioned				=	( $options['mentioned'] ?? '' );
+		$flair					=	( $options['flair'] ?? 0 );
+		$search					=	( $options['search'] ?? '' );
+		$post					=	( $options['post'] ?? '' );
+		$date					=	( $options['date'] ?? '' );
+		$dateRange				=	[];
+		$page					=	'0';
+
+		if ( \in_array( $this->input->getString( 'action', '' ), [ 'activity', 'activity.filter', 'activity.update', 'activity.show' ], true ) ) {
+			if ( ( ! $this->show ) || ( $this->show === 'show' ) ) {
+				$filter			=	$this->input->getInt( 'cookie/activity_filter_' . $this->stream->getId(), $filter );
+			}
+
+			$filter				=	$this->input->getInt( 'filter', $filter );
+			$hashtag			=	( $this->stream->getParams()->getHashtags() && $this->stream->getParams()->canAccessSearchHashtag( $this->myId ) ? $this->input->getString( 'hashtag', $hashtag ) : $hashtag );
+			$mentioned			=	( $this->stream->getParams()->getMentions() && $this->stream->getParams()->canAccessSearchMention( $this->myId ) ? $this->input->getString( 'mentioned', $mentioned ) : $mentioned );
+			$flair				=	( $this->stream->getParams()->getFlair() && $this->stream->getParams()->canAccessSearchFlair( $this->myId ) ? $this->input->getInt( 'flair', $flair ) : $flair );
+			$search				=	( $this->stream->getParams()->canAccessSearchPost( $this->myId ) ? $this->input->getString( 'search', $search ) : $search );
+			$date				=	( $this->stream->getParams()->canAccessSearchDate( $this->myId ) ? $this->input->getString( 'date', $date ) : $date );
+			$page				=	$this->input->getString( 'page', '0' );
+
+			if ( $this->input->getBool( 'clear', false ) ) {
+				$filter			=	0;
+				$hashtag		=	'';
+				$mentioned		=	'';
+				$flair			=	0;
+				$search			=	'';
+				$date			=	'';
+				$page			=	'0';
+			}
+		} elseif ( $this->input->getString( 'action', '' ) === 'activity.hashtag' ) {
+			$hashtag			=	$this->input->getString( 'hashtag', $hashtag );
+			$page				=	$this->input->getString( 'page', '0' );
+		} elseif ( $this->input->getString( 'action', '' ) === 'activity.mentioned' ) {
+			$mentioned			=	( $this->stream->getParams()->canAccessSearchMention( $this->myId ) ? $this->input->getString( 'mentioned', $mentioned ) : ( $mentioned ?: $this->myId ) );
+			$page				=	$this->input->getString( 'page', '0' );
+		} elseif ( $this->input->getString( 'action', '' ) === 'activity.flair' ) {
+			$flair				=	( $this->stream->getParams()->canAccessSearchFlair( $this->myId ) ? $this->input->getInt( 'flair', $flair ) : $flair );
+			$page				=	$this->input->getString( 'page', '0' );
+		} elseif ( \in_array( $this->input->getString( 'action', '' ), [ 'activity.tagged', 'activity.likes', 'activity.liked', 'activity.commented', 'activity.bookmarked', 'activity.controversial', 'activity.reported', 'activity.pending' ], true ) ) {
+			$page				=	$this->input->getString( 'page', '0' );
+		}
+
+		if ( \in_array( $this->input->getString( 'action', '' ), [ 'activity', 'activity.show' ], true ) ) {
+			$post				=	$this->input->getString( 'post', '' );
+		}
+
+		if ( $hashtag ) {
+			$hashtag			=	preg_replace( '/[^a-zA-Z0-9_]+/iu', '', $hashtag );
+		}
+
+		if ( $filter && ( ! \array_key_exists( $filter, $this->getFilters() ) ) ) {
+			$filter				=	0;
+		}
+
+		if ( $flair && ( ! \array_key_exists( $flair, FlairHelper::getAll() ) ) ) {
+			$flair				=	0;
+		}
+
+		if ( \in_array( $this->show, [ 'mentioned', 'hashtag', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'controversial', 'reported', 'pending', 'embed', 'flair' ], true ) ) {
+			$search				=	'';
+			$date				=	'';
+
+			if ( $this->show !== 'hashtag' ) {
+				$hashtag		=	'';
+			}
+
+			if ( $this->show !== 'mentioned' ) {
+				$mentioned		=	'';
+			}
+
+			if ( $this->show !== 'flair' ) {
+				$flair			=	0;
+			}
+		} elseif ( $this->show === 'filter' ) {
+			if ( ! $filter ) {
+				if ( $this->input->has( 'cookie/activity_filter_' . $this->stream->getId() ) ) {
+					setcookie( 'activity_filter_' . $this->stream->getId(), '', ( time() - 3600 ), '/', '', false, true );
+				}
+			} else {
+				setcookie( 'activity_filter_' . $this->stream->getId(), $filter, ( time() + ( 3600 * 24 * 30 * 12 ) ), '/', '', false, true );
+			}
+		}
+
+		if ( ! $this->stream->getParams()->getPaging() ) {
+			$page				=	'0';
+		}
+
+		$isPage					=	( $this->isRaw && $page );
+		$pageDir				=	( $this->show === 'update' ? '>' : '<' );
+		$hasMore				=	false;
+		$rows					=	$this->getRows( $page, $pageDir, $hasMore, $filter, $hashtag, $mentioned, $search, $flair, $date );
+
+		if ( ( $page || \in_array( $this->show, [ 'update', 'modal' ], true ) ) && ( ! $rows ) ) {
+			return;
+		}
+
+		PrefetchHelper::prefetchRows( $rows, true );
+
+		$autoUpdate				=	$this->stream->getParams()->getAutoUpdate();
+		$autoLoad				=	$this->stream->getParams()->getAutoLoad();
+
+		if ( $isPage ) {
+			$autoUpdate			=	false;
+			$autoLoad			=	false;
+		}
+
+		if ( $this->show === 'hashtag' ) {
+			$autoUpdate			=	false;
+		}
+
+		if ( ! $this->stream->getParams()->getPaging() ) {
+			$hasMore			=	false;
+			$autoLoad			=	false;
+		}
+
+		$form					=	null;
+
+		if ( ( ! $isPage ) && ( ! \in_array( $this->show, [ 'update', 'filter', 'hashtag', 'mentioned', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'modal', 'controversial', 'reported', 'pending', 'embed', 'flair' ], true ) ) && $this->stream->canCreate() ) {
+			ob_start();
+			$this->edit();
+			$form				=	ob_get_clean();
+		}
+
+		$template				=	$this->template;
+		$stream					=	$this->stream;
+
+		if ( \in_array( $this->show, [ 'hashtag', 'mentioned', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'modal', 'controversial', 'reported', 'pending', 'embed', 'flair' ], true ) ) {
+			$streamFilters			=	[];
+			$selectedFilter			=	null;
+			$streamSearchPost		=	false;
+			$streamSearchDate		=	false;
+			$streamSearchHashtag	=	false;
+			$streamSearchMention	=	false;
+			$streamSearchFlair		=	false;
+		} else {
+			$streamFilters			=	$this->getFilters();
+
+			// remove "All" from selection since we'll handle that with the clear button
+			unset( $streamFilters[0] );
+
+			$selectedFilter			=	null;
+
+			if ( \count( $streamFilters ) <= 1 ) {
+				$streamFilters		=	[];
+			} elseif ( $filter ) {
+				$selectedFilter		=	( $streamFilters[$filter] ?? null );
+			}
+
+			$streamSearchPost		=	$this->stream->getParams()->canAccessSearchPost( $this->myId );
+			$streamSearchDate		=	$this->stream->getParams()->canAccessSearchDate( $this->myId );
+			$streamSearchHashtag	=	( $this->stream->getParams()->getHashtags() && $this->stream->getParams()->canAccessSearchHashtag( $this->myId ) );
+			$streamSearchMention	=	( $this->stream->getParams()->getMentions() && $this->stream->getParams()->canAccessSearchMention( $this->myId ) );
+			$streamSearchFlair		=	( $this->stream->getParams()->getFlair() && $this->stream->getParams()->canAccessSearchFlair( $this->myId ) );
+		}
+
+		$pageUrl					=	'';
+		$pageData					=	[];
+
+		if ( $hasMore ) {
+			$pageUrl						=	$_CB_framework->pluginClassUrl( 'cbactivity', false, [ 'action' => 'activity' . ( \in_array( $this->show, [ 'hashtag', 'mentioned', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'modal', 'controversial', 'reported', 'pending', 'embed', 'flair' ], true ) ? '.' . $this->show : '' ), 'stream' => $this->stream->getId(), 'page' => ( $rows ? ArrayHelper::arrayLast( $rows )->getPage() : null ) ] );
+			$pageData						=	[ 'action' => 'activity' . ( \in_array( $this->show, [ 'hashtag', 'mentioned', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'modal', 'controversial', 'reported', 'pending', 'embed', 'flair' ], true ) ? '.' . $this->show : '' ), 'stream' => $this->stream->getId(), 'asset' => $this->stream->getAsset()->getEncoded() ];
+
+			if ( ! \in_array( $this->show, [ 'mentioned', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'modal', 'controversial', 'reported', 'pending', 'embed', 'flair' ], true ) ) {
+				if ( ( ! \in_array( $this->show, [ 'hashtag', 'mentioned', 'flair' ], true ) ) && $selectedFilter ) {
+					$pageData['filter']		=	$selectedFilter->getId();
+				}
+
+				if ( $hashtag ) {
+					$pageData['hashtag']	=	$hashtag;
+				}
+
+				if ( $mentioned ) {
+					$pageData['mentioned']	=	$mentioned;
+				}
+
+				if ( $flair ) {
+					$pageData['flair']		=	$flair;
+				}
+
+				if ( $date ) {
+					$pageData['date']		=	$date;
+				}
+
+				if ( $search ) {
+					$pageData['search']		=	$search;
+				}
+			}
+		}
+
+		if ( ( ! $isPage ) && ( ! \in_array( $this->show, [ 'update', 'filter' ], true ) ) ) {
+			if ( $date ) {
+				if ( strpos( $date, ':' ) !== false ) {
+					$dateRange				=	explode( ':', $date, 2 );
+				} else {
+					$dateRange				=	[ $date ];
+				}
+			}
+
+			require HtmlHelper::getTemplate( 'activity/display', $this->template );
+		} else {
+			require HtmlHelper::getTemplate( 'activity/rows', $this->template );
+		}
+
+		if ( $post && $form ) {
+			$_CB_framework->outputCbJQuery( "$( '.activityStream[data-cbactivity-stream=\"" . $this->stream->getId() . "\"] .activityContainerNew .streamInputMessage' ).triggerHandler( 'paste.cbactivity', [ " . json_encode( $post, JSON_HEX_TAG ) . " ] );" );
+		}
+
+		if ( $isPage || \in_array( $this->show, [ 'update', 'filter' ], true ) ) {
+			echo $this->headers();
+		}
+	}
+
+	/**
+	 * @param array $options
+	 * @return void
+	 */
+	private function showRow( array $options = [] ): void
+	{
+		if ( $this->show === 'embed' ) {
+			if ( ! ( $options['embed'] ?? false ) ) {
+				ShareHelper::renderEmbed( $this->row, $this->stream );
+				return;
+			}
+
+			if ( ! $this->row ) {
+				return;
+			}
+		}
+
+		$isRow					=	true;
+		$isModal				=	( $this->isRaw && ( $this->show === 'modal' ) );
+		$isInline				=	( $options['inline'] ?? false );
+		$isEmbed				=	( ( $options['embed'] ?? false ) || ( $this->show === 'embed' ) );
+		$isSimple				=	( ( $options['simple'] ?? false ) || $isEmbed );
+		$filter					=	0;
+		$hashtag				=	'';
+		$mentioned				=	'';
+		$flair					=	0;
+		$search					=	'';
+		$date					=	'';
+		$dateRange				=	[];
+		$post					=	'';
+		$page					=	'0';
+		$isPage					=	false;
+		$hasMore				=	false;
+		$rows					=	[ $this->row->getId() => $this->row ];
+		$autoUpdate				=	false;
+		$autoLoad				=	false;
+		$form					=	null;
+		$template				=	$this->template;
+		$stream					=	$this->stream;
+		$streamFilters			=	[];
+		$selectedFilter			=	null;
+		$streamSearchPost		=	false;
+		$streamSearchDate		=	false;
+		$streamSearchHashtag	=	false;
+		$streamSearchMention	=	false;
+		$streamSearchFlair		=	false;
+		$pageUrl				=	'';
+		$pageData				=	[];
+
+		require HtmlHelper::getTemplate( 'activity/display', $this->template );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedTag(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->myId && $this->stream->getParams()->canAccessTags( $this->myId ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function tag(): void
+	{
+		global $_CB_database;
+
+		$search					=	$this->input->getString( 'search', '' );
+
+		switch ( $this->stream->getParams()->getTagsWho() ) {
+			case 6: // Specific Usergroups
+				$usergroups		=	$this->stream->getParams()->getTagsWhoUsergroups();
+
+				if ( ! $usergroups ) {
+					return;
+				}
+
+				$query			=	'SELECT j.' . $_CB_database->NameQuote( 'id' )
+								.	"\n FROM " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	"\n INNER JOIN " . $_CB_database->NameQuote( '#__user_usergroup_map' ) . " AS g"
+								.	' ON g.' . $_CB_database->NameQuote( 'user_id' ) . ' = j.' . $_CB_database->NameQuote( 'id' )
+								.	"\n WHERE g." . $_CB_database->NameQuote( 'group_id' ) . " IN " . $_CB_database->safeArrayOfIntegers( $usergroups )
+								.	"\n AND j." . $_CB_database->NameQuote( 'block' ) . " = 0";
+
+				if ( $search ) {
+					$query		.=	"\n AND ( j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+				}
+				break;
+			case 5: // Likes Only
+				$query			=	"SELECT j." . $_CB_database->NameQuote( 'id' )
+								.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_likes' ) . " AS f"
+								.	"\n INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = f." . $_CB_database->NameQuote( 'user_id' )
+								.	"\n WHERE f." . $_CB_database->NameQuote( 'asset' ) . " = " . $_CB_database->Quote( 'profile.' . $this->myId )
+								.	"\n AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+								.	"\n AND ( j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )"
+								.	"\n UNION \n"
+								.	"SELECT SUBSTRING_INDEX( SUBSTRING_INDEX( f." . $_CB_database->NameQuote( 'asset' ) . ", '.', 2 ) , '.' , -1 )"
+								.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_likes' ) . " AS f"
+								.	"\n INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = SUBSTRING_INDEX( SUBSTRING_INDEX( f." . $_CB_database->NameQuote( 'asset' ) . ", '.', 2 ) , '.' , -1 )"
+								.	"\n WHERE f." . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->myId
+								.	"\n AND f." . $_CB_database->NameQuote( 'asset' ) . " LIKE " . $_CB_database->Quote( 'profile.%' )
+								.	"\n AND j." . $_CB_database->NameQuote( 'block' ) . " = 0";
+
+				if ( $search ) {
+					$query		.=	"\n AND ( j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+				}
+				break;
+			case 4: // Follows Only
+				$query			=	"SELECT j." . $_CB_database->NameQuote( 'id' )
+								.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_following' ) . " AS f"
+								.	"\n INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = f." . $_CB_database->NameQuote( 'user_id' )
+								.	"\n WHERE f." . $_CB_database->NameQuote( 'asset' ) . " = " . $_CB_database->Quote( 'profile.' . $this->myId )
+								.	"\n AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+								.	"\n AND ( j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )"
+								.	"\n UNION \n"
+								.	"SELECT SUBSTRING_INDEX( SUBSTRING_INDEX( f." . $_CB_database->NameQuote( 'asset' ) . ", '.', 2 ) , '.' , -1 )"
+								.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_following' ) . " AS f"
+								.	"\n INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = SUBSTRING_INDEX( SUBSTRING_INDEX( f." . $_CB_database->NameQuote( 'asset' ) . ", '.', 2 ) , '.' , -1 )"
+								.	"\n WHERE f." . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->myId
+								.	"\n AND f." . $_CB_database->NameQuote( 'asset' ) . " LIKE " . $_CB_database->Quote( 'profile.%' )
+								.	"\n AND j." . $_CB_database->NameQuote( 'block' ) . " = 0";
+
+				if ( $search ) {
+					$query		.=	"\n AND ( j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+				}
+				break;
+			case 3: // Moderators Only
+				$moderatorViewAccessLevels		=	Application::CmsPermissions()->getGroupsOfViewAccessLevel( Application::Config()->getInt( 'moderator_viewaccesslevel', 3 ), true );
+
+				if ( ! $moderatorViewAccessLevels ) {
+					return;
+				}
+
+				$query			=	'SELECT j.' . $_CB_database->NameQuote( 'id' )
+								.	"\n FROM " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	"\n INNER JOIN " . $_CB_database->NameQuote( '#__user_usergroup_map' ) . " AS g"
+								.	' ON g.' . $_CB_database->NameQuote( 'user_id' ) . ' = j.' . $_CB_database->NameQuote( 'id' )
+								.	"\n WHERE g." . $_CB_database->NameQuote( 'group_id' ) . " IN " . $_CB_database->safeArrayOfIntegers( $moderatorViewAccessLevels )
+								.	"\n AND j." . $_CB_database->NameQuote( 'block' ) . " = 0";
+
+				if ( $search ) {
+					$query		.=	"\n AND ( j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+				}
+				break;
+			case 2: // Connections Only
+				$query			=	"SELECT j." . $_CB_database->NameQuote( 'id' )
+								.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_members' ) . " AS m"
+								.	"\n INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = m." . $_CB_database->NameQuote( 'memberid' )
+								.	"\n WHERE m." . $_CB_database->NameQuote( 'referenceid' ) . " = " . $this->myId
+								.	"\n AND m." . $_CB_database->NameQuote( 'accepted' ) . " = 1"
+								.	"\n AND j." . $_CB_database->NameQuote( 'block' ) . " = 0";
+
+				if ( $search ) {
+					$query		.=	"\n AND ( j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+				}
+				break;
+			case 1: // All Users
+			default:
+				$query			=	"SELECT " . $_CB_database->NameQuote( 'id' )
+								.	"\n FROM " . $_CB_database->NameQuote( '#__users' )
+								.	"\n WHERE " . $_CB_database->NameQuote( 'block' ) . " = 0";
+
+				if ( $search ) {
+					$query		.=	"\n AND ( " . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR " . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+				}
+				break;
+		}
+		$_CB_database->setQuery( $query, 0, 20 );
+		$connections			=	$_CB_database->loadResultArray();
+
+		if ( $connections ) {
+			CBuser::advanceNoticeOfUsersNeeded( $connections );
+		}
+
+		$tags					=	[];
+		$tagsSuggestions		=	true;
+		$searchFound			=	false;
+
+		foreach ( $connections as $userId ) {
+			$name				=	CBuser::getUserDataInstance( (int) $userId )->getFormattedName();
+
+			if ( $name === $search ) {
+				$searchFound	=	true;
+			}
+
+			$tag				=	new TagTable();
+
+			$tag->setTag( (int) $userId );
+
+			$tags[]				=	$tag;
+		}
+
+		if ( ! $searchFound ) {
+			$tag				=	new TagTable();
+
+			$tag->setTag( $search );
+
+			array_unshift( $tags, $tag );
+		}
+
+		$template				=	$this->template;
+
+		require HtmlHelper::getTemplate( 'tags/tags', $this->template );
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedTags(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->row->getId() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function tags(): void
+	{
+		global $_CB_framework, $_CB_database;
+
+		$page			=	$this->input->getInt( 'page', 0 );
+		$pageLimit		=	15;
+		$where			=	[];
+
+		if ( $page ) {
+			$where[]	=	"( " . $_CB_database->NameQuote( 'id' ) . " < " . $page
+						.	" AND " . $_CB_database->NameQuote( 'id' ) . " IS NOT NULL )";
+		}
+
+		$where[]		=	$_CB_database->NameQuote( 'activity_id' ) . " = " . $this->row->getId();
+
+		$query			=	"SELECT *"
+						.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_tags' )
+						.	( $where ? "\n WHERE " . implode( "\n AND ", $where ) : null )
+						.	"\n ORDER BY " . $_CB_database->NameQuote( 'id' ) . " DESC";
+		$_CB_database->setQuery( $query, 0, ( $pageLimit + 1 ) );
+		$rows			=	$_CB_database->loadObjectList( 'id', TagTable::class, [ $_CB_database ] );
+
+		PrefetchHelper::prefetchRows( $rows );
+
+		$hasMore		=	( \count( $rows ) > $pageLimit );
+
+		if ( $hasMore ) {
+			$rows		=	\array_slice( $rows, 0, $pageLimit, true );
+		}
+
+		if ( ! $rows ) {
+			return;
+		}
+
+		$template		=	$this->template;
+		$activity		=	$this->row;
+
+		if ( ! $page ) {
+			$total		=	TagsHelper::getTotalByActivity( $this->row->getId() );
+			$baseUrl	=	$_CB_framework->pluginClassUrl( 'cbactivity', true, [ 'action' => 'activity.tags', 'id' => $this->row->getId(), 'Itemid' => ActivityHelper::getStreamMenuId( $this->row->getStreamId() ) ], 'raw', 0, true );
+
+			require HtmlHelper::getTemplate( 'tags/display', $this->template );
+		} else {
+			require HtmlHelper::getTemplate( 'tags/rows', $this->template );
+		}
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function authorizedComments(): bool
+	{
+		return ( $this->isRaw && $this->csrf() && $this->row && $this->row->getId() && $this->row->getCommentsStreamId() && $this->row->getCommentStream() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function comments(): void
+	{
+		echo $this->row->getCommentStream()->renderStream();
+	}
+
+	/**
+	 * @return FilterEntity[]
+	 */
+	private function getFilters(): array
+	{
+		static $cache				=	[];
+
+		if ( \array_key_exists( $this->stream->getId(), $cache ) ) {
+			return $cache[$this->stream->getId()];
+		}
+
+		$filters					=	[];
+
+		$defaultAssets				=	$this->stream->getParams()->getDefaultAssets();
+		$defaultAssetsUsers			=	$this->stream->getParams()->getDefaultAssetsUsers();
+		$defaultStreamIds			=	$this->stream->getParams()->getDefaultStreams();
+		$defaultUsers				=	$this->stream->getParams()->getDefaultUsers();
+		$defaultExcludeAssets		=	$this->stream->getParams()->getDefaultExcludeAssets();
+		$defaultExcludeAssetsUsers	=	$this->stream->getParams()->getDefaultExcludeAssetsUsers();
+		$defaultExcludeStreamIds	=	$this->stream->getParams()->getDefaultExcludeStreams();
+		$defaultExcludeUsers		=	$this->stream->getParams()->getDefaultExcludeUsers();
+		$streamData					=	$this->stream->getAsset()->getData( true );
+
+		if ( $defaultAssets || $defaultStreamIds || $defaultUsers ) {
+			$filters[0]				=	new FilterEntity( 0, CBTxt::T( 'FILTERS_ALL', 'All' ), $defaultAssets, $defaultAssetsUsers, $defaultStreamIds, $defaultUsers, $defaultExcludeAssets, $defaultExcludeAssetsUsers, $defaultExcludeStreamIds, $defaultExcludeUsers, $this->stream, $streamData );
+		} else {
+			// Fallback to core stream asset since no All defaults were supplied
+			$filters[0]				=	new FilterEntity( 0, CBTxt::T( 'FILTERS_ALL', 'All' ), $this->stream->getAsset(), $defaultAssetsUsers, '', '', $defaultExcludeAssets, $defaultExcludeAssetsUsers, $defaultExcludeStreamIds, $defaultExcludeUsers, $this->stream, $streamData );
+		}
+
+		$i							=	1;
+
+		foreach ( $this->stream->getFilters() as $filter ) {
+			/** @var ParamsInterface $filter */
+			$name					=	$filter->getString( 'filter', '' );
+			$assets					=	$filter->getString( 'assets', '' );
+			$assetsUsers			=	$filter->getBool( 'assets_users', true );
+			$streamIds				=	$filter->getString( 'streams', '' );
+			$users					=	$filter->getString( 'users', '' );
+			$excludeAssets			=	$filter->getString( 'exclude_assets', '' );
+			$excludeAssetsUsers		=	$filter->getBool( 'exclude_assets_users', false );
+			$excludeStreamIds		=	$filter->getString( 'exclude_streams', '' );
+			$excludeUsers			=	$filter->getString( 'exclude_users', '' );
+			$access					=	$filter->getInt( 'access', 1 );
+
+			if ( ( ! $name )
+				 && ( ! $assets )
+				 && ( ! $streamIds )
+				 && ( ! $users )
+				 && ( ! $excludeAssets )
+				 && ( ! $excludeStreamIds )
+				 && ( ! $excludeUsers )
+			) {
+				continue;
+			}
+
+			if ( ! $this->stream->getParams()->canAccess( $access ) ) {
+				continue;
+			}
+
+			$filters[$i]			=	new FilterEntity( $i, CBTxt::T( $name ), $assets, $assetsUsers, $streamIds, $users, $excludeAssets, $excludeAssetsUsers, $excludeStreamIds, $excludeUsers, $this->stream, $streamData );
+
+			$i++;
+		}
+
+		$cache[$this->stream->getId()]	=	$filters;
+
+		return $filters;
+	}
+
+	/**
+	 * @param string   $page
+	 * @param string   $pageDir
+	 * @param bool     $hasMore
+	 * @param int      $filterId
+	 * @param string   $hashtag
+	 * @param string   $mentioned
+	 * @param string   $search
+	 * @param int      $flairId
+	 * @param string   $date
+	 * @param int      $loop
+	 * @return ActivityTable[]
+	 */
+	private function getRows( string $page = '0', string $pageDir = '<', bool &$hasMore = false, int $filterId = 0, string $hashtag = '', string $mentioned = '', string $search = '', int $flairId = 0, string $date = '', int $loop = 0 ): array
+	{
+		global $_CB_framework, $_CB_database, $_PLUGINS;
+
+		if ( $loop > 100 ) {
+			// too much recursion so just give up
+			// the stream probably should be configured better if this happens as too much server side aggregation is happening
+			return [];
+		}
+
+		$pageLimit					=	$this->stream->getParams()->getPagingLimit();
+
+		if ( $pageDir === '>' ) {
+			$pageLimit				=	(int) ( $pageLimit / 2 );
+		}
+
+		$select						=	[ 'a.*' ];
+		$join						=	[];
+		$where						=	[];
+
+		$unavailableStreams						=	[];
+
+		if ( ! Application::MyUser()->isGlobalModerator() ) {
+			$availableStreams					=	array_keys( ActivityHelper::getStreams( $this->myId ) );
+
+			if ( ! $availableStreams ) {
+				return [];
+			}
+
+			foreach ( array_keys( ActivityHelper::getStreams() ) as $knownStreamId ) {
+				if ( \in_array( $knownStreamId, $availableStreams, true ) ) {
+					continue;
+				}
+
+				$unavailableStreams[]			=	$knownStreamId;
+			}
+		}
+
+		if ( \in_array( $this->show, [ 'hashtag', 'mentioned', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'controversial', 'reported', 'pending', 'flair' ], true ) ) {
+			$filterId							=	0;
+			$selectedFilter						=	null;
+		} else {
+			$selectedFilter						=	( $this->getFilters()[$filterId] ?? null );
+		}
+
+		$streamAssets							=	( $selectedFilter ? $selectedFilter->getAssets() : [ $this->stream->getInitialAsset() => $this->stream->getAsset() ] );
+		$streamAssetsUsers						=	( ( ! $selectedFilter ) || $selectedFilter->getAssetsUsers() );
+		$streamStreamIds						=	( $selectedFilter ? $selectedFilter->getStreams() : [] );
+		$streamUsers							=	( $selectedFilter ? $selectedFilter->getUsers() : [] );
+		$streamExcludeAssets					=	( $selectedFilter ? $selectedFilter->getExcludeAssets() : [] );
+		$streamExcludeAssetsUsers				=	( $selectedFilter && $selectedFilter->getExcludeAssetsUsers() );
+		$streamExcludeStreamIds					=	( $selectedFilter ? $selectedFilter->getExcludeStreams() : [] );
+		$streamExcludeUsers						=	( $selectedFilter ? $selectedFilter->getExcludeUsers() : [] );
+		$streamModerator						=	$this->stream->canModerate();
+
+		if ( \in_array( $this->show, [ 'hashtag', 'mentioned', 'tagged', 'likes', 'liked', 'commented', 'bookmarked', 'controversial', 'reported', 'pending', 'flair' ], true ) ) {
+			$asset								=	'self.' . $this->show . 'only';
+			$streamAssets						=	[ $asset => new AssetEntity( $asset ) ];
+		} elseif ( $hashtag || $mentioned || $search || $flairId || $date ) {
+			if ( $hashtag ) {
+				$asset							=	'hashtagonly';
+				$streamAssets[$asset]			=	new AssetEntity( $asset );
+			}
+
+			if ( $mentioned ) {
+				$asset							=	'mentionedonly';
+				$streamAssets[$asset]			=	new AssetEntity( $asset );
+			}
+
+			if ( $flairId ) {
+				$asset							=	'flaironly';
+				$streamAssets[$asset]			=	new AssetEntity( $asset );
+			}
+
+			if ( $date ) {
+				$asset							=	'dateonly';
+				$streamAssets[$asset]			=	new AssetEntity( $asset );
+			}
+
+			if ( $search ) {
+				$asset							=	'searchonly';
+				$streamAssets[$asset]			=	new AssetEntity( $asset );
+			}
+		}
+
+		if ( $streamStreamIds ) {
+			if ( $unavailableStreams ) {
+				foreach ( $streamStreamIds as $k => $streamStreamId ) {
+					if ( ! \in_array( $streamStreamId, $unavailableStreams, true ) ) {
+						continue;
+					}
+
+					unset( $streamStreamIds[$k] );
+				}
+
+				if ( ! $streamStreamIds ) {
+					return [];
+				}
+			}
+
+			$where[]							=	"a." . $_CB_database->NameQuote( 'stream_id' ) . ( \count( $streamStreamIds ) > 1 ? " IN " . $_CB_database->safeArrayOfIntegers( $streamStreamIds ) : " = " . (int) $streamStreamIds[0] );
+		} elseif ( $unavailableStreams ) {
+			$streamExcludeStreamIds				=	\array_unique( \array_merge( $streamExcludeStreamIds, $unavailableStreams ) );
+		}
+
+		if ( $streamExcludeStreamIds ) {
+			$where[]							=	"a." . $_CB_database->NameQuote( 'stream_id' ) . ( \count( $streamExcludeStreamIds ) > 1 ? " NOT IN " . $_CB_database->safeArrayOfIntegers( $streamExcludeStreamIds ) : " != " . (int) $streamExcludeStreamIds[0] );
+		}
+
+		if ( $streamUsers ) {
+			$moderators							=	false;
+			$connWhere							=	[];
+
+			foreach ( $streamUsers as $k => $streamUser ) {
+				if ( \is_numeric( $streamUser ) ) {
+					continue;
+				}
+
+				$connUser						=	0;
+				$connCheck						=	false;
+
+				switch ( $streamUser ) {
+					case 'asset_user':
+						unset( $streamUsers[$k] );
+
+						$streamUsers[$k]		=	$this->stream->getAsset()->getUser();
+						continue 2;
+					case 'moderators':
+						unset( $streamUsers[$k] );
+
+						$moderators				=	true;
+						continue 2;
+					case 'connections':
+					case 'profile.connections':
+						unset( $streamUsers[$k] );
+
+						$connCheck				=	true;
+						$connUser				=	$this->stream->getAsset()->getUser();
+						break;
+					case 'user':
+						unset( $streamUsers[$k] );
+
+						$streamUsers[$k]		=	( $_CB_framework->getDisplayedUser() ?: $this->myId );
+						continue 2;
+					case 'user.connections':
+						unset( $streamUsers[$k] );
+
+						$connCheck				=	true;
+						$connUser				=	( $_CB_framework->getDisplayedUser() ?: $this->myId );
+						break;
+					case 'self':
+						$streamUsers[$k]		=	$this->myId;
+						continue 2;
+					case 'self.connections':
+						unset( $streamUsers[$k] );
+
+						$connCheck				=	true;
+						$connUser				=	$this->myId;
+						break;
+					case 'displayed':
+						$streamUsers[$k]		=	$_CB_framework->getDisplayedUser();
+						continue 2;
+					case 'displayed.connections':
+						unset( $streamUsers[$k] );
+
+						$connCheck				=	true;
+						$connUser				=	$_CB_framework->getDisplayedUser();
+						break;
+				}
+
+				if ( $connCheck ) {
+					$connections				=	UsersHelper::getConnections( $connUser );
+
+					if ( $connections ) {
+						if ( \count( $connections ) > 100 ) {
+							$connWhere[]		=	"EXISTS ("
+												.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_members' ) . " AS m"
+												.		" WHERE m." . $_CB_database->NameQuote( 'accepted' ) . " = 1"
+												.		" AND m." . $_CB_database->NameQuote( 'pending' ) . " = 0"
+												.		" AND m." . $_CB_database->NameQuote( 'referenceid' ) . " = ". $connUser
+												.		" AND m." . $_CB_database->NameQuote( 'memberid' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+												.	")";
+						} else {
+							foreach( $connections as $connection ) {
+								$streamUsers[]	=	$connection;
+							}
+						}
+					}
+				}
+
+				// remove any unknown string types not handled above already
+				unset( $streamUsers[$k] );
+			}
+
+			if ( $moderators ) {
+				$streamUsers					=	array_merge( $streamUsers, UsersHelper::getModerators() );
+			}
+
+			$streamUsers						=	array_unique( array_filter( $streamUsers ) );
+			$usersWhere							=	[];
+
+			if ( $streamUsers ) {
+				$usersWhere[]					=	"a." . $_CB_database->NameQuote( 'user_id' ) . ( \count( $streamUsers ) > 1 ? " IN " . $_CB_database->safeArrayOfIntegers( $streamUsers ) : " = " . (int) $streamUsers[0] );
+			}
+
+			if ( $connWhere ) {
+				$usersWhere						=	array_merge( $usersWhere, $connWhere );
+			}
+
+			if ( $usersWhere ) {
+				$where[]						=	( \count( $usersWhere ) > 1 ? "( " . implode( " OR ", $usersWhere ) . " )" : $usersWhere[0] );
+			}
+		}
+
+		if ( $streamExcludeUsers ) {
+			$where[]							=	"a." . $_CB_database->NameQuote( 'user_id' ) . ( \count( $streamExcludeUsers ) > 1 ? " NOT IN " . $_CB_database->safeArrayOfIntegers( $streamExcludeUsers ) : " != " . (int) $streamExcludeUsers[0] );
+		}
+
+		if ( $streamExcludeAssets ) {
+			$excludeUserIds						=	[];
+			$excludeAssets						=	[];
+
+			foreach ( $streamExcludeAssets as $streamExcludeAsset ) {
+				if ( ( strpos( $streamExcludeAsset, '%' ) !== false ) || ( strpos( $streamExcludeAsset, '_' ) !== false ) ) {
+					$where[]					=	"a." . $_CB_database->NameQuote( 'asset' ) . " NOT LIKE " . $_CB_database->Quote( $streamExcludeAsset );
+				} else {
+					if ( $streamExcludeAssetsUsers && ( $streamExcludeAsset->getTarget() === 'profile' ) ) {
+						$excludeUserIds[]		=	$streamExcludeAsset->getTargetId();
+					}
+
+					$excludeAssets[]			=	(string) $streamExcludeAsset;
+				}
+			}
+
+			if ( $excludeUserIds ) {
+				$excludeUserIds					=	array_unique( $excludeUserIds );
+
+				$where[]						=	"a." . $_CB_database->NameQuote( 'user_id' ) . ( \count( $excludeUserIds ) > 1 ? " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeUserIds ) : " != " . (int) $excludeUserIds[0] );
+			}
+
+			if ( $excludeAssets ) {
+				$where[]						=	"a." . $_CB_database->NameQuote( 'asset' ) . ( \count( $excludeAssets ) > 1 ? " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeAssets ) : " != " . (int) $excludeAssets[0] );
+			}
+		}
+
+		if ( $streamAssets )  {
+			$userIds								=	[];
+			$assetsWhere							=	[];
+			$assets									=	[];
+			$isAnd									=	false;
+
+			foreach ( $streamAssets as $asset ) {
+				$isOnly								=	( $asset->getData()['is_only'] ?? false );
+
+				if ( ( (string) $asset === 'all' ) || \in_array( $asset->getInitialAsset(), [ 'groupjiveonly', 'groupjive.my', 'groupjive.myonly', 'groupjive.joined', 'groupjive.joinedonly', 'groupjive.owned', 'groupjive.ownedonly', 'galleryonly' ], true ) ) {
+					// Exclude All from normaly processing below, but also exclude any asset filtering that will be done in QueryHelper
+					continue;
+				}
+
+				if ( strpos( $asset, 'connections' ) !== false ) {
+					if ( ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	$this->myId;
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'connections' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						$connections				=	UsersHelper::getConnections( $profileId );
+
+						if ( ! $connections ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						if ( ( \count( $connections ) > 500 ) ) {
+							// Only fallback to a subquery if we have to as subquery is slow
+							$connectionsFilter		=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_members' ) . " AS m"
+													.		" WHERE m." . $_CB_database->NameQuote( 'accepted' ) . " = 1"
+													.		" AND m." . $_CB_database->NameQuote( 'pending' ) . " = 0"
+													.		" AND m." . $_CB_database->NameQuote( 'referenceid' ) . " = ". $profileId
+													.		" AND ( m." . $_CB_database->NameQuote( 'memberid' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+													.		" OR CONCAT( 'profile.', m." . $_CB_database->NameQuote( 'memberid' ) . " ) = a." . $_CB_database->NameQuote( 'asset' ) . " )"
+													.	")";
+
+							if ( $isOnly ) {
+								$where[]			=	$connectionsFilter;
+							} else {
+								$assetsWhere[]		=	$connectionsFilter;
+							}
+						} else {
+							foreach( $connections as $connection ) {
+								if ( $streamAssetsUsers ) {
+									$userIds[]		=	$connection;
+								}
+
+								$assets[]			=	'profile.' . $connection;
+							}
+
+							if ( $isOnly ) {
+								$isAnd				=	true;
+							}
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'following' ) !== false ) {
+					if ( ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	$this->myId;
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'following' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						$followed					=	FollowingHelper::getFollowed( $profileId );
+
+						if ( ! $followed ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						if ( ( \count( $followed ) > 500 ) ) {
+							// Only fallback to a subquery if we have to as subquery is slow
+							$followingFilter		=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_following' ) . " AS following"
+													.		" WHERE following." . $_CB_database->NameQuote( 'user_id' ) . " = ". $profileId
+													.		" AND following." . $_CB_database->NameQuote( 'asset' ) . " IN ( a." . $_CB_database->NameQuote( 'asset' ) . ", CONCAT( 'profile.', a." . $_CB_database->NameQuote( 'user_id' ) . " ) )"
+													.	")";
+
+							if ( $isOnly ) {
+								$where[]			=	$followingFilter;
+							} else {
+								$assetsWhere[]		=	$followingFilter;
+							}
+						} else {
+							foreach( $followed as $follow ) {
+								if ( $streamAssetsUsers && ( $follow->getTarget() === 'profile' ) ) {
+									$userIds[]		=	$asset->getTargetId();
+								}
+
+								$assets[]			=	(string) $follow;
+							}
+
+							if ( $isOnly ) {
+								$isAnd				=	true;
+							}
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'likes' ) !== false ) {
+					if ( ( $this->show === 'likes' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	$this->myId;
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'likes' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						$liked						=	LikesHelper::getLikedAssets( $profileId );
+
+						if ( ! $liked ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						if ( ( \count( $liked ) > 500 ) ) {
+							// Only fallback to a subquery if we have to as subquery is slow
+							$likesFilter			=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_likes' ) . " AS likes"
+													.		" WHERE likes." . $_CB_database->NameQuote( 'user_id' ) . " = ". $profileId
+													.		" AND likes." . $_CB_database->NameQuote( 'asset' ) . " IN ( a." . $_CB_database->NameQuote( 'asset' ) . ", CONCAT( 'activity.', a." . $_CB_database->NameQuote( 'id' ) . " ) )"
+													.	")";
+
+							if ( $isOnly ) {
+								$where[]			=	$likesFilter;
+							} else {
+								$assetsWhere[]		=	$likesFilter;
+							}
+						} else {
+							foreach( $liked as $like ) {
+								if ( $streamAssetsUsers && ( $like->getTarget() === 'profile' ) ) {
+									$userIds[]		=	$asset->getTargetId();
+								}
+
+								$assets[]			=	(string) $like;
+							}
+
+							if ( $isOnly ) {
+								$isAnd				=	true;
+							}
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'liked' ) !== false ) {
+					if ( ( $this->show === 'liked' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	$this->myId;
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'liked' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						if ( ! LikesHelper::hasActivityLikes( $profileId ) ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						$likedFilter				=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_liked' ) . " AS liked"
+													.		" WHERE liked." . $_CB_database->NameQuote( 'user_id' ) . " = " . $profileId
+													.		" AND liked." . $_CB_database->NameQuote( 'activity_id' ) . " = a." . $_CB_database->NameQuote( 'id' )
+													.	")";
+
+						if ( $isOnly ) {
+							$where[]				=	$likedFilter;
+						} else {
+							$assetsWhere[]			=	$likedFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'commented' ) !== false ) {
+					if ( ( $this->show === 'commented' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	$this->myId;
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'commented' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						if ( ! CommentsHelper::hasActivityComments( $profileId ) ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						$commentedFilter			=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_commented' ) . " AS commented"
+													.		" WHERE commented." . $_CB_database->NameQuote( 'user_id' ) . " = " . $profileId
+													.		" AND commented." . $_CB_database->NameQuote( 'activity_id' ) . " = a." . $_CB_database->NameQuote( 'id' )
+													.	")";
+
+						if ( $isOnly ) {
+							$where[]				=	$commentedFilter;
+						} else {
+							$assetsWhere[]			=	$commentedFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'bookmarked' ) !== false ) {
+					if ( ( $this->show === 'bookmarked' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	$this->myId;
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'bookmarked' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						if ( ! BookmarkHelper::hasBookmarks( $profileId ) ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						$bookmarkFilter				=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_bookmarked' ) . " AS bookmarked"
+													.		" WHERE bookmarked." . $_CB_database->NameQuote( 'user_id' ) . " = " . $profileId
+													.		" AND bookmarked." . $_CB_database->NameQuote( 'activity_id' ) . " = a." . $_CB_database->NameQuote( 'id' )
+													.	")";
+
+						if ( $isOnly ) {
+							$where[]				=	$bookmarkFilter;
+						} else {
+							$assetsWhere[]			=	$bookmarkFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'mentioned' ) !== false ) {
+					if ( $mentioned || ( $this->show === 'mentioned' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	0;
+
+						if ( ! $mentioned ) {
+							$profileId				=	$this->myId;
+						} elseif ( is_numeric( $mentioned ) ) {
+							$profileId				=	(int) $mentioned;
+						} elseif ( \is_string( $mentioned ) ) {
+							$mentionedUser			=	new UserTable();
+
+							$mentionedUser->loadByUsername( trim( $mentioned ) );
+
+							$profileId				=	$mentionedUser->getInt( 'id', 0 );
+
+							if ( ! $profileId ) {
+								$mentionedUser->load( [ 'name' => trim( $mentioned ) ] );
+
+								$profileId			=	$mentionedUser->getInt( 'id', 0 );
+							}
+						}
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'mentioned' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						if ( ! MentionsHelper::hasMentions( $profileId ) ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						$mentionedFilter			=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_mentions' ) . " AS mentioned"
+													.		" WHERE mentioned." . $_CB_database->NameQuote( 'user_id' ) . " = " . $profileId
+													.		" AND mentioned." . $_CB_database->NameQuote( 'activity_id' ) . " = a." . $_CB_database->NameQuote( 'id' )
+													.	")";
+
+						if ( $isOnly ) {
+							$where[]				=	$mentionedFilter;
+						} else {
+							$assetsWhere[]			=	$mentionedFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'tagged' ) !== false ) {
+					if ( ( $this->show === 'tagged' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						$profileId					=	$this->myId;
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'tagged' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId ) {
+						if ( ! TagsHelper::hasTags( $profileId ) ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						$taggedFilter				=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_tags' ) . " AS tagged"
+													.		" WHERE tagged." . $_CB_database->NameQuote( 'activity_id' ) . " = a." . $_CB_database->NameQuote( 'id' )
+													.		" AND tagged." . $_CB_database->NameQuote( 'tag' ) . " = " . $profileId
+													.	")";
+
+						if ( $isOnly ) {
+							$where[]				=	$taggedFilter;
+						} else {
+							$assetsWhere[]			=	$taggedFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'hashtag' ) !== false ) {
+					if ( $hashtag ) {
+						$hashtagFilter				=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_hashtags' ) . " AS hashtag"
+													.		" WHERE hashtag." . $_CB_database->NameQuote( 'hashtag' ) . " = " . $_CB_database->Quote( $hashtag )
+													.		" AND hashtag." . $_CB_database->NameQuote( 'activity_id' ) . " = a." . $_CB_database->NameQuote( 'id' )
+													.	")";
+
+						if ( $isOnly ) {
+							$where[]				=	$hashtagFilter;
+						} else {
+							$assetsWhere[]			=	$hashtagFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'flair' ) !== false ) {
+					if ( ( $asset->getTarget() === 'flair' ) && $asset->getTargetId() ) {
+						$flairId					=	$asset->getTargetId();
+					}
+
+					if ( $flairId ) {
+						if ( ! \array_key_exists( $flairId, FlairHelper::getByProfile( $this->myId ) ) ) {
+							if ( $isOnly ) {
+								return [];
+							}
+							continue;
+						}
+
+						$flairFilter				=	"EXISTS ("
+													.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_flairs' ) . " AS flair"
+													.		" WHERE flair." . $_CB_database->NameQuote( 'flair_id' ) . " = " . $_CB_database->Quote( $flairId )
+													.		" AND flair." . $_CB_database->NameQuote( 'activity_id' ) . " = a." . $_CB_database->NameQuote( 'id' )
+													.	")";
+
+						if ( $isOnly ) {
+							$where[]				=	$flairFilter;
+						} else {
+							$assetsWhere[]			=	$flairFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'controversial' ) !== false ) {
+					$controversial					=	GlobalParams::getReportingControversial();
+
+					if ( $controversial ) {
+						$controversialFilter		=	"a." . $_CB_database->NameQuote( 'reports' ) . " >= " . $controversial;
+
+						if ( $isOnly ) {
+							$where[]				=	$controversialFilter;
+						} else {
+							$assetsWhere[]			=	$controversialFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'reported' ) !== false ) {
+					if ( ( $this->show === 'reported' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						if ( $streamModerator ) {
+							$profileId				=	false;
+						} else {
+							$profileId				=	$this->myId;
+						}
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'reported' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+
+						if ( \in_array( $asset->getInitialAsset(), [ 'reported', 'reportedonly' ], true ) && $streamModerator ) {
+							$profileId				=	false;
+						}
+					}
+
+					if ( $profileId !== false ) {
+						if ( ( ! $profileId ) || ( ( ! $streamModerator ) && ( $profileId !== $this->myId ) ) ) {
+							return [];
+						}
+
+						$where[]					=	"a." . $_CB_database->NameQuote( 'user_id' ) . " = " . $profileId;
+					}
+
+					$where['published']				=	"a." . $_CB_database->NameQuote( 'published' ) . " = 3";
+				} elseif ( strpos( $asset, 'pending' ) !== false ) {
+					if ( ( $this->show === 'pending' ) || ( $asset->getTarget() === 'stream' ) || ( $asset->getTarget() === 'all' ) ) {
+						if ( $streamModerator ) {
+							$profileId				=	false;
+						} else {
+							$profileId				=	$this->myId;
+						}
+					} elseif ( ( $asset->getTarget() === 'profile' ) && ( $asset->getVerb() === 'pending' ) ) {
+						$profileId					=	$asset->getTargetId();
+					} else {
+						$profileId					=	$asset->getUser();
+					}
+
+					if ( $profileId !== false ) {
+						if ( ( ! $profileId ) || ( ( ! $streamModerator ) && ( $profileId !== $this->myId ) ) ) {
+							return [];
+						}
+
+						$where[]					=	"a." . $_CB_database->NameQuote( 'user_id' ) . " = " . $profileId;
+					}
+
+					$where['published']				=	"a." . $_CB_database->NameQuote( 'published' ) . " = 2";
+				} elseif ( strpos( $asset, 'search' ) !== false ) {
+					if ( $search ) {
+						$searchFilter				=	"a." . $_CB_database->NameQuote( 'message' ) . " LIKE " . $_CB_database->Quote( '%' . $_CB_database->getEscaped( $search, true ) . '%', false );
+
+						if ( $isOnly ) {
+							$where[]				=	$searchFilter;
+						} else {
+							$assetsWhere[]			=	$searchFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( strpos( $asset, 'date' ) !== false ) {
+					if ( $date ) {
+						if ( strpos( $date, ':' ) !== false ) {
+							[ $dateFrom, $dateTo ]	=	explode( ':', $date, 2 );
+
+							if ( $dateFrom && $dateTo ) {
+								$dateFilter			=	"a." . $_CB_database->NameQuote( 'date' ) . " BETWEEN " . $_CB_database->Quote( $dateFrom ) . " AND " . $_CB_database->Quote( $dateTo );
+							} elseif ( $dateFrom ) {
+								$dateFilter			=	"a." . $_CB_database->NameQuote( 'date' ) . " >= " . $_CB_database->Quote( $dateFrom );
+							} elseif ( $dateTo ) {
+								$dateFilter			=	"a." . $_CB_database->NameQuote( 'date' ) . " <= " . $_CB_database->Quote( $dateTo );
+							} else {
+								return [];
+							}
+						} else {
+							$dateFilter				=	"a." . $_CB_database->NameQuote( 'date' ) . " >= " . $_CB_database->Quote( $date );
+						}
+
+						if ( $isOnly ) {
+							$where[]				=	$dateFilter;
+						} else {
+							$assetsWhere[]			=	$dateFilter;
+						}
+					} elseif ( $isOnly ) {
+						return [];
+					}
+				} elseif ( ( strpos( $asset, '%' ) !== false ) || ( strpos( $asset, '_' ) !== false ) ) {
+					$assetsWhere[]					=	"a." . $_CB_database->NameQuote( 'asset' ) . " LIKE " . $_CB_database->Quote( (string) $asset );
+
+					if ( $isOnly ) {
+						$isAnd						=	true;
+					}
+				} else {
+					if ( $streamAssetsUsers && ( $asset->getTarget() === 'profile' ) ) {
+						$userIds[]					=	$asset->getTargetId();
+					}
+
+					$assets[]						=	(string) $asset;
+
+					if ( $isOnly ) {
+						$isAnd						=	true;
+					}
+				}
+
+				if ( \in_array( false, $_PLUGINS->trigger( 'activity_onQueryActivityFilter', [ $this->stream, $selectedFilter, $asset, &$userIds, &$assets, &$assetsWhere, $hashtag, $mentioned, $search, $flairId, $loop ] ), true ) ) {
+					return [];
+				}
+			}
+
+			if ( $userIds ) {
+				$userIds							=	array_unique( $userIds );
+
+				$assetsWhere[]						=	"a." . $_CB_database->NameQuote( 'user_id' ) . ( \count( $userIds ) > 1 ? " IN " . $_CB_database->safeArrayOfIntegers( $userIds ) : " = " . (int) $userIds[0] );
+			}
+
+			if ( $assets ) {
+				$assets								=	array_unique( $assets );
+
+				$assetsWhere[]						=	"a." . $_CB_database->NameQuote( 'asset' ) . ( \count( $assets ) > 1 ? " IN " . $_CB_database->safeArrayOfStrings( $assets ) : " = " . $_CB_database->Quote( $assets[0] ) );
+			}
+
+			if ( $assetsWhere ) {
+				$assetsWhere						=	array_unique( $assetsWhere );
+
+				$where[]							=	( \count( $assetsWhere ) > 1 ? "( " . implode( ( $isAnd ? " AND " : " OR " ), $assetsWhere ) . " )" : $assetsWhere[0] );
+			}
+		}
+
+		if ( $this->myId && GlobalParams::getHidden() ) {
+			if ( GlobalParams::getHiddenActivity() ) {
+				$where[]		=	"NOT EXISTS ("
+								.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_hidden' ) . " AS h1"
+								.		" WHERE h1." . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->myId
+								.		" AND h1." . $_CB_database->NameQuote( 'type' ) . " = " . $_CB_database->Quote( 'activity' )
+								.		" AND ( h1." . $_CB_database->NameQuote( 'object' ) . " = a." . $_CB_database->NameQuote( 'id' )
+								.		" OR a." . $_CB_database->NameQuote( 'asset' ) . " LIKE CONCAT_WS( '.', 'activity', h1." . $_CB_database->NameQuote( 'object' ) . ", '%' ) )"
+								.	")";
+			}
+
+			if ( GlobalParams::getHiddenUser() ) {
+				$where[]		=	"NOT EXISTS ("
+								.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_hidden' ) . " AS h2"
+								.		" WHERE h2." . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->myId
+								.		" AND h2." . $_CB_database->NameQuote( 'type' ) . " = " . $_CB_database->Quote( 'activity.user' )
+								.		" AND h2." . $_CB_database->NameQuote( 'object' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+								.	")";
+			}
+
+			if ( GlobalParams::getHiddenSimilar() ) {
+				$where[]		=	"NOT EXISTS ("
+								.		"SELECT 1 FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity_hidden' ) . " AS h3"
+								.		" WHERE h3." . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->myId
+								.		" AND h3." . $_CB_database->NameQuote( 'type' ) . " = " . $_CB_database->Quote( 'activity.asset' )
+								.		" AND h3." . $_CB_database->NameQuote( 'asset' ) . " = a." . $_CB_database->NameQuote( 'asset' )
+								.	")";
+			}
+		}
+
+		if ( ( ! \array_key_exists( 'access', $where ) ) && ( ! Application::MyUser()->isGlobalModerator() ) && ( ! $this->stream->getParams()->getPreviewAssets() ) ) {
+			$where[]			=	"a." . $_CB_database->NameQuote( 'access' ) . " IN " . $_CB_database->safeArrayOfIntegers( Application::MyUser()->getAuthorisedViewLevels() );
+		}
+
+		if ( ( ! \array_key_exists( 'published', $where ) ) && ( ! Application::MyUser()->isGlobalModerator() ) ) {
+			if ( $this->myId ) {
+				$where[]		=	"( a." . $_CB_database->NameQuote( 'published' ) . ( $streamModerator ? " >= 1" :  " = 1" )
+								.	" OR a." . $_CB_database->NameQuote( 'user_id' ) . " = " . $this->myId . " )";
+			} else {
+				$where[]		=	"a." . $_CB_database->NameQuote( 'published' ) . ( $streamModerator ? " >= 1" :  " = 1" );
+			}
+		}
+
+		QueryHelper::filterActivity( $select, $join, $where, ( $this->getFilters()[$filterId] ?? null ), $this->stream );
+
+		if ( $page ) {
+			$where[]			=	"( a." . $_CB_database->NameQuote( 'page' ) . " " . $pageDir . " " . $_CB_database->Quote( $page )
+								.	" AND a." . $_CB_database->NameQuote( 'page' ) . " IS NOT NULL )";
+		}
+
+		$_PLUGINS->trigger( 'activity_onQueryActivity', [ $this->stream, &$select, &$join, &$where ] );
+
+		$query					=	"SELECT " . implode( ", ", $select )
+								.	" FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_activity' ) . " AS a"
+								.	( $join ? "\n " . implode( "\n ", $join ) : null )
+								.	( $where ? "\n WHERE " . implode( "\n AND ", $where ) : null )
+								.	" ORDER BY a." . $_CB_database->NameQuote( 'page' ) . " DESC";
+		$_CB_database->setQuery( $query, 0, ( $pageDir === '>' ? $pageLimit : ( $pageLimit + 1 ) ) );
+		$rows					=	$_CB_database->loadObjectList( 'id', ActivityTable::class, [ $_CB_database ] );
+
+		if ( $pageDir === '>' ) {
+			$hasMore			=	false;
+		} else {
+			$hasMore			=	( \count( $rows ) > $pageLimit );
+
+			if ( $hasMore ) {
+				$rows			=	\array_slice( $rows, 0, $pageLimit, true );
+			}
+		}
+
+		PrefetchHelper::prefetchRows( $rows );
+
+		$rowsCount				=	\count( $rows );
+		$lastPage				=	( $rows ? ( $pageDir === '>' ? ArrayHelper::arrayFirst( $rows )->getPage() : ArrayHelper::arrayLast( $rows )->getPage() ) : null );
+
+		$_PLUGINS->trigger( 'activity_onLoadActivity', [ $this->stream, &$rows ] );
+
+		QueryHelper::verifyAccess( $rows, $this->stream );
+		QueryHelper::group( $rows, $this->stream );
+
+		$newCount				=	\count( $rows );
+
+		if ( $rowsCount && $lastPage && ( $newCount < round( $rowsCount / 1.5 ) ) ) {
+			$nextPage			=	( $pageLimit - $newCount );
+
+			if ( $nextPage <= 0 ) {
+				$nextPage		=	1;
+			}
+
+			$rows				+=	\array_slice( $this->getRows( $lastPage, $pageDir, $hasMore, $filterId, $hashtag, $mentioned, $search, $flairId, $date, ( $loop + 1 ) ), 0, $nextPage, true );
+		}
+
+		return $rows;
+	}
+}

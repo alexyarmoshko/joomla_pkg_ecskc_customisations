@@ -7,7 +7,7 @@
     <license>GNU General Public License version 2 or later; see LICENSE</license>
     <authorEmail>me@kayakshaver.com</authorEmail>
     <authorUrl>https://www.kayakshaver.com</authorUrl>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
     <description>COM_ECSKCCUSTOM_XML_DESCRIPTION</description>
     <namespace path="src">YakShaver\Component\ECSKCCustomisation</namespace>
     <!-- Joomla reads this at the package root on install and from admin/ on uninstall. -->

@@ -6,6 +6,26 @@ version. `make release` refuses to tag a version without its heading here.
 This file says what changed in each version. How to build, test, package and publish a release
 is in [`README.md`](../README.md).
 
+## 0.2.1
+
+**Release date:** not released yet. Prepared 2026-10-27.
+
+Adds one managed file: the CB Activity controller.
+
+### CB Activity recursive date fix
+
+`components/com_comprofiler/plugin/user/plug_cbactivity/library/Controller/ActivityController.php`
+in CB Activity 7.1.0+build.2026.08.31.17.16.12.c39deb025 refills a short page by calling
+`getRows()` again, and passes the loop counter where the date filter belongs. On the second
+refill the query filters on `a.date >= '1'`, MySQL refuses it with error 1525, and the activity
+stream fails to load. The Recipes group hit this. The package now replaces the stock controller
+with one that passes the date filter on. Nothing else in the file changes.
+
+- The rule recognises only the stock controller of that build, SHA-256 `f1f836fa…1b51f`. Any
+  other bytes are reported blocked and left alone, including a later CB Activity build.
+- A controller already carrying the fix but differing from the payload in any byte, such as a
+  copy fixed by hand, is also reported blocked. Restore the stock file, then apply.
+
 ## 0.2.0
 
 **Release date:** 2026-09-30.

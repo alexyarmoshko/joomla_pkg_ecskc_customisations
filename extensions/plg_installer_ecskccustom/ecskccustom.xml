@@ -8,7 +8,7 @@
     <authorEmail>me@kayakshaver.com</authorEmail>
     <authorUrl>https://www.kayakshaver.com</authorUrl>
     <!-- Always the component's version. The package build refuses a mismatch. -->
-    <version>0.2.0</version>
+    <version>0.2.1</version>
     <description>PLG_INSTALLER_ECSKCCUSTOM_XML_DESCRIPTION</description>
     <namespace path="src">YakShaver\Plugin\Installer\ECSKCCustomisation</namespace>
     <files>

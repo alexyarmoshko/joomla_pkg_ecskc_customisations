@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <patch hashType="sha256">
-    <description>CB Gallery and CBSubs language overrides</description>
+    <description>CB Gallery and CB Activity controller fixes and CBSubs language overrides</description>
 
     <root path="components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller">
         <object version="1">
@@ -45,6 +45,32 @@
                         <srcPathFileName>components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v2</srcPathFileName>
                         <!-- payload: LF, trailing newline -->
                         <sourceHash>ec454993d366c563f99610787df4f400418dbdced1504aed890c3d6ab5feb974</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
+    </root>
+
+    <root path="components/com_comprofiler/plugin/user/plug_cbactivity/library/Controller">
+        <object version="1">
+            <id>
+                <destPathFileName>ActivityController.php</destPathFileName>
+                <expectedHash>f1f836fa324109ea3bd6cf5b54223305d24ea0c9f329682fbe6e71a1a4b1b51f</expectedHash>
+                <description>CB Activity 7.1.0+build.2026.08.31.17.16.12.c39deb025 stock activity controller</description>
+            </id>
+            <action>
+                <description>
+                    The getRows() refill passes the current date filter on. The vendor
+                    passes the loop counter in the date's place, so the second refill
+                    filters on a.date &gt;= '1' and MySQL rejects the query (error 1525).
+                    Only that argument changes. Vendor file and payload are each
+                    139049 bytes, LF, with no trailing newline.
+                </description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>components/com_comprofiler/plugin/user/plug_cbactivity/library/Controller/ActivityController.php.v1</srcPathFileName>
+                        <!-- payload: LF, no trailing newline -->
+                        <sourceHash>8b72a092f18b161c4c63b411f83de9702595ec9046ecfb79a6296cc9d3bd3b16</sourceHash>
                     </copy>
                 </operations>
             </action>

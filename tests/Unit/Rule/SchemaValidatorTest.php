@@ -128,6 +128,7 @@ final class SchemaValidatorTest extends TestCase
             'components/com_kunena/template/nts_kbee/layouts/widget/error/default.php',
             'templates/et_tennis/options.xml',
             'components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php',
+            'components/com_comprofiler/plugin/user/plug_cbactivity/library/Controller/ActivityController.php',
             'apple-touch-icon.png',
             'apple-touch-icon-precomposed.png',
             'components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/override.php',

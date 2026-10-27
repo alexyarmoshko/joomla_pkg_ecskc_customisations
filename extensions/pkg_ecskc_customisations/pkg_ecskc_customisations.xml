@@ -10,7 +10,7 @@
     <authorEmail>me@kayakshaver.com</authorEmail>
     <authorUrl>https://www.kayakshaver.com</authorUrl>
     <!-- The release version, decision 13. The build refuses a child manifest that declares another. -->
-    <version>0.2.0</version>
+    <version>0.2.1</version>
     <description>Checks and applies the ECSKC site customisations, and re-checks them after extension work.</description>
     <scriptfile>script.php</scriptfile>
     <blockChildUninstall>true</blockChildUninstall>
