@@ -18,6 +18,7 @@ use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Router\Route;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ShippedFolderPruner;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
 use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
@@ -92,6 +93,10 @@ class Com_EcskccustomInstallerScript
             }
         }
 
+        if ($type === 'update') {
+            $this->pruneShippedFolders($root, $adapter);
+        }
+
         foreach (PackagePaths::ALL_FOLDERS as $folder) {
             $path = $root . '/' . $folder;
 
@@ -117,6 +122,51 @@ class Com_EcskccustomInstallerScript
         );
 
         return true;
+    }
+
+    /**
+     * Remove the payloads and rule files the previous release shipped and this one
+     * does not.
+     *
+     * Joomla copies an update over the installed files and keeps whatever the new
+     * release leaves out of payload/ and rules/, because the manifest names those
+     * as whole folders. The runner refuses every run over an unreferenced payload,
+     * so a release that retires one would otherwise disable the component.
+     *
+     * Runs after the copy. A file that cannot be removed, or a folder that cannot
+     * be read, is reported, not thrown: the new release is already in place.
+     */
+    private function pruneShippedFolders(string $root, InstallerAdapter $adapter): void
+    {
+        $this->loadCoreClass($root, ShippedFolderPruner::class, 'src/Core/Package/ShippedFolderPruner.php');
+
+        $source = (string) $adapter->getParent()->getPath('source');
+
+        // Without the extracted release there is nothing to compare against, and
+        // pruning against an absent tree would remove every shipped file.
+        if ($source === '' || !is_dir($source . '/admin')) {
+            return;
+        }
+
+        $pruner = new ShippedFolderPruner();
+
+        foreach (PackagePaths::SHIPPED_FOLDERS as $folder) {
+            $result = $pruner->prune($root . '/' . $folder, $source . '/admin/' . $folder);
+
+            foreach ($result['removed'] as $removed) {
+                $this->log('Removed ' . $folder . '/' . $removed . ', which this release does not ship.', Log::INFO);
+            }
+
+            foreach ($result['failed'] as $failed) {
+                $this->enqueue('COM_ECSKCCUSTOM_UPDATE_PRUNE_FAILED', 'warning', $folder . '/' . $failed);
+            }
+
+            // Not known to be retired, so the operator is told to fix access, not
+            // to delete: an unreadable payload/ itself holds the current release.
+            foreach ($result['unreadable'] as $unreadable) {
+                $this->enqueue('COM_ECSKCCUSTOM_UPDATE_PRUNE_UNREADABLE', 'warning', $folder . '/' . $unreadable);
+            }
+        }
     }
 
     /**
@@ -295,11 +345,11 @@ class Com_EcskccustomInstallerScript
      * this serves must not throw, and a diagnostic that cannot be written is not worth
      * leaving a component half-removed for.
      */
-    private function log(string $message): void
+    private function log(string $message, int $priority = Log::ERROR): void
     {
         try {
             Log::addLogger(['text_file' => 'com_ecskccustom.php'], Log::ALL, ['com_ecskccustom']);
-            Log::add($message, Log::ERROR, 'com_ecskccustom');
+            Log::add($message, $priority, 'com_ecskccustom');
         } catch (\Throwable) {
             // Nothing left to try, and nothing that would help the operator.
         }

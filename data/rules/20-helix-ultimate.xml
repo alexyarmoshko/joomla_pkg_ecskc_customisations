@@ -20,6 +20,29 @@
                 </operations>
             </action>
         </object>
+
+        <object version="2">
+            <id>
+                <destPathFileName>com_contact/contact/default_form.php</destPathFileName>
+                <expectedHash>3b40dcc56e1915662608d56ad331c78cdc650d9f8145f58a8228232afaac6317</expectedHash>
+                <description>Helix Ultimate 2.2.11 stock contact form</description>
+            </id>
+            <action>
+                <description>
+                    Adds a Cancel button beside Send, on the 2.2.11 form. That build
+                    reads the document through getDocument() and adds form-horizontal
+                    to the form, so the version 1 payload would undo both. A site still
+                    on 2.2.9 keeps version 1; this version does not build on it.
+                </description>
+                <operations>
+                    <copy>
+                        <srcPathFileName>plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v2</srcPathFileName>
+                        <!-- payload: LF, trailing newline -->
+                        <sourceHash>cc201bed61b121a7f903a8d950bfff7be052b42dea22701b6b0caa2f8295c3c5</sourceHash>
+                    </copy>
+                </operations>
+            </action>
+        </object>
     </root>
 
     <root path="plugins/system/helixultimate/overrides_legacy">

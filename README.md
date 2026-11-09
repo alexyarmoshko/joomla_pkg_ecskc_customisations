@@ -152,8 +152,8 @@ plugin shows `Not checked` in both update columns, and a `Not installed` row sho
 
 ## Status
 
-Version 0.2.1, released 2026-10-27. The package ZIP is attached to the
-[0.2.1 GitHub release](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/tag/0.2.1),
+Version 0.2.2, released 2026-11-09. The package ZIP is attached to the
+[0.2.2 GitHub release](https://github.com/alexyarmoshko/joomla_pkg_ecskc_customisations/releases/tag/0.2.2),
 and a site that has it installed is offered later versions under System, Update, Extensions.
 
 ## Documentation

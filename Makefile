@@ -63,6 +63,7 @@ COMPONENT_FILES := \
 	admin/src/Core/Package/ExclusiveCopy.php \
 	admin/src/Core/Package/PackagePaths.php \
 	admin/src/Core/Package/ProcDescriptor.php \
+	admin/src/Core/Package/ShippedFolderPruner.php \
 	admin/src/Core/Package/StateArchive.php \
 	admin/src/Core/Package/StateArchiveFailure.php \
 	admin/src/Core/Path/PathDecision.php \
@@ -203,15 +204,15 @@ PAYLOAD_FILES := \
 	apple-touch-icon-precomposed.png.v1 \
 	components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/language.php.v1 \
 	components/com_comprofiler/plugin/language/cbpaidsubscriptions-en-gb/override.php.v1 \
-	components/com_comprofiler/plugin/user/plug_cbactivity/library/Controller/ActivityController.php.v1 \
-	components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v1 \
-	components/com_comprofiler/plugin/user/plug_cbgallery/library/Controller/FolderController.php.v2 \
+	components/com_comprofiler/plugin/user/plug_cbgroupjive/plugins/cbgroupjiveevents/component.cbgroupjiveevents.php.v1 \
 	components/com_kunena/template/nts_kbee/config/config.xml.v1 \
 	components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v1 \
 	components/com_kunena/template/nts_kbee/layouts/topic/edit/default.php.v2 \
 	components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v1 \
 	components/com_kunena/template/nts_kbee/layouts/widget/error/default.php.v2 \
+	modules/mod_cbgroupjive/src/Dispatcher/Dispatcher.php.v1 \
 	plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v1 \
+	plugins/system/helixultimate/overrides/com_contact/contact/default_form.php.v2 \
 	plugins/system/helixultimate/overrides_legacy/com_contact/contact/default_form.php.v1 \
 	templates/et_tennis/css/override.css \
 	templates/et_tennis/options.xml.v1

@@ -1,0 +1,1168 @@
+<?php
+/**
+* Community Builder (TM)
+* @version $Id: $
+* @package CommunityBuilder
+* @copyright (C) 2004-2026 www.joomlapolis.com / Lightning MultiCom SA - and its licensors, all rights reserved
+* @license http://www.gnu.org/licenses/old-licenses/gpl-2.0.html GNU/GPL version 2
+*/
+
+use CB\Plugin\GroupJive\Helper\GroupHelper;
+use CB\Plugin\GroupJive\Helper\HtmlHelper;
+use CB\Plugin\GroupJive\Helper\NotificationHelper;
+use CB\Plugin\GroupJive\Helper\RouteHelper;
+use CB\Plugin\GroupJive\Params\GlobalParams;
+use CB\Plugin\GroupJiveEvents\Helper\EventHelper;
+use CB\Plugin\GroupJiveEvents\Table\EventTable;
+use CBLib\Application\Application;
+use CBLib\Language\CBTxt;
+use CB\Database\Table\UserTable;
+use CB\Database\Table\TabTable;
+use CB\Plugin\GroupJiveEvents\Table\AttendanceTable;
+
+defined( '_JEXEC' ) or die;
+
+defined( 'CBLIB' ) or die;
+
+class CBplug_cbgroupjiveevents extends cbPluginHandler
+{
+	/**
+	 * @param  TabTable   $tab       Current tab
+	 * @param  UserTable  $user      Current user
+	 * @param  int        $ui        1 front, 2 admin UI
+	 * @param  array      $postdata  Raw unfiltred POST data
+	 */
+	public function getCBpluginComponent( $tab, $user, $ui, $postdata )
+	{
+		global $_PLUGINS;
+
+		$_PLUGINS->loadPluginGroup( 'user' );
+
+		$format					=	$this->getInput()->getString( 'format', '' );
+		$action					=	$this->getInput()->getString( 'action', '' );
+		$function				=	$this->getInput()->getString( 'func', '' );
+		$id						=	$this->getInput()->getInt( 'id', 0 );
+
+		if ( $user === null ) {
+			$user				=	CBuser::getMyUserDataInstance();
+		}
+
+		if ( $format !== 'raw' ) {
+			HtmlHelper::renderHeaders();
+			HtmlHelper::renderPluginHeaders( $this->element );
+
+			ob_start();
+		}
+
+		if ( $action === 'events' ) {
+			switch ( $function ) {
+				case 'attending':
+					$this->showEventAttending( $id, $user );
+					break;
+				case 'attend':
+					$this->attendEvent( $id, $user );
+					break;
+				case 'unattend':
+					$this->unattendEvent( $id, $user );
+					break;
+				case 'publish':
+					$this->stateEvent( 1, $id, $user );
+					break;
+				case 'unpublish':
+					$this->stateEvent( 0, $id, $user );
+					break;
+				case 'delete':
+					$this->deleteEvent( $id, $user );
+					break;
+				case 'new':
+					$this->showEventEdit( 0, $user );
+					break;
+				case 'edit':
+					$this->showEventEdit( $id, $user );
+					break;
+				case 'save':
+					if ( ! Application::Session()->checkFormToken() ) {
+						return;
+					}
+
+					$this->saveEventEdit( $id, $user );
+					break;
+				case 'message':
+					$this->showEventMessage( $id, $user );
+					break;
+				case 'send':
+					if ( ! Application::Session()->checkFormToken() ) {
+						return;
+					}
+
+					$this->sendEventMessage( $id, $user );
+					break;
+				case 'all':
+				case 'approval':
+				case 'attended':
+				case 'popular':
+				case 'my':
+				default:
+					$this->showEvents( $user, $function );
+					break;
+			}
+		}
+
+		if ( $format !== 'raw' ) {
+			echo	'<div class="cbGroupJive' . ( GlobalParams::getParams()->getString( 'general_class', '' ) ? ' ' . htmlspecialchars( GlobalParams::getParams()->getString( 'general_class', '' ) ) : null ) . '">'
+				.		ob_get_clean()
+				.	'</div>';
+		}
+	}
+
+	private function showEvents( UserTable $user, string $mode ): void
+	{
+		global $_CB_database, $_CB_framework, $_PLUGINS;
+
+		$isModerator				=	Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator();
+
+		if ( ( ! $isModerator ) && ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) ) {
+			RouteHelper::redirect( 'index.php', CBTxt::T( 'You do not have access to events.' ), 'error' );
+		}
+
+		if ( ( $mode === 'approval' ) && ( ! $isModerator ) ) {
+			RouteHelper::redirect( 'index.php', CBTxt::T( 'Only moderators can approve events.' ), 'error' );
+		}
+
+		$pageTitle					=	CBTxt::T( 'Events' );
+
+		$_CB_framework->setPageTitle( $pageTitle );
+		$_CB_framework->setMenuMeta();
+
+		$prefix						=	'gj_group_events_';
+		$limit						=	$this->params->getInt( 'groups_events_limit', 15 );
+		$limitstart					=	$_CB_framework->getUserStateFromRequest( $prefix . 'limitstart{com_comprofiler}', $prefix . 'limitstart', 0 );
+		$search						=	$_CB_framework->getUserStateFromRequest( $prefix . 'search{com_comprofiler}', $prefix . 'search', '' );
+
+		switch ( $mode ) {
+			case 'popular':
+				$orderBy			=	$_CB_database->NameQuote( '_guests' ) . ' DESC';
+				break;
+			case 'my':
+				$orderBy			=	'e.' . $_CB_database->NameQuote( 'id' ) . ' DESC';
+				break;
+			case 'all':
+			case 'attended':
+			case 'approval':
+			default:
+				$orderBy			=	'IF( _start_ordering < 0 AND _end_ordering > 0, 1, IF( _start_ordering > 0, 2, 3 ) ), ABS( _start_ordering )';
+				break;
+		}
+
+		$where						=	'';
+
+		if ( $search && $this->params->getBool( 'groups_events_search', true ) ) {
+			$where					.=	" AND ( e." . $_CB_database->NameQuote( 'title' ) . " LIKE " . $_CB_database->Quote( '%' . $_CB_database->getEscaped( $search, true ) . '%', false )
+									.	" OR e." . $_CB_database->NameQuote( 'event' ) . " LIKE " . $_CB_database->Quote( '%' . $_CB_database->getEscaped( $search, true ) . '%', false )
+									.	" OR e." . $_CB_database->NameQuote( 'address' ) . " LIKE " . $_CB_database->Quote( '%' . $_CB_database->getEscaped( $search, true ) . '%', false )
+									.	" OR e." . $_CB_database->NameQuote( 'location' ) . " LIKE " . $_CB_database->Quote( '%' . $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+		}
+
+		$searching					=	(bool) $where;
+
+		$joined						=	"SELECT 1"
+									.	" FROM " . $_CB_database->NameQuote( '#__groupjive_users' ) . " AS u"
+									.	" WHERE u." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+									.	" AND u." . $_CB_database->NameQuote( 'group' ) . " = g." . $_CB_database->NameQuote( 'id' )
+									.	" AND u." . $_CB_database->NameQuote( 'status' ) . " BETWEEN 0 AND 3";
+
+		$query						=	"SELECT COUNT(*)"
+									.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events' ) . " AS e"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__groupjive_groups' ) . " AS g"
+									.	" ON g." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'group' )
+									.	" LEFT JOIN " . $_CB_database->NameQuote( '#__groupjive_categories' ) . " AS c"
+									.	" ON c." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'category' )
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+									.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+									.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+									.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+									.	( $mode === 'attended' ? " INNER JOIN" : " LEFT JOIN " ) . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS a"
+									.	" ON a." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+									.	" AND a." . $_CB_database->NameQuote( 'event' ) . " = e." . $_CB_database->NameQuote( 'id' );
+
+		$queryWhere					=	[];
+
+		if ( $mode === 'approval' ) {
+			$queryWhere[]			=	"e." . $_CB_database->NameQuote( 'published' ) . " = -1";
+		} elseif ( $mode === 'my' ) {
+			$queryWhere[]			=	"e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 );
+		} elseif ( ! $isModerator ) {
+			$queryWhere[]			=	"( e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+									.		" OR e." . $_CB_database->NameQuote( 'published' ) . " = 1 )";
+		}
+
+		if ( ! $isModerator ) {
+			if ( $user->getInt( 'id', 0 ) ) {
+				$queryWhere[]		=	"( g." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+									.		" OR ( g." . $_CB_database->NameQuote( 'published' ) . " = 1"
+									.		" AND ( g." . $_CB_database->NameQuote( 'type' ) . " != 3"
+									.		" OR EXISTS( " . $joined . " ) ) ) )";
+			} else {
+				$queryWhere[]		=	"g." . $_CB_database->NameQuote( 'published' ) . " = 1";
+				$queryWhere[]		=	"g." . $_CB_database->NameQuote( 'type' ) . " != 3";
+			}
+
+			$queryWhere[]			=	"( ( c." . $_CB_database->NameQuote( 'published' ) . " = 1"
+									.		" AND c." . $_CB_database->NameQuote( 'access' ) . " IN " . $_CB_database->safeArrayOfIntegers( Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels() ) . " )"
+									.		( GlobalParams::getParams()->getInt( 'groups_uncategorized', 1 ) ? " OR g." . $_CB_database->NameQuote( 'category' ) . " = 0 )" : " )" );
+		}
+
+		$query						.=	( $queryWhere ? " WHERE " . implode( " AND ", $queryWhere ) : "" )
+									.	$where;
+		$_CB_database->setQuery( $query );
+		$total						=	(int) $_CB_database->loadResult();
+
+		$pageNav					=	new cbPageNav( $total, $limitstart, $limit );
+
+		$pageNav->setInputNamePrefix( $prefix );
+		$pageNav->setStaticLimit( true );
+		$pageNav->setBaseURL( $_CB_framework->pluginClassUrl( $this->element, false, [ 'action' => 'events', 'func' => $mode, $prefix . 'search' => ( $searching ? $search : null ) ] ) );
+
+		$rows						=	[];
+
+		if ( $total ) {
+			$now					=	Application::Database()->getUtcDateTime();
+
+			$guests					=	"SELECT COUNT(*)"
+									.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS ea"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS eacb"
+									.	" ON eacb." . $_CB_database->NameQuote( 'id' ) . " = ea." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND eacb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+									.	" AND eacb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS eaj"
+									.	" ON eaj." . $_CB_database->NameQuote( 'id' ) . " = ea." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND eaj." . $_CB_database->NameQuote( 'block' ) . " = 0"
+									.	" WHERE ea." . $_CB_database->NameQuote( 'event' ) . " = e." . $_CB_database->NameQuote( 'id' );
+
+			$query					=	"SELECT e.*"
+									.	", TIMESTAMPDIFF( SECOND, " . $_CB_database->Quote( $now ) . ", e." . $_CB_database->NameQuote( 'start' ) . " ) AS _start_ordering"
+									.	", TIMESTAMPDIFF( SECOND, " . $_CB_database->Quote( $now ) . ", e." . $_CB_database->NameQuote( 'end' ) . " ) AS _end_ordering"
+									.	", a." . $_CB_database->NameQuote( 'id' ) . ' AS _attending'
+									.	", ( " . $guests . ' ) AS _guests'
+									.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events' ) . " AS e"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__groupjive_groups' ) . " AS g"
+									.	" ON g." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'group' )
+									.	" LEFT JOIN " . $_CB_database->NameQuote( '#__groupjive_categories' ) . " AS c"
+									.	" ON c." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'category' )
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+									.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+									.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+									.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+									.	( $mode === 'attended' ? " INNER JOIN" : " LEFT JOIN " ) . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS a"
+									.	" ON a." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+									.	" AND a." . $_CB_database->NameQuote( 'event' ) . " = e." . $_CB_database->NameQuote( 'id' );
+
+			$queryWhere				=	[];
+
+			if ( $mode === 'approval' ) {
+				$queryWhere[]		=	"e." . $_CB_database->NameQuote( 'published' ) . " = -1";
+			} elseif ( $mode === 'my' ) {
+				$queryWhere[]		=	"e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 );
+			} elseif ( ! $isModerator ) {
+				$queryWhere[]		=	"( e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+									.		" OR e." . $_CB_database->NameQuote( 'published' ) . " = 1 )";
+			}
+
+			if ( ! $isModerator ) {
+				if ( $user->getInt( 'id', 0 ) ) {
+					$queryWhere[]	=	"( g." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+									.		" OR ( g." . $_CB_database->NameQuote( 'published' ) . " = 1"
+									.		" AND ( g." . $_CB_database->NameQuote( 'type' ) . " != 3"
+									.		" OR EXISTS( " . $joined . " ) ) ) )";
+				} else {
+					$queryWhere[]	=	"g." . $_CB_database->NameQuote( 'published' ) . " = 1";
+					$queryWhere[]	=	"g." . $_CB_database->NameQuote( 'type' ) . " != 3";
+				}
+
+				$queryWhere[]		=	"( ( c." . $_CB_database->NameQuote( 'published' ) . " = 1"
+									.		" AND c." . $_CB_database->NameQuote( 'access' ) . " IN " . $_CB_database->safeArrayOfIntegers( Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels() ) . " )"
+									.		( GlobalParams::getParams()->getInt( 'groups_uncategorized', 1 ) ? " OR g." . $_CB_database->NameQuote( 'category' ) . " = 0 )" : " )" );
+			}
+
+			$query					.=	( $queryWhere ? " WHERE " . implode( " AND ", $queryWhere ) : "" )
+									.	$where
+									.	" ORDER BY " . $orderBy;
+			if ( $this->params->getBool( 'groups_events_paging', true ) ) {
+				$_CB_database->setQuery( $query, $pageNav->limitstart, $pageNav->limit );
+			} else {
+				$_CB_database->setQuery( $query );
+			}
+			$rows					=	$_CB_database->loadObjectList( null, EventTable::class, [ $_CB_database ] );
+
+			EventHelper::prefetchEvents( $rows );
+			GroupHelper::prefetchUsers( $rows );
+		}
+
+		$input						=	[];
+
+		$input['search']			=	'<input type="text" name="' . htmlspecialchars( $prefix ) . 'search" value="' . htmlspecialchars( $search ) . '" placeholder="' . htmlspecialchars( CBTxt::T( 'Search Events...' ) ) . '" class="form-control" />';
+
+		$inGroup					=	false;
+		$isOwner					=	false;
+		$userStatus					=	null;
+		$canCreate					=	false;
+		$searchUrl					=	$_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => Application::Input()->getString( 'func', 'all' ) ] );
+		$returnUrl					=	RouteHelper::getReturn();
+		$canSearch					=	( $this->params->getBool( 'groups_events_search', true ) && ( $searching || $pageNav->total ) );
+		$hasPaging					=	( $this->params->getBool( 'groups_events_paging', true ) && ( $pageNav->total > $pageNav->limit ) );
+		$layoutData					=	[];
+
+		foreach ( $rows as $rowId => $row ) {
+			$group							=	$row->group();
+			$userStatus						=	GroupHelper::getGroupStatus( $user, $group );
+			$isOwner						=	( $user->getInt( 'id', 0 ) === $group->getInt( 'user_id', 0 ) );
+			$rowOwner						=	( $user->getInt( 'id', 0 ) === $row->getInt( 'user_id', 0 ) );
+			$isModOrOwner					=	( $isModerator || $isOwner || $rowOwner || ( $userStatus >= 2 ) );
+			$address						=	htmlspecialchars( $row->getString( 'location', '' ) );
+
+			if ( $this->params->getBool( 'groups_events_address', true ) ) {
+				if ( $row->getString( 'address', '' ) ) {
+					$mapUrl					=	CBTxt::T( 'GROUP_EVENT_ADDRESS_MAP_URL', 'https://www.google.com/maps/place/[address]', [ '[location]' => urlencode( $row->getString( 'location', '' ) ), '[address]' => urlencode( $row->getString( 'address', '' ) ) ] );
+				} else {
+					$mapUrl					=	CBTxt::T( 'GROUP_EVENT_LOCATION_MAP_URL', 'https://www.google.com/maps/search/[location]', [ '[location]' => urlencode( $row->getString( 'location', '' ) ), '[address]' => urlencode( $row->getString( 'address', '' ) ) ] );
+				}
+
+				if ( $mapUrl ) {
+					$address				=	'<a href="' . htmlspecialchars( $mapUrl ) . '" target="_blank" rel="nofollow">' . $address . '</a>';
+				}
+			}
+
+			$menu							=	[];
+			$integrations					=	implode( '', $_PLUGINS->trigger( 'gj_onDisplayEvent', [ &$row, &$menu, $group, $user ] ) );
+			$canAttend						=	( $row->getInt( 'attendance', 1 )
+													 && ( $row->getInt( 'published', 1 ) === 1 )
+													 && ( $row->status() !== 1 )
+													 && ( ! $row->getInt( '_attending', 0 ) )
+													 && ( $user->getInt( 'id', 0 ) && ( ( $row->group()->getInt( 'type', 0 ) === 4 ) || ( $userStatus >= 1 ) ) )
+													 && ( ( ! $row->getInt( 'limit', 0 ) ) || ( $row->getInt( 'limit', 0 ) && ( $row->getInt( '_guests', 0 ) < $row->getInt( 'limit', 0 ) ) ) )
+												);
+			$menuItems						=	'';
+
+			if ( $isModOrOwner || ( ( ! $rowOwner ) && ( $row->status() !== 1 ) && ( $userStatus >= 1 ) && $row->getInt( '_attending', 0 ) ) || $menu ) {
+				$menuItems					=	'<ul class="list-unstyled dropdown-menu d-block position-relative m-0 gjMenuItems gjEventMenuItems">';
+
+				if ( $row->getInt( 'attendance', 1 ) ) {
+					if ( ( $row->getInt( 'published', 1 ) === 1 ) && ( $userStatus >= 1 ) && ( $row->status() !== 1 ) && $row->getInt( '_attending', 0 ) ) {
+						$menuItems			.=		'<li class="gjMenuItem"><a href="javascript: void(0);" onclick="cbjQuery.cbconfirm( \'' . addslashes( CBTxt::T( 'Are you sure you do not want to attend this Event?' ) ) . '\' ).done( function() { window.location.href = \'' . addslashes( $_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => 'unattend', 'id' => $row->getInt( 'id', 0 ), 'return' => $returnUrl ] ) ) . '\'; })" class="dropdown-item"><span class="fa fa-times-circle"></span> ' . CBTxt::T( 'Unattend' ) . '</a></li>';
+					}
+
+					if ( $row->getInt( '_guests', 0 ) && ( $row->status() !== 1 ) && ( $isModerator || ( ( $row->getInt( 'published', 1 ) === 1 ) && $this->params->getBool( 'groups_events_message', false ) && in_array( $this->params->getInt( 'groups_events_message_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) && ( $isOwner || ( $userStatus >= 3 ) ) ) ) ) {
+						$delay				=	false;
+
+						if ( ( ! $isModerator ) && $this->params->getInt( 'groups_events_message_delay', 60 ) && $row->params()->getString( 'messaged', '' ) ) {
+							$seconds		=	$this->params->getInt( 'groups_events_message_delay', 60 );
+
+							if ( $seconds && ( Application::Date( $row->params()->getString( 'messaged', '' ), 'UTC' )->add( $seconds . ' SECONDS' )->getTimestamp() >= Application::Date( 'now', 'UTC' )->getTimestamp() ) ) {
+								$delay		=	true;
+							}
+						}
+
+						if ( ! $delay ) {
+							$menuItems		.=		'<li class="gjMenuItem"><a href="' . $_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => 'message', 'id' => $row->getInt( 'id', 0 ), 'return' => $returnUrl ] ) . '" class="dropdown-item"><span class="fa fa-comment"></span> ' . CBTxt::T( 'Message' ) . '</a></li>';
+						}
+					}
+				}
+
+				if ( $isModOrOwner ) {
+					$menuItems				.=		'<li class="gjMenuItem"><a href="' . $_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => 'edit', 'id' => $row->getInt( 'id', 0 ), 'return' => $returnUrl ] ) . '" class="dropdown-item"><span class="fa fa-edit"></span> ' . CBTxt::T( 'Edit' ) . '</a></li>';
+
+					if ( ( $row->getInt( 'published', 1 ) === -1 ) && ( $group->params()->getInt( 'events', 1 ) === 2 ) ) {
+						if ( $isModerator || $isOwner || ( $userStatus >= 2 ) ) {
+							$menuItems		.=		'<li class="gjMenuItem"><a href="' . $_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => 'publish', 'id' => $row->getInt( 'id', 0 ), 'return' => $returnUrl ] ) . '" class="dropdown-item"><span class="fa fa-check"></span> ' . CBTxt::T( 'Approve' ) . '</a></li>';
+						}
+					} elseif ( $row->getInt( 'published', 1 ) === 1 ) {
+						$menuItems			.=		'<li class="gjMenuItem"><a href="javascript: void(0);" onclick="cbjQuery.cbconfirm( \'' . addslashes( CBTxt::T( 'Are you sure you want to unpublish this Event?' ) ) . '\' ).done( function() { window.location.href = \'' . addslashes( $_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => 'unpublish', 'id' => $row->getInt( 'id', 0 ), 'return' => $returnUrl ] ) ) . '\'; })" class="dropdown-item"><span class="fa fa-times-circle"></span> ' . CBTxt::T( 'Unpublish' ) . '</a></li>';
+					} else {
+						$menuItems			.=		'<li class="gjMenuItem"><a href="' . $_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => 'publish', 'id' => $row->getInt( 'id', 0 ), 'return' => $returnUrl ] ) . '" class="dropdown-item"><span class="fa fa-check"></span> ' . CBTxt::T( 'Publish' ) . '</a></li>';
+					}
+				}
+
+				if ( $menu ) {
+					$menuItems				.=		'<li class="gjMenuItem">' . implode( '</li><li class="gjMenuItem">', $menu ) . '</li>';
+				}
+
+				if ( $isModOrOwner ) {
+					$menuItems				.=		'<li class="gjMenuItem"><a href="javascript: void(0);" onclick="cbjQuery.cbconfirm( \'' . addslashes( CBTxt::T( 'Are you sure you want to delete this Event?' ) ) . '\' ).done( function() { window.location.href = \'' . addslashes( $_CB_framework->pluginClassUrl( $this->element, true, [ 'action' => 'events', 'func' => 'delete', 'id' => $row->getInt( 'id', 0 ), 'return' => $returnUrl ] ) ) . '\'; })" class="dropdown-item"><span class="fa fa-trash-o"></span> ' . CBTxt::T( 'Delete' ) . '</a></li>';
+				}
+
+				$menuItems					.=	'</ul>';
+			}
+
+			$layoutData[$rowId]				=	[	'event'			=>	( $this->params->getBool( 'groups_events_content_plugins', false ) ? Application::Cms()->prepareHtmlContentPlugins( ( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ), 'groupjive.event', $row->getInt( 'user_id', 0 ) ) : ( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ) ),
+													'address'		=>	$address,
+													'menu'			=>	$menuItems,
+													'isModOrOwner'	=>	$isModOrOwner,
+													'canAttend'		=>	$canAttend,
+												];
+		}
+
+		$group						=	null;
+
+		HtmlHelper::renderPluginHeaders( $this->element );
+
+		$_CB_framework->outputCbJQuery( "$( '.gjGroupEventDescription .cbMoreLess' ).cbmoreless();", 'cbmoreless' );
+
+		require HtmlHelper::getPluginTemplate( $this->element, 'events' );
+	}
+
+	private function showEventAttending( int $id, UserTable $user ): void
+	{
+		global $_CB_framework, $_CB_database;
+
+		$event			=	EventHelper::getEvent( $id );
+		$returnUrl		=	RouteHelper::getReturn( true, true );
+
+		if ( ! $returnUrl ) {
+			$returnUrl	=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $event->getInt( 'group', 0 ) ] );
+		}
+
+		if ( $event->getInt( 'id', 0 ) ) {
+			if ( ! GroupHelper::canAccessGroup( $event->group(), $user ) ) {
+				RouteHelper::redirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+			} elseif ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) {
+				if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $event->group()->category()->params()->getBool( 'events', true ) ) ) {
+					RouteHelper::redirect( 'index.php', CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+				} elseif ( ( ! $event->getInt( 'attendance', 1 ) ) || ( ( $event->getInt( 'published', 1 ) !== 1 ) && ( GroupHelper::getGroupStatus( $user, $event->group() ) < 2 ) && ( $event->getInt( 'user_id', 0 ) !== $user->getInt( 'id', 0 ) ) ) ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You do not have access to this event.' ), 'error' );
+				}
+			}
+		} else {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'Event does not exist.' ), 'error' );
+		}
+
+		$canModerate			=	( Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() || ( GroupHelper::getGroupStatus( $user, $event->group() ) >= 2 ) );
+		$prefix					=	'gj_event_' . $event->getInt( 'id', 0 ) . '_attending_';
+		$limit					=	$this->params->getInt( 'groups_events_attending_limit', 30 );
+		$limitstart				=	$_CB_framework->getUserStateFromRequest( $prefix . 'limitstart{com_comprofiler}', $prefix . 'limitstart', 0 );
+		$search					=	$_CB_framework->getUserStateFromRequest( $prefix . 'search{com_comprofiler}', $prefix . 'search', '' );
+		$where					=	null;
+
+		if ( $search && $this->params->getBool( 'groups_events_attending_search', false ) ) {
+			$where				.=	" AND ( j." . $_CB_database->NameQuote( 'name' ) . " LIKE " . $_CB_database->Quote( '%' . $_CB_database->getEscaped( $search, true ) . '%', false )
+								.	" OR j." . $_CB_database->NameQuote( 'username' ) . " LIKE " . $_CB_database->Quote( '%' . $_CB_database->getEscaped( $search, true ) . '%', false ) . " )";
+		}
+
+		$searching				=	(bool) $where;
+
+		$query					=	"SELECT COUNT(*)"
+								.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS a";
+
+		if ( ! $canModerate ) {
+			$query				.=	" INNER JOIN " . $_CB_database->NameQuote( '#__groupjive_plugin_events' ) . " AS e"
+								.	" ON e." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'event' )
+								.	" AND ( e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+								.		" OR e." . $_CB_database->NameQuote( 'published' ) . " = 1 )";
+		}
+
+		$query					.=	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+								.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+								.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+								.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+								.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+								.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+								.	" WHERE a." . $_CB_database->NameQuote( 'event' ) . " = " . $event->getInt( 'id', 0 )
+								.	$where;
+		$_CB_database->setQuery( $query );
+		$total					=	(int) $_CB_database->loadResult();
+
+		$pageNav				=	new cbPageNav( $total, $limitstart, $limit );
+
+		$pageNav->setInputNamePrefix( $prefix );
+		$pageNav->setStaticLimit( true );
+		$pageNav->setBaseURL( $_CB_framework->pluginClassUrl( $this->element, false, [ 'action' => 'events', 'func' => 'attending', 'id' => $event->getInt( 'id', 0 ), $prefix . 'search' => ( $searching ? $search : null ) ] ) );
+
+		$query					=	"SELECT a.*"
+								.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS a";
+
+		if ( ! $canModerate ) {
+			$query				.=	" INNER JOIN " . $_CB_database->NameQuote( '#__groupjive_plugin_events' ) . " AS e"
+								.	" ON e." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'event' )
+								.	" AND ( e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+								.		" OR e." . $_CB_database->NameQuote( 'published' ) . " = 1 )";
+		}
+
+		$query					.=	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+								.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+								.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+								.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+								.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+								.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+								.	" WHERE a." . $_CB_database->NameQuote( 'event' ) . " = " . $event->getInt( 'id', 0 )
+								.	$where
+								.	" ORDER BY a." . $_CB_database->NameQuote( 'date' ) . " DESC";
+		if ( $this->params->getBool( 'groups_events_attending_paging', true ) ) {
+			$_CB_database->setQuery( $query, $pageNav->limitstart, $pageNav->limit );
+		} else {
+			$_CB_database->setQuery( $query );
+		}
+		$rows					=	$_CB_database->loadObjectList( null, AttendanceTable::class, [ $_CB_database ] );
+
+		$input					=	[];
+
+		$input['search']		=	'<input type="text" name="' . htmlspecialchars( $prefix ) . 'search" value="' . htmlspecialchars( $search ) . '" placeholder="' . htmlspecialchars( CBTxt::T( 'Search Attending...' ) ) . '" class="form-control" />';
+
+		GroupHelper::prefetchUsers( $rows );
+
+		$canSearch				=	( $this->params->getBool( 'groups_events_attending_search', false ) && ( $searching || $pageNav->total ) );
+		$hasPaging				=	( $this->params->getBool( 'groups_events_attending_paging', true ) && ( $pageNav->total > $pageNav->limit ) );
+
+		require HtmlHelper::getPluginTemplate( $this->element, 'attending' );
+	}
+
+	private function showEventMessage( int $id, UserTable $user ): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$row					=	EventHelper::getEvent( $id );
+		$returnUrl				=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $row->getInt( 'group', 0 ) ] );
+
+		if ( $row->getInt( 'id', 0 ) ) {
+			if ( ! GroupHelper::canAccessGroup( $row->group(), $user ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+			} elseif ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) {
+				if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $row->group()->category()->params()->getBool( 'events', true ) ) ) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+				} elseif ( ( ! $this->params->getBool( 'groups_events_message', false ) ) || ( ! in_array( $this->params->getInt( 'groups_events_message_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) ) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to messaging for this event.' ), 'error' );
+				} elseif ( ( ! $row->getInt( 'attendance', 1 ) )
+						   || ( $row->getInt( 'published', 1 ) !== 1 )
+						   || ( $row->status() === 1 )
+						   || ( GroupHelper::getGroupStatus( $user, $row->group() ) < 1 )
+						   || ( ( $user->getInt( 'id', 0 ) !== $row->getInt( 'user_id', 0 ) ) && ( GroupHelper::getGroupStatus( $user, $row->group() ) < 3 ) )
+				) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to messaging for this event.' ), 'error' );
+				} elseif ( $row->params()->getString( 'messaged', '' ) ) {
+					$seconds	=	$this->params->getInt( 'groups_events_message_delay', 60 );
+
+					if ( $seconds && ( Application::Date( $row->params()->getString( 'messaged', '' ), 'UTC' )->add( $seconds . ' SECONDS' )->getTimestamp() >= Application::Date( 'now', 'UTC' )->getTimestamp() ) ) {
+						cbRedirect( $returnUrl, CBTxt::T( 'You can not send a message to this event at this time. Please wait awhile and try again.' ), 'error' );
+					}
+				}
+			}
+		} else {
+			cbRedirect( $returnUrl, CBTxt::T( 'Event does not exist.' ), 'error' );
+		}
+
+		$pageTitle				=	CBTxt::T( 'Message Guests' );
+
+		$_CB_framework->setPageTitle( $pageTitle );
+		$_CB_framework->setMenuMeta();
+
+		$input					=	[];
+
+		$input['subject']		=	'';
+
+		if ( ( $this->params->getInt( 'groups_events_message_type', 2 ) === 1 ) && $this->params->getBool( 'groups_events_message_subject', false ) ) {
+			$subjectTooltip		=	cbTooltip( null, CBTxt::T( 'Optionally input a message subject.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+			$input['subject']	=	'<input type="text" id="subject" name="subject" value="' . htmlspecialchars( $this->getInput()->getString( 'post/subject', '' ) ) . '" class="form-control input-block"' . $subjectTooltip . ' />';
+		}
+
+		if ( $this->params->getBool( 'groups_events_message_html', false ) ) {
+			$input['message']	=	Application::Cms()->displayCmsEditor( 'message', $this->getInput()->getHtml( 'post/message', '' ), '100%', 400, 100, 10, false, 'message' );
+		} else {
+			$messageTooltip		=	cbTooltip( null, CBTxt::T( 'Input a message to send to this events guests.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+			$input['message']	=	'<textarea id="message" name="message" class="form-control input-block required" rows="10"' . $messageTooltip . '>' . htmlspecialchars( $this->getInput()->getString( 'post/message', '' ) ) . '</textarea>';
+		}
+
+		$input['captcha']		=	[];
+
+		if ( $this->params->getInt( 'groups_events_message_captcha', 0 ) && ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) ) {
+			$_PLUGINS->loadPluginGroup( 'user' );
+
+			$input['captcha']	=	( $_PLUGINS->trigger( 'onGetCaptchaHtmlElements', [ false ] )[0] ?? [] );
+		}
+
+		$group					=	$row->group();
+
+		cbValidator::loadValidation();
+
+		require HtmlHelper::getPluginTemplate( $this->element, 'message' );
+	}
+
+	private function showEventEdit( int $id, UserTable $user ): void
+	{
+		global $_CB_framework, $_PLUGINS;
+
+		$row					=	EventHelper::getEvent( $id );
+		$isModerator			=	Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator();
+		$groupId				=	$this->getInput()->getInt( 'group' );
+
+		if ( $groupId === null ) {
+			$group				=	$row->group();
+		} else {
+			$group				=	GroupHelper::getGroup( $groupId );
+		}
+
+		$returnUrl				=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $group->getInt( 'id', 0 ) ] );
+
+		if ( ! GroupHelper::canAccessGroup( $group, $user ) ) {
+			cbRedirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+		} elseif ( ! $isModerator ) {
+			if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $group->category()->params()->getBool( 'events', true ) ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+			} elseif ( ( ! $row->getInt( 'id', 0 ) ) && ( ! GroupHelper::canCreateGroupContent( $user, $group, 'events' ) ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to schedule an event in this group.' ), 'error' );
+			} elseif ( $row->getInt( 'id', 0 )
+					   && ( GroupHelper::getGroupStatus( $user, $group ) < 2 )
+					   && ( $user->getInt( 'id', 0 ) !== $row->getInt( 'user_id', 0 ) )
+			) {
+				cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to edit this event.' ), 'error' );
+			}
+		}
+
+		$pageTitle				=	( $row->getInt( 'id', 0 ) ? CBTxt::T( 'Edit Event' ) : CBTxt::T( 'New Event' ) );
+
+		$_CB_framework->setPageTitle( $pageTitle );
+		$_CB_framework->setMenuMeta();
+
+		$input					=	[];
+
+		$publishedTooltip		=	cbTooltip( null, CBTxt::T( 'Select publish state of this event. Unpublished events will not be visible to the public.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['published']		=	moscomprofilerHTML::yesnoButtonList( 'published', $publishedTooltip, $this->getInput()->getInt( 'post/published', $row->getInt( 'published', 1 ) ) );
+
+		$titleTooltup			=	cbTooltip( null, CBTxt::T( 'Input the event title. This is the title that will distinguish this event from others. Suggested to input something to uniquely identify your event.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['title']			=	'<input type="text" id="title" name="title" value="' . htmlspecialchars( $this->getInput()->getString( 'post/title', $row->getString( 'title', '' ) ) ) . '" class="form-control required" size="35"' . $titleTooltup . ' />';
+
+		if ( $this->params->getBool( 'groups_events_html', true ) ) {
+			$input['event']		=	Application::Cms()->displayCmsEditor( 'event', $this->getInput()->getHtml( 'post/event', $row->getHtml( 'event', '' ) ), '100%', 400, 100, 10, false, 'event' );
+		} else {
+			$eventToolltip		=	cbTooltip( null, CBTxt::T( 'Input a detailed description about this event.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+			$input['event']		=	'<textarea id="event" name="event" class="form-control input-block required" rows="10"' . $eventToolltip . '>' . htmlspecialchars( $this->getInput()->getString( 'post/event', $row->getString( 'event', '' ) ) ) . '</textarea>';
+		}
+
+		$locationTooltup		=	cbTooltip( null, CBTxt::T( 'Input the location for this event (e.g. My House, The Park, Restaurant Name, etc..).' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['location']		=	'<input type="text" id="location" name="location" value="' . htmlspecialchars( $this->getInput()->getString( 'post/location', $row->getString( 'location', '' ) ) ) . '" class="form-control required" size="35"' . $locationTooltup . ' />';
+
+		if ( ( ! empty( $_SERVER['HTTPS'] ) ) && ( $_SERVER['HTTPS'] !== 'off' ) ) {
+			$addressTooltup		=	cbTooltip( null, CBTxt::T( 'Optionally input the address for this event or click the map button to attempt to find your current location.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+		} else {
+			$addressTooltup		=	cbTooltip( null, CBTxt::T( 'Optionally input the address for this event.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+		}
+
+		$input['address']		=	'<input type="text" id="address" name="address" value="' . htmlspecialchars( $this->getInput()->getString( 'post/address', $row->getString( 'address', '' ) ) ) . '" class="form-control" size="45"' . $addressTooltup . ' />';
+
+		$calendars				=	new cbCalendars( 1 );
+		$minYear				=	(int) Application::Date( ( $row->getInt( 'id', 0 ) ? $row->getString( 'start', '' ) : 'now' ), 'UTC' )->format( 'Y' );
+
+		$startTooltup			=	cbTooltip( null, CBTxt::T( 'Select the date and time this event starts.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['start']			=	$calendars->cbAddCalendar( 'start', null, true, $this->getInput()->getString( 'post/start', $row->getString( 'start', '' ) ), false, true, $minYear, ( $minYear + 30 ), $startTooltup );
+
+		$endTooltup				=	cbTooltip( null, CBTxt::T( 'Optionally select the end date and time for this event.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['end']			=	$calendars->cbAddCalendar( 'end', null, false, $this->getInput()->getString( 'post/end', $row->getString( 'end', '' ) ), false, true, $minYear, ( $minYear + 30 ), $endTooltup );
+
+		$attendanceTooltip		=	cbTooltip( null, CBTxt::T( 'Select if this event requires explicit attendance or is an open event.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['attendance']	=	moscomprofilerHTML::yesnoButtonList( 'attendance', $attendanceTooltip, $this->getInput()->getInt( 'post/attendance', $row->getInt( 'attendance', 1 ) ) );
+
+		$limitTooltip			=	cbTooltip( null, CBTxt::T( 'Optionally input a guest limit for this event.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['limit']			=	'<input type="text" id="limit" name="limit" value="' . $this->getInput()->getInt( 'post/limit', $row->getInt( 'limit', 0 ) ) . '" class="digits form-control" size="6"' . $limitTooltip . ' />';
+
+		$ownerTooltip			=	cbTooltip( null, CBTxt::T( 'Input the event owner id. Event owner determines the creator of the event specified as User ID.' ), null, null, null, null, null, 'data-hascbtooltip="true"' );
+
+		$input['user_id']		=	'<input type="text" id="user_id" name="user_id" value="' . $this->getInput()->getInt( 'post/user_id', $this->getInput()->getInt( 'user', $row->getInt( 'user_id', $user->getInt( 'id', 0 ) ) ) ) . '" class="digits required form-control" size="6"' . $ownerTooltip . ' />';
+
+		$input['captcha']		=	[];
+
+		if ( $this->params->getInt( 'groups_events_captcha', 0 ) && ( ! $isModerator ) ) {
+			$_PLUGINS->loadPluginGroup( 'user' );
+
+			$input['captcha']	=	( $_PLUGINS->trigger( 'onGetCaptchaHtmlElements', [ false ] )[0] ?? [] );
+		}
+
+		$canModerate			=	( GroupHelper::getGroupStatus( $user, $group ) >= 2 );
+		$canGeoLocate			=	false;
+
+		cbValidator::loadValidation();
+
+		$js						=	"$( '.gjEventEditAttendance input' ).on( 'change', function() {"
+								.		"if ( $( this ).val() == 1 ) {"
+								.			"$( '.gjEventEditLimit' ).removeClass( 'hidden' );"
+								.		"} else {"
+								.			"$( '.gjEventEditLimit' ).addClass( 'hidden' );"
+								.		"}"
+								.	"});";
+
+		if ( $this->params->getBool( 'groups_events_address', true ) && ( ! empty( $_SERVER['HTTPS'] ) ) && ( $_SERVER['HTTPS'] !== 'off' ) ) {
+			$js					=	"$( '.gjButtonLocation' ).on( 'click', function() {"
+								.		"if ( typeof navigator.geolocation == 'undefined' ) {"
+								.			"return null;"
+								.		"}"
+								.		"var input = $( this ).siblings( 'input' );"
+								.		"navigator.geolocation.getCurrentPosition( function( position ) {"
+								.			"input.val( position.coords.latitude + ',' + position.coords.longitude );"
+								.		"});"
+								.	"});";
+
+			$canGeoLocate		=	true;
+		}
+
+		$_CB_framework->outputCbJQuery( $js );
+
+		require HtmlHelper::getPluginTemplate( $this->element, 'event_edit' );
+	}
+
+	private function saveEventEdit( int $id, UserTable $user ): void
+	{
+		global $_CB_framework, $_CB_database, $_PLUGINS;
+
+		$row					=	EventHelper::getEvent( $id );
+		$isModerator			=	Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator();
+		$groupId				=	$this->getInput()->getInt( 'group' );
+
+		if ( $groupId === null ) {
+			$group				=	$row->group();
+		} else {
+			$group				=	GroupHelper::getGroup( $groupId );
+		}
+
+		$returnUrl				=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $group->getInt( 'id', 0 ) ] );
+
+		if ( ! GroupHelper::canAccessGroup( $group, $user ) ) {
+			cbRedirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+		} elseif ( ! $isModerator ) {
+			if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $group->category()->params()->getBool( 'events', true ) ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+			} elseif ( ( ! $row->getInt( 'id', 0 ) ) && ( ! GroupHelper::canCreateGroupContent( $user, $group, 'events' ) ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to schedule an event in this group.' ), 'error' );
+			} elseif ( $row->getInt( 'id', 0 )
+					   && ( GroupHelper::getGroupStatus( $user, $group ) < 2 )
+					   && ( $user->getInt( 'id', 0 ) !== $row->getInt( 'user_id', 0 ) )
+			) {
+				cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to edit this event.' ), 'error' );
+			}
+		}
+
+		if ( $isModerator ) {
+			$row->set( 'user_id', $this->getInput()->getInt( 'post/user_id', $row->getInt( 'user_id', $user->getInt( 'id', 0 ) ) ) );
+		} else {
+			$row->set( 'user_id', $row->getInt( 'user_id', $user->getInt( 'id', 0 ) ) );
+		}
+
+		$canModerate			=	( GroupHelper::getGroupStatus( $user, $group ) >= 2 );
+
+		$currentTitle			=	$row->getString( 'title', '' );
+		$currentEvent			=	( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) );
+		$currentLocation		=	$row->getString( 'location', '' );
+		$currentAddress			=	$row->getString( 'address', '' );
+		$currentStart			=	$row->getString( 'start', '' );
+		$currentEnd				=	$row->getString( 'end', '' );
+
+		$newStart				=	$this->getInput()->getString( 'post/start', $currentStart );
+		$newEnd					=	$this->getInput()->getString( 'post/end', $currentEnd );
+
+		$row->set( 'published', ( $isModerator || $canModerate || ( $row->getInt( 'id', 0 ) && ( $row->getInt( 'published', 1 ) !== -1 ) ) || ( $group->params()->getInt( 'events', 1 ) !== 2 ) ? $this->getInput()->getInt( 'post/published', $row->getInt( 'published', 1 ) ) : -1 ) );
+		$row->set( 'group', $group->getInt( 'id', 0 ) );
+		$row->set( 'title', $this->getInput()->getString( 'post/title', $currentTitle ) );
+		$row->set( 'event', ( $this->params->getBool( 'groups_events_html', true ) ? $this->getInput()->getHtml( 'post/event', $currentEvent ) : $this->getInput()->getString( 'post/event', $currentEvent ) ) );
+		$row->set( 'location', $this->getInput()->getString( 'post/location', $currentLocation ) );
+		$row->set( 'address', $this->getInput()->getString( 'post/address', $currentAddress ) );
+		$row->set( 'start', ( $newStart ?: $_CB_database->getNullDate() ) );
+		$row->set( 'end', ( $newEnd ?: $_CB_database->getNullDate() ) );
+		$row->set( 'attendance', $this->getInput()->getInt( 'post/attendance', $row->getInt( 'attendance', 1 ) ) );
+
+		if ( $row->getInt( 'attendance', 1 ) ) {
+			$row->set( 'limit', $this->getInput()->getInt( 'post/limit', $row->getInt( 'limit', 0 ) ) );
+		} else {
+			$row->set( 'limit', 0 );
+		}
+
+		if ( ( ! $isModerator ) && $this->params->getBool( 'groups_events_captcha', false ) ) {
+			$_PLUGINS->loadPluginGroup( 'user' );
+
+			$_PLUGINS->trigger( 'onCheckCaptchaHtmlElements', [] );
+
+			if ( $_PLUGINS->is_errors() ) {
+				$row->setError( $_PLUGINS->getErrorMSG() );
+			}
+		}
+
+		$new					=	( ! $row->getInt( 'id', 0 ) );
+
+		if ( $row->getError() || ( ! $row->check() ) ) {
+			$_CB_framework->enqueueMessage( CBTxt::T( 'GROUP_EVENT_FAILED_TO_SAVE', 'Event failed to save! Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+
+			$this->showEventEdit( $id, $user );
+			return;
+		}
+
+		if ( $row->getError() || ( ! $row->store() ) ) {
+			$_CB_framework->enqueueMessage( CBTxt::T( 'GROUP_EVENT_FAILED_TO_SAVE', 'Event failed to save! Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+
+			$this->showEventEdit( $id, $user );
+			return;
+		}
+
+		$extras					=	[	'event_id'			=>	$row->getInt( 'id', 0 ),
+										'event_title'		=>	$row->getString( 'title', '' ),
+										'event_details'		=>	( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ),
+										'event_address'		=>	$row->getString( 'address', '' ),
+										'event_location'	=>	$row->getString( 'location', '' ),
+										'event_date'		=>	$row->date(),
+										'event'				=>	'<a href="' . $_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $row->getInt( 'group', 0 ), 'tab' => 'grouptabevents' ] ) . '">' . htmlspecialchars( $row->getString( 'title', '' ) ) . '</a>'
+									];
+
+		if ( $new ) {
+			if ( $row->getInt( 'published', 1 ) === 1 ) {
+				NotificationHelper::sendToGroup( 'event_new', CBTxt::T( 'New group event' ), CBTxt::T( '[user] has scheduled the event [event] in the group [group]!' ), $row->group(), $row->getInt( 'user_id', 0 ), null, [ $user->getInt( 'id', 0 ) ], 1, $extras );
+			} elseif ( ( $row->getInt( 'published', 1 ) === -1 ) && ( $row->group()->params()->getInt( 'events', 1 ) === 2 ) ) {
+				NotificationHelper::sendToGroup( 'event_approve', CBTxt::T( 'New group event awaiting approval' ), CBTxt::T( '[user] has scheduled the event [event] in the group [group] and is awaiting approval!' ), $row->group(), $row->getInt( 'user_id', 0 ), null, [ $user->getInt( 'id', 0 ) ], 2, $extras );
+
+				cbRedirect( $returnUrl, CBTxt::T( 'Event scheduled successfully and awaiting approval!' ) );
+			}
+
+			cbRedirect( $returnUrl, CBTxt::T( 'Event scheduled successfully!' ) );
+		} else {
+			if ( ( $row->getInt( 'published', 1 ) === 1 )
+				 && (
+				 		( $row->getString( 'title', '' ) !== $currentTitle )
+						|| ( ( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ) !== $currentEvent )
+						|| ( $row->getString( 'location', '' ) !== $currentLocation )
+						|| ( $row->getString( 'address', '' ) !== $currentAddress )
+						|| ( $row->getString( 'start', '' ) !== $currentStart )
+						|| ( $row->getString( 'end', '' ) !== $currentEnd )
+				 )
+			) {
+				NotificationHelper::sendToGroup( 'event_edit', CBTxt::T( 'Group event changed' ), CBTxt::T( '[user] has changed the scheduled event [event] in the group [group]!' ), $row->group(), $row->getInt( 'user_id', 0 ), null, [ $user->getInt( 'id', 0 ) ], 1, $extras );
+			}
+
+			cbRedirect( $returnUrl, CBTxt::T( 'Event saved successfully!' ) );
+		}
+	}
+
+	private function stateEvent( int $state, int $id, UserTable $user ): void
+	{
+		global $_CB_framework;
+
+		$row				=	EventHelper::getEvent( $id );
+		$returnUrl			=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $row->getInt( 'group', 0 ) ] );
+
+		if ( $row->getInt( 'id', 0 ) ) {
+			if ( ! GroupHelper::canAccessGroup( $row->group(), $user ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+			} elseif ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) {
+				if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $row->group()->category()->params()->getBool( 'events', true ) ) ) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+				} elseif ( GroupHelper::getGroupStatus( $user, $row->group() ) < 2 ) {
+					if ( ( $row->getInt( 'published', 1 ) === -1 )
+						 && ( $user->getInt( 'id', 0 ) === $row->getInt( 'user_id', 0 ) )
+						 && ( $row->group()->params()->getInt( 'events', 1 ) === 2 )
+					) {
+						cbRedirect( $returnUrl, CBTxt::T( 'Your event is awaiting approval.' ), 'error' );
+					} elseif ( ( $user->getInt( 'id', 0 ) !== $row->getInt( 'user_id', 0 ) ) ) {
+						cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to publish or unpublish this event.' ), 'error' );
+					}
+				}
+			}
+		} else {
+			cbRedirect( $returnUrl, CBTxt::T( 'Event does not exist.' ), 'error' );
+		}
+
+		$currentState		=	$row->getInt( 'published', 1 );
+
+		$row->set( 'published', $state );
+
+		if ( $row->getError() || ( ! $row->store() ) ) {
+			cbRedirect( $returnUrl, CBTxt::T( 'GROUP_EVENT_STATE_FAILED_TO_SAVE', 'Event state failed to saved. Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		if ( $state && ( $currentState === -1 ) ) {
+			$extras			=	[	'event_id'			=>	$row->getInt( 'id', 0 ),
+									'event_title'		=>	$row->getString( 'title', '' ),
+									'event_details'		=>	( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ),
+									'event_address'		=>	$row->getString( 'address', '' ),
+									'event_location'	=>	$row->getString( 'location', '' ),
+									'event_date'		=>	$row->date(),
+									'event'				=>	'<a href="' . $_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $row->getInt( 'group', 0 ), 'tab' => 'grouptabevents' ] ) . '">' . htmlspecialchars( $row->getString( 'title', '' ) ) . '</a>',
+								];
+
+			if ( $row->getInt( 'user_id', 0 ) !== $user->getInt( 'id', 0 ) ) {
+				NotificationHelper::sendToUser( 'event_approved', 4, $user, $row->getInt( 'user_id', 0 ), CBTxt::T( 'Event schedule request accepted' ), CBTxt::T( 'Your event [event] schedule request in the group [group] has been accepted!' ), $row->group(), $extras );
+			}
+
+			NotificationHelper::sendToGroup( 'event_new', CBTxt::T( 'New group event' ), CBTxt::T( '[user] has scheduled the event [event] in the group [group]!' ), $row->group(), $row->getInt( 'user_id', 0 ), null, [ $user->getInt( 'id', 0 ) ], 1, $extras );
+		}
+
+		cbRedirect( $returnUrl, CBTxt::T( 'Event state saved successfully!' ) );
+	}
+
+	private function deleteEvent( int $id, UserTable $user ): void
+	{
+		global $_CB_framework;
+
+		$row			=	EventHelper::getEvent( $id );
+		$returnUrl		=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $row->getInt( 'group', 0 ) ] );
+
+		if ( $row->getInt( 'id', 0 ) ) {
+			if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $row->group()->category()->params()->getBool( 'events', true ) ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+			} elseif ( ! GroupHelper::canAccessGroup( $row->group(), $user ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+			} elseif ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) {
+				if ( ( $user->getInt( 'id', 0 ) !== $row->getInt( 'user_id', 0 ) ) && ( GroupHelper::getGroupStatus( $user, $row->group() ) < 2 ) ) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to delete this event.' ), 'error' );
+				}
+			}
+		} else {
+			cbRedirect( $returnUrl, CBTxt::T( 'Event does not exist.' ), 'error' );
+		}
+
+		if ( ! $row->canDelete() ) {
+			cbRedirect( $returnUrl, CBTxt::T( 'GROUP_EVENT_FAILED_TO_DELETE', 'Event failed to delete. Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		if ( ! $row->delete() ) {
+			cbRedirect( $returnUrl, CBTxt::T( 'GROUP_EVENT_FAILED_TO_DELETE', 'Event failed to delete. Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		cbRedirect( $returnUrl, CBTxt::T( 'Event deleted successfully!' ) );
+	}
+
+	private function attendEvent( int $id, UserTable $user ): void
+	{
+		global $_CB_framework, $_CB_database;
+
+		$event						=	EventHelper::getEvent( $id );
+		$returnUrl					=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $event->getInt( 'group', 0 ) ] );
+
+		if ( $event->getInt( 'id', 0 ) ) {
+			if ( ! GroupHelper::canAccessGroup( $event->group(), $user ) ) {
+				RouteHelper::redirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+			} elseif ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) {
+				if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $event->group()->category()->params()->getBool( 'events', true ) ) ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+				} elseif ( ( $event->getInt( 'published', 1 ) !== 1 ) && ( GroupHelper::getGroupStatus( $user, $event->group() ) < 2 ) ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You do not have access to this event.' ), 'error' );
+				} elseif ( ( ! $event->getInt( 'attendance', 1 ) ) || ( ! $user->getInt( 'id', 0 ) ) || ( ( $event->group()->getInt( 'type', 0 ) !== 4 ) && ( GroupHelper::getGroupStatus( $user, $event->group() ) < 1 ) ) ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to attend this event.' ), 'error' );
+				} elseif ( $event->status() === 1 ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You can not attend an expired event.' ), 'error' );
+				} elseif ( $event->getInt( 'limit', 0 ) && ( $event->getInt( 'user_id', 0 ) !== $user->getInt( 'id', 0 ) ) ) {
+					$query			=	"SELECT COUNT(*)"
+									.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS a"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+									.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+									.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+									.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+									.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+									.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+									.	" WHERE a." . $_CB_database->NameQuote( 'event' ) . " = " . $event->getInt( 'id', 0 );
+					$_CB_database->setQuery( $query );
+					$guests			=	(int) $_CB_database->loadResult();
+
+					if ( $guests >= $event->getInt( 'limit', 0 ) ) {
+						RouteHelper::redirect( $returnUrl, CBTxt::T( 'This event is full.' ), 'error' );
+					}
+				}
+			}
+		} else {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'Event does not exist.' ), 'error' );
+		}
+
+		$row						=	new AttendanceTable();
+
+		$row->load( [ 'user_id' => $user->getInt( 'id', 0 ), 'event' => $event->getInt( 'id', 0 ) ] );
+
+		if ( $row->getInt( 'id', 0 ) ) {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'You are already attending this event.' ), 'error' );
+		}
+
+		$row->set( 'user_id', $user->getInt( 'id', 0 ) );
+		$row->set( 'event', $event->getInt( 'id', 0 ) );
+
+		if ( $row->getError() || ( ! $row->check() ) ) {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'GROUP_EVENT_ATTEND_FAILED', 'Event attend failed. Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		if ( $row->getError() || ( ! $row->store() ) ) {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'GROUP_EVENT_ATTEND_FAILED', 'Event attend failed. Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		$extras						=	[	'event_id'			=>	$event->getInt( 'id', 0 ),
+											'event_title'		=>	$event->getString( 'title', '' ),
+											'event_details'		=>	( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ),
+											'event_address'		=>	$event->getString( 'address', '' ),
+											'event_location'	=>	$event->getString( 'location', '' ),
+											'event_date'		=>	$event->date(),
+											'event'				=>	'<a href="' . $_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $event->getInt( 'group', 0 ), 'tab' => 'grouptabevents' ] ) . '">' . htmlspecialchars( CBTxt::T( $event->getString( 'title', '' ) ) ) . '</a>',
+										];
+
+		NotificationHelper::sendToGroup( 'event_attend', CBTxt::T( 'User attending your group event' ), CBTxt::T( '[user] will be attending your event [event] in the group [group]!' ), $event->group(), $user, $event->getInt( 'user_id', 0 ), [], 1, $extras );
+
+		RouteHelper::redirect( $returnUrl, CBTxt::T( 'Event attended successfully!' ) );
+	}
+
+	private function unattendEvent( int $id, UserTable $user ): void
+	{
+		global $_CB_framework;
+
+		$event				=	EventHelper::getEvent( $id );
+		$returnUrl			=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $event->getInt( 'group', 0 ) ] );
+
+		if ( $event->getInt( 'id', 0 ) ) {
+			if ( ! GroupHelper::canAccessGroup( $event->group(), $user ) ) {
+				RouteHelper::redirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+			} elseif ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) {
+				if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $event->group()->category()->params()->getBool( 'events', true ) ) ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+				} elseif ( ( $event->getInt( 'published', 1 ) !== 1 ) && ( GroupHelper::getGroupStatus( $user, $event->group() ) < 2 ) ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You do not have access to this event.' ), 'error' );
+				} elseif ( ( ! $event->getInt( 'attendance', 1 ) ) || ( ! $user->getInt( 'id', 0 ) ) || ( ( $event->group()->getInt( 'type', 0 ) !== 4 ) && ( GroupHelper::getGroupStatus( $user, $event->group() ) < 1 ) ) ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to unattend this event.' ), 'error' );
+				} elseif ( $event->status() === 1 ) {
+					RouteHelper::redirect( $returnUrl, CBTxt::T( 'You can not unattend an expired event.' ), 'error' );
+				}
+			}
+		} else {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'Event does not exist.' ), 'error' );
+		}
+
+		$row				=	new AttendanceTable();
+
+		$row->load( [ 'user_id' => $user->getInt( 'id', 0 ), 'event' => $event->getInt( 'id', 0 ) ] );
+
+		if ( ! $row->getInt( 'id', 0 ) ) {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'You can not unattend an event you are not attending.' ), 'error' );
+		}
+
+		if ( ! $row->canDelete() ) {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'GROUP_EVENT_FAILED_TO_UNATTEND', 'Event failed to unattend. Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		if ( ! $row->delete() ) {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'GROUP_EVENT_FAILED_TO_UNATTEND', 'Event failed to unattend. Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+		}
+
+		$extras				=	[	'event_id'			=>	$event->getInt( 'id', 0 ),
+									'event_title'		=>	$event->getString( 'title', '' ),
+									'event_details'		=>	( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ),
+									'event_address'		=>	$event->getString( 'address', '' ),
+									'event_location'	=>	$event->getString( 'location', '' ),
+									'event_date'		=>	$event->date(),
+									'event'				=>	'<a href="' . $_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $event->getInt( 'group', 0 ), 'tab' => 'grouptabevents' ] ) . '">' . htmlspecialchars( CBTxt::T( $event->getString( 'title', '' ) ) ) . '</a>'
+								];
+
+		NotificationHelper::sendToGroup( 'event_unattend', CBTxt::T( 'User unattended your group event' ), CBTxt::T( '[user] will no longer be attending your event [event] in the group [group]!' ), $event->group(), $user, $event->getInt( 'user_id', 0 ), [], 1, $extras );
+
+		RouteHelper::redirect( $returnUrl, CBTxt::T( 'Event unattended successfully!' ) );
+	}
+
+	private function sendEventMessage( int $id, UserTable $user ): void
+	{
+		global $_CB_framework, $_CB_database;
+
+		$row					=	EventHelper::getEvent( $id );
+		$returnUrl				=	$_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $row->getInt( 'group', 0 ) ] );
+
+		if ( $row->getInt( 'id', 0 ) ) {
+			if ( ! GroupHelper::canAccessGroup( $row->group(), $user ) ) {
+				cbRedirect( $returnUrl, CBTxt::T( 'Group does not exist.' ), 'error' );
+			} elseif ( ! Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator() ) {
+				if ( ( ! in_array( $this->params->getInt( 'groups_events_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) || ( ! $row->group()->category()->params()->getBool( 'events', true ) ) ) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to events in this group.' ), 'error' );
+				} elseif ( ( ! $this->params->getBool( 'groups_events_message', false ) ) || ( ! in_array( $this->params->getInt( 'groups_events_message_access', 1 ), Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels(), true ) ) ) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have access to messaging for this event.' ), 'error' );
+				} elseif ( ( ! $row->getInt( 'attendance', 1 ) )
+						   || ( $row->getInt( 'published', 1 ) !== 1 )
+						   || ( $row->status() === 1 )
+						   || ( GroupHelper::getGroupStatus( $user, $row->group() ) < 1 )
+						   || ( ( $user->getInt( 'id', 0 ) !== $row->getInt( 'user_id', 0 ) ) && ( GroupHelper::getGroupStatus( $user, $row->group() ) < 3 ) )
+				) {
+					cbRedirect( $returnUrl, CBTxt::T( 'You do not have sufficient permissions to messaging for this event.' ), 'error' );
+				} elseif ( $row->params()->getString( 'messaged', '' ) ) {
+					$seconds	=	$this->params->getInt( 'groups_events_message_delay', 60 );
+
+					if ( $seconds && ( Application::Date( $row->params()->getString( 'messaged', '' ), 'UTC' )->add( $seconds . ' SECONDS' )->getTimestamp() >= Application::Date( 'now', 'UTC' )->getTimestamp() ) ) {
+						cbRedirect( $returnUrl, CBTxt::T( 'You can not send a message to this event at this time. Please wait awhile and try again.' ), 'error' );
+					}
+				}
+			}
+		} else {
+			cbRedirect( $returnUrl, CBTxt::T( 'Event does not exist.' ), 'error' );
+		}
+
+		$message				=	( $this->params->getBool( 'groups_events_message_html', false ) ? $this->getInput()->getHtml( 'post/message', '' ) : $this->getInput()->getString( 'post/message', '' ) );
+
+		if ( ! $message ) {
+			$_CB_framework->enqueueMessage( CBTxt::T( 'GROUP_EVENT_MESSAGE_FAILED_TO_SEND', 'Event message failed to send! Error: [error]', [ '[error]' => CBTxt::T( 'Message not specified!' ) ] ), 'error' );
+
+			$this->showEventMessage( $id, $user );
+			return;
+		}
+
+		$query					=	"SELECT cb.*, j.*"
+								.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS a"
+								.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+								.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+								.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+								.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+								.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+								.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = a." . $_CB_database->NameQuote( 'user_id' )
+								.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+								.	" WHERE a." . $_CB_database->NameQuote( 'event' ) . " = " . $row->getInt( 'id', 0 );
+		$_CB_database->setQuery( $query );
+		$users					=	$_CB_database->loadObjectList( null, UserTable::class, [ $_CB_database ] );
+
+		if ( ! $users ) {
+			RouteHelper::redirect( $returnUrl, CBTxt::T( 'This event has no guests to message.' ) );
+		} else {
+			$subject			=	$this->getInput()->getString( 'post/subject', '' );
+
+			if ( $subject && ( $this->params->getInt( 'groups_events_message_type', 2 ) === 1 ) && $this->params->getBool( 'groups_events_message_subject', false ) ) {
+				$subject		=	CBTxt::T( 'GROUP_EVENT_MESSAGE_SUBJECT', 'Event message - [subject]', [ '[subject]' => $subject ] );
+			} else {
+				$subject		=	CBTxt::T( 'Event message' );
+			}
+
+			$extras				=	[	'event_id'			=>	$row->getInt( 'id', 0 ),
+										'event_title'		=>	$row->getString( 'title', '' ),
+										'event_details'		=>	( $this->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ),
+										'event_address'		=>	$row->getString( 'address', '' ),
+										'event_location'	=>	$row->getString( 'location', '' ),
+										'event_date'		=>	$row->date(),
+										'event'				=>	'<a href="' . $_CB_framework->pluginClassUrl( 'cbgroupjive', false, [ 'action' => 'groups', 'func' => 'show', 'id' => $row->getInt( 'group', 0 ), 'tab' => 'grouptabevents' ] ) . '">' . htmlspecialchars( $row->getString( 'title', '' ) ) . '</a>'
+									];
+
+			GroupHelper::prefetchUsers( $users );
+
+			foreach ( $users as $usr ) {
+				NotificationHelper::sendToUser( 'event_message', $this->params->getInt( 'groups_events_message_type', 2 ), $user, $usr, $subject, CBTxt::T( 'GROUP_EVENT_MESSAGE', 'Event [event] has sent the following message.<p>[message]</p>', [ '[message]' => $message ] ), $row->group(), $extras );
+			}
+		}
+
+		$row->params()->set( 'messaged', Application::Database()->getUtcDateTime() );
+
+		$row->set( 'params', $row->params()->asJson() );
+
+		if ( $row->getError() || ( ! $row->store() ) ) {
+			$_CB_framework->enqueueMessage( CBTxt::T( 'GROUP_EVENT_FAILED_TO_SAVE', 'Event failed to save! Error: [error]', [ '[error]' => $row->getError() ] ), 'error' );
+
+			$this->showEventMessage( $id, $user );
+			return;
+		}
+
+		RouteHelper::redirect( $returnUrl, CBTxt::T( 'Event messaged successfully!' ) );
+	}
+}

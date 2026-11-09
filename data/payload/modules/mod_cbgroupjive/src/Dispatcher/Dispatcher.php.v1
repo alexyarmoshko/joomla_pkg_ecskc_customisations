@@ -1,0 +1,705 @@
+<?php
+/**
+* Community Builder (TM)
+* @version $Id: $
+* @package CommunityBuilder
+* @copyright (C) 2004-2026 www.joomlapolis.com / Lightning MultiCom SA - and its licensors, all rights reserved
+* @license http://www.gnu.org/licenses/old-licenses/gpl-2.0.html GNU/GPL version 2
+*/
+
+namespace CBGroupJive\Module\Groups\Site\Dispatcher;
+
+use CB\Database\Table\PluginTable;
+use CB\Plugin\GroupJive\Helper\CategoryHelper;
+use CB\Plugin\GroupJive\Helper\GroupHelper;
+use CB\Plugin\GroupJive\Helper\HtmlHelper;
+use CB\Plugin\GroupJive\Helper\RouteHelper;
+use CB\Plugin\GroupJive\Table\CategoryTable;
+use CB\Plugin\GroupJive\Table\GroupTable;
+use CB\Plugin\GroupJiveEvents\Helper\EventHelper;
+use CB\Plugin\GroupJiveEvents\Table\EventTable;
+use CBLib\Application\Application;
+use CBLib\Language\CBTxt;
+use CBLib\Registry\ParamsInterface;
+use CBLib\Registry\Registry;
+use CBuser;
+use Joomla\CMS\Dispatcher\AbstractModuleDispatcher;
+
+\defined( '_JEXEC' ) or die;
+
+class Dispatcher extends AbstractModuleDispatcher
+{
+	protected function getGroupJive(): ?PluginTable
+	{
+		global $_PLUGINS;
+
+		static $cache	=	null;
+
+		if ( $cache !== null ) {
+			if ( $cache === false ) {
+				return null;
+			}
+
+			return $cache;
+		}
+
+		if ( ( ! file_exists( JPATH_SITE . '/libraries/CBLib/CBLib/Core/CBLib.php' ) ) || ( ! file_exists( JPATH_ADMINISTRATOR . '/components/com_comprofiler/plugin.foundation.php' ) ) ) {
+			$cache		=	false;
+
+			return null;
+		}
+
+		include_once( JPATH_ADMINISTRATOR . '/components/com_comprofiler/plugin.foundation.php' );
+
+		cbimport( 'cb.html' );
+		cbimport( 'language.front' );
+
+		$_PLUGINS->loadPluginGroup( 'user' );
+
+		$gjPlugin		=	$_PLUGINS->getLoadedPlugin( 'user', 'cbgroupjive' );
+
+		if ( ! $gjPlugin ) {
+			$cache		=	false;
+
+			return null;
+		}
+
+		outputCbJs();
+		outputCbTemplate();
+
+		if ( ! ( $gjPlugin->getRaw( 'params', '' ) instanceof ParamsInterface ) ) {
+			$gjPlugin->set( 'params', new Registry( $gjPlugin->getRaw( 'params', '' ) ) );
+		}
+
+		$cache			=	$gjPlugin;
+
+		return $cache;
+	}
+
+	protected function getGroupJiveEvents(): ?PluginTable
+	{
+		global $_PLUGINS;
+
+		static $cache	=	null;
+
+		if ( $cache !== null ) {
+			if ( $cache === false ) {
+				return null;
+			}
+
+			return $cache;
+		}
+
+		$gjEventsPlugin	=	$_PLUGINS->getLoadedPlugin( 'user/plug_cbgroupjive/plugins', 'cbgroupjiveevents' );
+
+		if ( ! $gjEventsPlugin ) {
+			$cache		=	false;
+
+			return null;
+		}
+
+		if ( ! ( $gjEventsPlugin->getRaw( 'params', '' ) instanceof ParamsInterface ) ) {
+			$gjEventsPlugin->set( 'params', new Registry( $gjEventsPlugin->getRaw( 'params', '' ) ) );
+		}
+
+		$cache			=	$gjEventsPlugin;
+
+		return $cache;
+	}
+
+	protected function getLayoutData()
+	{
+		global $_CB_framework, $_CB_database, $_PLUGINS;
+
+		$gjPlugin							=	$this->getGroupJive();
+
+		if ( ! $gjPlugin ) {
+			return false;
+		}
+
+		$data								=	parent::getLayoutData();
+		$params								=	$data['params'];
+
+		$data['cbTemplateClass']			=	trim( 'cb_template cb_template_' . selectTemplate( 'dir' ) . ' cbGroupJiveModule ' . $params->get( 'moduleclass_sfx', '' ) );
+		$data['gjTemplateClass']			=	trim( 'cbGroupJive ' . $gjPlugin->params->getString( 'general_class', '' ) );
+
+		$integrations						=	implode( '', $_PLUGINS->trigger( 'gj_onModuleDisplay', [ $params ] ) );
+
+		if ( $integrations ) {
+			$data['content']				=	$integrations;
+
+			return $data;
+		}
+
+		$user								=	CBuser::getMyUserDataInstance();
+		$isModerator						=	Application::User( $user->getInt( 'id', 0 ) )->isGlobalModerator();
+		$mode								=	$params->get( 'groupjive_mode', 'latest_groups' );
+		$limit								=	(int) $params->get( 'groupjive_limit', 10 );
+		$modeUser							=	$params->get( 'groupjive_user', 'viewing' );
+		$modeUserCustom						=	(int) $params->get( 'groupjive_user_custom', 0 );
+		$includeCategories					=	$params->get( 'groupjive_include_categories', '' );
+		$includeGroups						=	$params->get( 'groupjive_include_groups', '' );
+
+		if ( ! \is_array( $includeCategories ) ) {
+			if ( $includeCategories ) {
+				$includeCategories			=	explode( ',', $includeCategories );
+			} else {
+				$includeCategories			=	[];
+			}
+		}
+
+		if ( ! \is_array( $includeGroups ) ) {
+			if ( $includeGroups ) {
+				$includeGroups				=	explode( ',', $includeGroups );
+			} else {
+				$includeGroups				=	[];
+			}
+		}
+
+		$excludeCategories					=	$params->get( 'groupjive_exclude_categories', '' );
+		$excludeGroups						=	$params->get( 'groupjive_exclude_groups', '' );
+
+		if ( ! \is_array( $excludeCategories ) ) {
+			if ( $excludeCategories ) {
+				$excludeCategories			=	explode( ',', $excludeCategories );
+			} else {
+				$excludeCategories			=	[];
+			}
+		}
+
+		if ( ! \is_array( $excludeGroups ) ) {
+			if ( $excludeGroups ) {
+				$excludeGroups				=	explode( ',', $excludeGroups );
+			} else {
+				$excludeGroups				=	[];
+			}
+		}
+
+		$content							=	'';
+
+		switch( $mode ) {
+			case 'popular_events':
+			case 'random_events':
+			case 'upcoming_events':
+			case 'attending_events':
+			case 'my_events':
+				$gjEventsPlugin				=	$this->getGroupJiveEvents();
+
+				if ( ! $gjEventsPlugin ) {
+					return false;
+				}
+
+				$now						=	Application::Database()->getUtcDateTime();
+
+				switch ( $mode ) {
+					case 'random_events':
+						$orderBy			=	"RAND()";
+						break;
+					case 'popular_events':
+						$orderBy			=	$_CB_database->NameQuote( '_guests' ) . " DESC";
+						break;
+					case 'my_events':
+						$orderBy			=	"e." . $_CB_database->NameQuote( 'id' ) . " DESC";
+						break;
+					case 'upcoming_events':
+					case 'attending_events':
+					default:
+						$orderBy			=	"IF( _start_ordering < 0 AND _end_ordering > 0, 1, IF( _start_ordering > 0, 2, 3 ) ), ABS( _start_ordering )";
+						break;
+				}
+
+				$joined						=	"SELECT 1"
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_users' ) . " AS u"
+											.	" WHERE u." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+											.	" AND u." . $_CB_database->NameQuote( 'group' ) . " = g." . $_CB_database->NameQuote( 'id' )
+											.	" AND u." . $_CB_database->NameQuote( 'status' ) . " BETWEEN 0 AND 3";
+
+				$guests						=	"SELECT COUNT(*)"
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS ea"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS eacb"
+											.	" ON eacb." . $_CB_database->NameQuote( 'id' ) . " = ea." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND eacb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+											.	" AND eacb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS eaj"
+											.	" ON eaj." . $_CB_database->NameQuote( 'id' ) . " = ea." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND eaj." . $_CB_database->NameQuote( 'block' ) . " = 0"
+											.	" WHERE ea." . $_CB_database->NameQuote( 'event' ) . " = e." . $_CB_database->NameQuote( 'id' );
+
+				$query						=	"SELECT e.*"
+											.	", TIMESTAMPDIFF( SECOND, " . $_CB_database->Quote( $now ) . ", e." . $_CB_database->NameQuote( 'start' ) . " ) AS _start_ordering"
+											.	", TIMESTAMPDIFF( SECOND, " . $_CB_database->Quote( $now ) . ", e." . $_CB_database->NameQuote( 'end' ) . " ) AS _end_ordering"
+											.	", a." . $_CB_database->NameQuote( 'id' ) . ' AS _attending'
+											.	", ( " . $guests . ' ) AS _guests'
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_plugin_events' ) . " AS e"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__groupjive_groups' ) . " AS g"
+											.	" ON g." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'group' )
+											.	" LEFT JOIN " . $_CB_database->NameQuote( '#__groupjive_categories' ) . " AS c"
+											.	" ON c." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'category' )
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+											.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+											.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+											.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = e." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+											.	( $mode === 'attending_events' ? " INNER JOIN" : " LEFT JOIN " ) . $_CB_database->NameQuote( '#__groupjive_plugin_events_attendance' ) . " AS a"
+											.	" ON a." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+											.	" AND a." . $_CB_database->NameQuote( 'event' ) . " = e." . $_CB_database->NameQuote( 'id' );
+
+				$queryWhere					=	[];
+
+				if ( $includeGroups ) {
+					$queryWhere[]			=	"e." . $_CB_database->NameQuote( 'group' ) . " IN " . $_CB_database->safeArrayOfIntegers( $includeGroups );
+				}
+
+				if ( $excludeGroups ) {
+					$queryWhere[]			=	"e." . $_CB_database->NameQuote( 'group' ) . " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeGroups );
+				}
+
+				if ( $includeCategories ) {
+					$queryWhere[]			=	"c." . $_CB_database->NameQuote( 'id' ) . " IN " . $_CB_database->safeArrayOfIntegers( $includeCategories );
+				}
+
+				if ( $excludeCategories ) {
+					$queryWhere[]			=	"c." . $_CB_database->NameQuote( 'id' ) . " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeCategories );
+				}
+
+				if ( $mode === 'my_events' ) {
+					$queryWhere[]			=	"e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 );
+				} elseif ( ! $isModerator ) {
+					$queryWhere[]			=	"( e." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+											.		" OR e." . $_CB_database->NameQuote( 'published' ) . " = 1 )";
+				}
+
+				if ( $params->get( 'groupjive_exclude_ended', 0 ) ) {
+					$queryWhere[]			=	"( ( e." . $_CB_database->NameQuote( 'end' ) . " != " . $_CB_database->Quote( $_CB_database->getNullDate() )
+											.	" AND e." . $_CB_database->NameQuote( 'end' ) . " > " . $_CB_database->Quote( $_CB_database->getUtcDateTime() ) . " )"
+											.	" OR ( e." . $_CB_database->NameQuote( 'end' ) . " = " . $_CB_database->Quote( $_CB_database->getNullDate() )
+											.	" AND e." . $_CB_database->NameQuote( 'start' ) . " > " . $_CB_database->Quote( $_CB_database->getUtcDateTime() ) . " ) )";
+				}
+
+				if ( ! $isModerator ) {
+					if ( $user->getInt( 'id', 0 ) ) {
+						$queryWhere[]		=	"( g." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+											.		" OR ( g." . $_CB_database->NameQuote( 'published' ) . " = 1"
+											.		" AND ( g." . $_CB_database->NameQuote( 'type' ) . " != 3"
+											.		" OR EXISTS( " . $joined . " ) ) ) )";
+					} else {
+						$queryWhere[]		=	"g." . $_CB_database->NameQuote( 'published' ) . " = 1";
+						$queryWhere[]		=	"g." . $_CB_database->NameQuote( 'type' ) . " != 3";
+					}
+
+					$queryWhere[]			=	"( ( c." . $_CB_database->NameQuote( 'published' ) . " = 1"
+											.		" AND c." . $_CB_database->NameQuote( 'access' ) . " IN " . $_CB_database->safeArrayOfIntegers( Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels() ) . " )"
+											.		( $gjPlugin->params->getInt( 'groups_uncategorized', 1 ) ? " OR g." . $_CB_database->NameQuote( 'category' ) . " = 0 )" : " )" );
+				}
+
+				$query						.=	( $queryWhere ? " WHERE " . implode( " AND ", $queryWhere ) : "" )
+											.	" ORDER BY " . $orderBy;
+				if ( $limit ) {
+					$_CB_database->setQuery( $query, 0, $limit );
+				} else {
+					$_CB_database->setQuery( $query );
+				}
+				$rows						=	$_CB_database->loadObjectList( null, EventTable::class, [ $_CB_database ] );
+
+				if ( ! $rows ) {
+					return false;
+				}
+
+				EventHelper::prefetchEvents( $rows );
+				GroupHelper::prefetchUsers( $rows );
+				HtmlHelper::renderHeaders();
+				HtmlHelper::renderPluginHeaders( 'cbgroupjiveevents' );
+
+				$layoutData					=	[];
+
+				foreach ( $rows as $rowId => $row ) {
+					$address				=	htmlspecialchars( $row->getString( 'location', '' ) );
+
+					if ( $gjEventsPlugin->params->getBool( 'groups_events_address', true ) ) {
+						if ( $row->getString( 'address', '' ) ) {
+							$mapUrl			=	CBTxt::T( 'GROUP_EVENT_ADDRESS_MAP_URL', 'https://www.google.com/maps/place/[address]', [ '[location]' => urlencode( $row->getString( 'location', '' ) ), '[address]' => urlencode( $row->getString( 'address', '' ) ) ] );
+						} else {
+							$mapUrl			=	CBTxt::T( 'GROUP_EVENT_LOCATION_MAP_URL', 'https://www.google.com/maps/search/[location]', [ '[location]' => urlencode( $row->getString( 'location', '' ) ), '[address]' => urlencode( $row->getString( 'address', '' ) ) ] );
+						}
+
+						if ( $mapUrl ) {
+							$address		=	'<a href="' . htmlspecialchars( $mapUrl ) . '" target="_blank" rel="nofollow">' . $address . '</a>';
+						}
+					}
+
+					$menu					=	[];
+					$integrations			=	implode( '', $_PLUGINS->trigger( 'gj_onDisplayEvent', [ &$row, &$menu, $row->group(), $user ] ) );
+					$canAttend				=	( $row->getInt( 'attendance', 1 )
+													 && ( $row->getInt( 'published', 1 ) === 1 )
+													 && ( $row->status() !== 1 )
+													 && ( ! $row->getInt( '_attending', 0 ) )
+													 && ( $user->getInt( 'id', 0 ) && ( ( $row->group()->getInt( 'type', 0 ) === 4 ) || ( GroupHelper::getGroupStatus( $user, $row->group() ) >= 1 ) ) )
+													 && ( ( ! $row->getInt( 'limit', 0 ) ) || ( $row->getInt( 'limit', 0 ) && ( $row->getInt( '_guests', 0 ) < $row->getInt( 'limit', 0 ) ) ) )
+												);
+
+					$layoutData[$rowId]		=	[	'event'			=>	( $gjEventsPlugin->params->getBool( 'groups_events_content_plugins', false ) ? Application::Cms()->prepareHtmlContentPlugins( ( $gjEventsPlugin->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ), 'groupjive.event', $row->getInt( 'user_id', 0 ) ) : ( $gjEventsPlugin->params->getBool( 'groups_events_html', true ) ? $row->getHtml( 'event', '' ) : $row->getString( 'event', '' ) ) ),
+													'address'		=>	$address,
+													'canAttend'		=>	$canAttend,
+													'integrations'	=>	$integrations,
+												];
+				}
+
+				$_CB_framework->outputCbJQuery( "$( '.gjGroupEventDescription .cbMoreLess' ).cbmoreless();", 'cbmoreless' );
+
+				ob_start();
+				require HtmlHelper::getPluginTemplate( 'cbgroupjiveevents', 'module' );
+				$content					=	ob_get_clean();
+				break;
+			case 'categories_asc':
+			case 'categories_desc':
+			case 'popular_categories':
+			case 'random_categories':
+				switch ( $mode ) {
+					case 'random_categories':
+						$orderBy			=	" RAND()";
+						break;
+					case 'popular_categories':
+						$orderBy			=	$_CB_database->NameQuote( '_groups' ) . " DESC";
+						break;
+					case 'categories_desc':
+						$orderBy			=	"c." . $_CB_database->NameQuote( 'ordering' ) . " DESC";
+						break;
+					case 'categories_asc':
+					default:
+						$orderBy			=	"c." . $_CB_database->NameQuote( 'ordering' ) . " ASC";
+						break;
+				}
+
+				$joined						=	"SELECT 1"
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_users' ) . " AS u"
+											.	" WHERE u." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+											.	" AND u." . $_CB_database->NameQuote( 'group' ) . " = g." . $_CB_database->NameQuote( 'id' )
+											.	" AND u." . $_CB_database->NameQuote( 'status' ) . " BETWEEN 0 AND 3";
+
+				$invited					=	"SELECT 1"
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_invites' ) . " AS i"
+											.	" WHERE i." . $_CB_database->NameQuote( 'group' ) . " = g." . $_CB_database->NameQuote( 'id' )
+											.	" AND i." . $_CB_database->NameQuote( 'accepted' ) . " IS NULL"
+											.	" AND ( i." . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $user->getString( 'email', '' ) )
+											.	" OR i." . $_CB_database->NameQuote( 'user' ) . " = " . $user->getInt( 'id', 0 ) . ' )';
+
+				$groups						=	"SELECT COUNT(*)"
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_groups' ) . " AS g"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+											.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+											.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+											.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+											.	" WHERE g." . $_CB_database->NameQuote( 'category' ) . " = c." . $_CB_database->NameQuote( 'id' );
+
+				if ( ! $isModerator ) {
+					if ( $user->getInt( 'id', 0 ) ) {
+						$groups				.=	" AND ( g." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+											.		" OR ( g." . $_CB_database->NameQuote( 'published' ) . " = 1"
+											.		" AND ( g." . $_CB_database->NameQuote( 'type' ) . " != 3"
+											.		" OR EXISTS( " . $joined . " )"
+											.		" OR EXISTS( " . $invited . " ) ) ) )";
+					} else {
+						$groups				.=	" AND g." . $_CB_database->NameQuote( 'published' ) . " = 1"
+											.	" AND g." . $_CB_database->NameQuote( 'type' ) . " != 3";
+					}
+				}
+
+				$query						=	"SELECT c.*"
+											.	", ( " . $groups . " ) AS _groups"
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_categories' ) . " AS c";
+
+				if ( ! $isModerator ) {
+					$query					.=	" WHERE c." . $_CB_database->NameQuote( 'published' ) . " = 1"
+											.	" AND c." . $_CB_database->NameQuote( 'access' ) . " IN " . $_CB_database->safeArrayOfIntegers( Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels() )
+											.	( $includeCategories ? " AND c." . $_CB_database->NameQuote( 'id' ) . " IN " . $_CB_database->safeArrayOfIntegers( $includeCategories ) : null )
+											.	( $excludeCategories ? " AND c." . $_CB_database->NameQuote( 'id' ) . " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeCategories ) : null );
+				} elseif ( $includeCategories || $excludeCategories ) {
+					$query					.=	( $includeCategories ? " WHERE c." . $_CB_database->NameQuote( 'id' ) . " IN " . $_CB_database->safeArrayOfIntegers( $includeCategories ) : null )
+											.	( $includeCategories ? " AND" : " WHERE" ) . " c." . $_CB_database->NameQuote( 'id' ) . " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeCategories );
+				}
+
+				$query						.=	" ORDER BY " . $orderBy;
+				if ( $limit ) {
+					$_CB_database->setQuery( $query, 0, $limit );
+				} else {
+					$_CB_database->setQuery( $query );
+				}
+				$rows						=	$_CB_database->loadObjectList( null, CategoryTable::class, [ $_CB_database ] );
+
+				if ( ! $rows ) {
+					return false;
+				}
+
+				CategoryHelper::prefetchCategories( $rows );
+				GroupHelper::prefetchUsers( $rows );
+				HtmlHelper::renderHeaders();
+
+				$layoutData					=	[];
+
+				foreach ( $rows as $rowId => $row ) {
+					$catCounters			=	[];
+					$catContent				=	'';
+
+					$_PLUGINS->trigger( 'gj_onDisplayCategory', [ &$row, &$catCounters, &$catContent, $user ] );
+
+					$layoutData[$rowId]		=	[	'counters'		=>	$catCounters,
+													'content'		=>	$catContent,
+												];
+				}
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'module_categories' );
+				$content					=	ob_get_clean();
+				break;
+			case 'popular_groups':
+			case 'random_groups':
+			case 'latest_groups':
+			case 'oldest_groups':
+			case 'my_groups':
+			case 'owned_groups':
+			case 'joined_groups':
+			case 'invited_groups':
+			case 'groups_approval':
+			default:
+				$groupsUser					=	$user;
+
+				if ( \in_array( $mode, [ 'my_groups', 'owned_groups', 'joined_groups' ], true ) ) {
+					if ( \in_array( $modeUser, [ 'displayed_custom', 'custom' ], true ) ) {
+						$groupsUser			=	CBuser::getUserDataInstance( $modeUserCustom );
+					}
+
+					$displayedUser			=	$_CB_framework->getDisplayedUser();
+
+					if ( ( $modeUser === 'displayed' ) || ( \in_array( $modeUser, [ 'displayed_viewing', 'displayed_custom' ], true ) && $displayedUser ) ) {
+						$groupsUser			=	CBuser::getUserDataInstance( $displayedUser );
+					}
+				}
+
+				$orderBy					=	"g." . $_CB_database->NameQuote( 'date' ) . " DESC";
+
+				switch ( $mode ) {
+					case 'groups_approval':
+						if ( ! $isModerator ) {
+							break 2;
+						}
+						break;
+					case 'invited_groups':
+					case 'joined_groups':
+					case 'owned_groups':
+					case 'my_groups':
+						if ( ! $groupsUser->getInt( 'id', 0 ) ) {
+							break 2;
+						}
+						break;
+					case 'popular_groups':
+						$orderBy			=	$_CB_database->NameQuote( '_users' ) . " DESC";
+						break;
+					case 'oldest_groups':
+						$orderBy			=	"g." . $_CB_database->NameQuote( 'date' ) . " ASC";
+						break;
+					case 'random_groups':
+						$orderBy			=	" RAND()";
+						break;
+				}
+
+				$sqlModes					=	( $mode === 'my_groups' ? [ 'owned_groups', 'joined_groups', 'invited_groups' ] : [ $mode ] );
+
+				$users						=	'SELECT COUNT(*)'
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_users' ) . " AS uc"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS uccb"
+											.	" ON uccb." . $_CB_database->NameQuote( 'id' ) . " = uc." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND uccb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+											.	" AND uccb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS ucj"
+											.	" ON ucj." . $_CB_database->NameQuote( 'id' ) . " = uc." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND ucj." . $_CB_database->NameQuote( 'block' ) . " = 0"
+											.	" WHERE uc." . $_CB_database->NameQuote( 'group' ) . " = g." . $_CB_database->NameQuote( 'id' );
+
+				if ( ! $isModerator ) {
+					$users					.=	" AND uc." . $_CB_database->NameQuote( 'status' ) . " >= 1";
+				}
+
+				if ( ! $gjPlugin->params->getInt( 'groups_users_owner', 1 ) ) {
+					$users					.=	" AND uc." . $_CB_database->NameQuote( 'status' ) . " != 4";
+				}
+
+				$queries					=	[];
+
+				foreach ( $sqlModes as $sqlMode ) {
+					if ( ( ! $groupsUser->getInt( 'id', 0 ) ) && \in_array( $sqlMode, [ 'groups_approval', 'invited_groups', 'joined_groups', 'owned_groups' ], true ) ) {
+						continue;
+					}
+
+					$query					=	'SELECT g.*'
+											.	", c." . $_CB_database->NameQuote( 'name' ) . " AS _category_name"
+											.	', ' . ( $groupsUser->getInt( 'id', 0 ) && ( ( ! $isModerator ) || \in_array( $sqlMode, [ 'popular_groups', 'random_groups', 'latest_groups', 'oldest_groups', 'joined_groups' ] ) ) ? 'u.' . $_CB_database->NameQuote( 'status' ) : 'NULL' ) . ' AS _user_status'
+											.	', ' . ( $groupsUser->getInt( 'id', 0 ) && \in_array( $sqlMode, [ 'all', 'invited_groups' ] ) ? 'i.' . $_CB_database->NameQuote( 'id' ) : 'NULL' ) . ' AS _invite_id'
+											.	", ( " . $users . " ) AS _users"
+											.	" FROM " . $_CB_database->NameQuote( '#__groupjive_groups' ) . " AS g"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__comprofiler' ) . " AS cb"
+											.	" ON cb." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND cb." . $_CB_database->NameQuote( 'approved' ) . " = 1"
+											.	" AND cb." . $_CB_database->NameQuote( 'confirmed' ) . " = 1"
+											.	" INNER JOIN " . $_CB_database->NameQuote( '#__users' ) . " AS j"
+											.	" ON j." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'user_id' )
+											.	" AND j." . $_CB_database->NameQuote( 'block' ) . " = 0"
+											.	" LEFT JOIN " . $_CB_database->NameQuote( '#__groupjive_categories' ) . " AS c"
+											.	" ON c." . $_CB_database->NameQuote( 'id' ) . " = g." . $_CB_database->NameQuote( 'category' );
+
+					if ( $groupsUser->getInt( 'id', 0 ) && ( ( ! $isModerator ) || \in_array( $sqlMode, [ 'popular_groups', 'random_groups', 'latest_groups', 'oldest_groups', 'joined_groups' ] ) ) ) {
+						$query				.=	" LEFT JOIN " . $_CB_database->NameQuote( '#__groupjive_users' ) . " AS u"
+											.	" ON u." . $_CB_database->NameQuote( 'user_id' ) . " = " . $user->getInt( 'id', 0 )
+											.	" AND u." . $_CB_database->NameQuote( 'group' ) . " = g." . $_CB_database->NameQuote( 'id' )
+											.	" AND u." . $_CB_database->NameQuote( 'status' ) . " BETWEEN 0 AND 3";
+					}
+
+					if ( $groupsUser->getInt( 'id', 0 ) && \in_array( $sqlMode, [ 'popular_groups', 'random_groups', 'latest_groups', 'oldest_groups', 'invited_groups' ] ) ) {
+						$query				.=	" LEFT JOIN " . $_CB_database->NameQuote( '#__groupjive_invites' ) . " AS i"
+											.	" ON i." . $_CB_database->NameQuote( 'group' ) . " = g." . $_CB_database->NameQuote( 'id' )
+											.	" AND i." . $_CB_database->NameQuote( 'accepted' ) . " IS NULL"
+											.	" AND ( i." . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $user->getString( 'email', '' ) )
+											.	" OR i." . $_CB_database->NameQuote( 'user' ) . " = " . $user->getInt( 'id', 0 ) . ' )';
+					}
+
+					$queryWhere				=	[];
+
+					if ( $includeGroups ) {
+						$queryWhere[]				=	"g." . $_CB_database->NameQuote( 'id' ) . " IN " . $_CB_database->safeArrayOfIntegers( $includeGroups );
+					}
+
+					if ( $excludeGroups ) {
+						$queryWhere[]				=	"g." . $_CB_database->NameQuote( 'id' ) . " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeGroups );
+					}
+
+					if ( $includeCategories ) {
+						$queryWhere[]				=	"g." . $_CB_database->NameQuote( 'category' ) . " IN " . $_CB_database->safeArrayOfIntegers( $includeCategories );
+					}
+
+					if ( $excludeCategories ) {
+						$queryWhere[]				=	"g." . $_CB_database->NameQuote( 'category' ) . " NOT IN " . $_CB_database->safeArrayOfIntegers( $excludeCategories );
+					}
+
+					switch ( $sqlMode ) {
+						case 'groups_approval':
+							$queryWhere[]			=	"g." . $_CB_database->NameQuote( 'published' ) . " = -1";
+							break;
+						case 'invited_groups':
+							$queryWhere[]			=	"i." . $_CB_database->NameQuote( 'id' ) . " IS NOT NULL";
+
+							if ( ! $isModerator ) {
+								$queryWhere[]		=	"g." . $_CB_database->NameQuote( 'published' ) . " = 1";
+							}
+							break;
+						case 'joined_groups':
+							$queryWhere[]			=	"u." . $_CB_database->NameQuote( 'id' ) . " IS NOT NULL";
+
+							if ( ! $isModerator ) {
+								$queryWhere[]		=	"g." . $_CB_database->NameQuote( 'published' ) . " = 1";
+							}
+							break;
+						case 'owned_groups':
+							$queryWhere[]			=	"g." . $_CB_database->NameQuote( 'user_id' ) . " = " . $groupsUser->getInt( 'id', 0 );
+							break;
+						default:
+							if ( ! $isModerator ) {
+								if ( $groupsUser->getInt( 'id', 0 ) ) {
+									$queryWhere[]	=	"( g." . $_CB_database->NameQuote( 'user_id' ) . " = " . $groupsUser->getInt( 'id', 0 )
+													.		" OR ( g." . $_CB_database->NameQuote( 'published' ) . " = 1"
+													.		" AND ( g." . $_CB_database->NameQuote( 'type' ) . " != 3"
+													.		" OR u." . $_CB_database->NameQuote( 'id' ) . " IS NOT NULL"
+													.		" OR i." . $_CB_database->NameQuote( 'id' ) . " IS NOT NULL ) ) )";
+								} else {
+									$queryWhere[]	=	"g." . $_CB_database->NameQuote( 'published' ) . " = 1";
+									$queryWhere[]	=	"g." . $_CB_database->NameQuote( 'type' ) . " != 3";
+								}
+							}
+							break;
+					}
+
+					if ( ( $sqlMode !== 'groups_approval' ) && ( ! $isModerator ) ) {
+						$queryWhere[]				=	"( ( c." . $_CB_database->NameQuote( 'published' ) . " = 1"
+													.		" AND c." . $_CB_database->NameQuote( 'access' ) . " IN " . $_CB_database->safeArrayOfIntegers( Application::User( $user->getInt( 'id', 0 ) )->getAuthorisedViewLevels() ) . " )"
+													.		( $gjPlugin->params->getInt( 'groups_uncategorized', 1 ) ? " OR g." . $_CB_database->NameQuote( 'category' ) . " = 0 )" : " )" );
+					}
+
+					$query					.=	( $queryWhere ? " WHERE " . implode( " AND ", $queryWhere ) : "" );
+
+					$queries[]				=	$query;
+				}
+
+				if ( \count( $queries ) > 1 ) {
+					$query					=	"SELECT * FROM ( " . implode( " UNION ALL ", $queries ) . " ) AS g";
+				} else {
+					$query					=	$queries[0];
+				}
+
+				$query						.=	" ORDER BY " . $orderBy;
+				if ( $limit ) {
+					$_CB_database->setQuery( $query, 0, $limit );
+				} else {
+					$_CB_database->setQuery( $query );
+				}
+				$rows						=	$_CB_database->loadObjectList( null, GroupTable::class, [ $_CB_database ] );
+
+				if ( ! $rows ) {
+					return false;
+				}
+
+				GroupHelper::prefetchGroups( $rows );
+				GroupHelper::prefetchUsers( $rows );
+				HtmlHelper::renderHeaders();
+
+				$layoutData					=	[];
+
+				foreach ( $rows as $rowId => $row ) {
+					$userStatus					=	GroupHelper::getGroupStatus( $user, $row );
+					$grpCounters				=	[];
+					$grpContent					=	'';
+					$grpMenu					=	[];
+
+					$_PLUGINS->trigger( 'gj_onDisplayGroup', [ &$row, &$grpCounters, &$grpContent, &$grpMenu, 'module', $user ] );
+
+					$grpButtons					=	[];
+
+					if ( $isModerator && ( $row->getInt( 'published', 0 ) === -1 ) && $gjPlugin->params->getInt( 'groups_create_approval', 0 ) ) {
+						$grpButtons[]			=	'<a href="' . $_CB_framework->pluginClassUrl( $gjPlugin->element, true, [ 'action' => 'groups', 'func' => 'publish', 'id' => $row->getInt( 'id', 0 ), 'return' => RouteHelper::getReturn() ] ) . '" class="btn btn-success gjButton gjButtonApprove">' . CBTxt::T( 'Approve Group' ) . '</a>';
+					} elseif ( ( $user->getInt( 'id', 0 ) !== $row->getInt( 'user_id', 0 ) ) && ( $row->getInt( 'type', 0 ) !== 4 ) ) {
+						if ( $userStatus === null ) {
+							if ( ( $row->getInt( 'type', 0 ) !== 5 ) || $row->getInt( '_invite_id', 0 ) ) {
+								$grpButtons[]	=	'<a href="' . $_CB_framework->pluginClassUrl( $gjPlugin->element, true, [ 'action' => 'groups', 'func' => 'join', 'id' => $row->getInt( 'id', 0 ), 'return' => RouteHelper::getReturn() ] ) . '" class="btn btn-secondary gjButton gjButtonJoin">' . ( $row->getInt( '_invite_id', 0 ) ? CBTxt::T( 'Accept Group Invite' ) : CBTxt::T( 'Join Group' ) ) . '</a>';
+							}
+
+							if ( $row->getInt( '_invite_id', 0 ) ) {
+								$grpButtons[]	=	'<button type="button" onclick="cbjQuery.cbconfirm( \'' . addslashes( CBTxt::T( 'Are you sure you want to reject all invites to this Group?' ) ) . '\' ).done( function() { window.location.href = \'' . addslashes( $_CB_framework->pluginClassUrl( $gjPlugin->element, true, [ 'action' => 'groups', 'func' => 'reject', 'id' => $row->getInt( 'id', 0 ), 'return' => RouteHelper::getReturn() ] ) ) . '\'; })" class="btn btn-light border gjButton gjButtonReject">' . CBTxt::T( 'Reject Group Invite' ) . '</button>';
+							}
+						} elseif ( $userStatus === 0 ) {
+							$grpButtons[]		=	'<button type="button" onclick="cbjQuery.cbconfirm( \'' . addslashes( CBTxt::T( 'Are you sure you want to cancel your pending join request to this Group?' ) ) . '\' ).done( function() { window.location.href = \'' . addslashes( $_CB_framework->pluginClassUrl( $gjPlugin->element, true, [ 'action' => 'groups', 'func' => 'cancel', 'id' => $row->getInt( 'id', 0 ), 'return' => RouteHelper::getReturn() ] ) ) . '\'; })" class="btn btn-light border gjButton gjButtonCancel">' . CBTxt::T( 'Cancel Group Join Request' ) . '</button>';
+						}
+					}
+
+					$layoutData[$rowId]			=	[	'counters'		=>	$grpCounters,
+														'content'		=>	$grpContent,
+														'buttons'		=>	$grpButtons,
+													];
+				}
+
+				ob_start();
+				require HtmlHelper::getTemplate( 'module_groups' );
+				$content					=	ob_get_clean();
+				break;
+		}
+
+		if ( ! $content ) {
+			return false;
+		}
+
+		$data['content']					=	$content;
+
+		return $data;
+	}
+}

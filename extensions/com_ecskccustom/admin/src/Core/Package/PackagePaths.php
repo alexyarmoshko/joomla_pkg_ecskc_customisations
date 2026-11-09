@@ -59,6 +59,12 @@ final class PackagePaths
     public const CREATED_FOLDERS = ['backup', 'staging', 'state'];
 
     /**
+     * The folders a release ships whole, which an update brings down to exactly
+     * the new release's contents (ShippedFolderPruner).
+     */
+    public const SHIPPED_FOLDERS = ['payload', 'rules'];
+
+    /**
      * Every folder the installer puts a deny-all .htaccess into.
      *
      * The plan says "all four folders", written before rules/ became an installed

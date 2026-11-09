@@ -19,6 +19,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
     use PHPUnit\Framework\TestCase;
     use ReflectionMethod;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\PackagePaths;
+    use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\ShippedFolderPruner;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchive;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\Package\StateArchiveFailure;
     use YakShaver\Component\ECSKCCustomisation\Administrator\Core\State\RunLock;
@@ -68,6 +69,7 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
             Factory::$application  = null;
 
             \class_exists(PackagePaths::class);
+            \class_exists(ShippedFolderPruner::class);
             \class_exists(StateArchive::class);
             \class_exists(StateArchiveFailure::class);
             \class_exists(RunLock::class);
@@ -111,6 +113,107 @@ namespace YakShaver\ECSKCCustomisation\Tests\Unit\Package {
                 ]],
                 $app->messages
             );
+        }
+
+        /**
+         * Joomla copies an update over the installed tree and keeps what the new
+         * release leaves out of payload/ and rules/. The runner refuses every run
+         * over an unreferenced payload, so postflight removes it.
+         */
+        public function testPostflightOnUpdateRemovesWhatTheReleaseNoLongerShips(): void
+        {
+            $component = JPATH_ADMINISTRATOR . '/components/com_ecskccustom';
+            $release   = self::$site->path('release');
+
+            foreach (['payload/index.html', 'payload/a/kept.php.v1', 'payload/b/retired.php.v1', 'rules/index.html', 'rules/10-kept.xml', 'rules/20-retired.xml'] as $file) {
+                self::$site->write('administrator/components/com_ecskccustom/' . $file, 'x');
+            }
+
+            foreach (['payload/index.html', 'payload/a/kept.php.v1', 'rules/index.html', 'rules/10-kept.xml'] as $file) {
+                self::$site->write('release/admin/' . $file, 'x');
+            }
+
+            $this->application(self::$site->path('tmp'));
+            $script = new Com_EcskccustomInstallerScript();
+
+            try {
+                self::assertTrue($script->postflight('update', new InstallerAdapter($release)));
+
+                self::assertFileExists($component . '/payload/a/kept.php.v1');
+                self::assertFileExists($component . '/rules/10-kept.xml');
+                self::assertFileDoesNotExist($component . '/payload/b/retired.php.v1');
+                self::assertDirectoryDoesNotExist($component . '/payload/b');
+                self::assertFileDoesNotExist($component . '/rules/20-retired.xml');
+                self::assertFileExists($component . '/payload/' . PackagePaths::HTACCESS);
+            } finally {
+                self::removeTree($release);
+            }
+        }
+
+        /**
+         * An unreadable folder is not known to be retired: the warning asks for read
+         * access, never for a deletion, and the readable stale files still go.
+         */
+        public function testPostflightOnUpdateWarnsAboutAnUnreadableFolderWithoutAskingForDeletion(): void
+        {
+            if (\function_exists('posix_geteuid') && \posix_geteuid() === 0) {
+                self::markTestSkipped('root ignores directory permissions');
+            }
+
+            $component = JPATH_ADMINISTRATOR . '/components/com_ecskccustom';
+            $release   = self::$site->path('release');
+
+            self::$site->write('administrator/components/com_ecskccustom/payload/locked/x.php.v1', 'x');
+            self::$site->write('administrator/components/com_ecskccustom/payload/b/retired.php.v1', 'x');
+            self::$site->write('administrator/components/com_ecskccustom/rules/index.html', 'x');
+            self::$site->write('release/admin/payload/index.html', 'x');
+            self::$site->write('release/admin/rules/index.html', 'x');
+            \chmod($component . '/payload/locked', 0000);
+
+            Text::$strings['COM_ECSKCCUSTOM_UPDATE_PRUNE_UNREADABLE'] = 'unreadable:%s';
+            Text::$strings['COM_ECSKCCUSTOM_UPDATE_PRUNE_FAILED']     = 'failed:%s';
+            Text::$strings['COM_ECSKCCUSTOM_INSTALL_REVIEW_AND_APPLY'] = 'link:%s';
+
+            $app    = $this->application(self::$site->path('tmp'));
+            $script = new Com_EcskccustomInstallerScript();
+
+            try {
+                self::assertTrue($script->postflight('update', new InstallerAdapter($release)));
+            } finally {
+                \chmod($component . '/payload/locked', 0755);
+                self::removeTree($release);
+            }
+
+            self::assertSame(
+                [['message' => 'unreadable:payload/locked/', 'type' => 'warning']],
+                \array_values(\array_filter($app->messages, static fn (array $m): bool => $m['type'] === 'warning'))
+            );
+            self::assertFileDoesNotExist($component . '/payload/b/retired.php.v1');
+            self::assertFileExists($component . '/payload/locked/x.php.v1');
+        }
+
+        /**
+         * A fresh install has nothing stale, and the release it reads is the one it
+         * just copied, so it removes nothing even when the folders hold extra files.
+         */
+        public function testPostflightOnInstallRemovesNothing(): void
+        {
+            $component = JPATH_ADMINISTRATOR . '/components/com_ecskccustom';
+            $release   = self::$site->path('release');
+
+            self::$site->write('administrator/components/com_ecskccustom/payload/b/extra.php.v1', 'x');
+            self::$site->write('administrator/components/com_ecskccustom/rules/index.html', 'x');
+            self::$site->write('release/admin/payload/index.html', 'x');
+
+            $this->application(self::$site->path('tmp'));
+            $script = new Com_EcskccustomInstallerScript();
+
+            try {
+                self::assertTrue($script->postflight('install', new InstallerAdapter($release)));
+                self::assertFileExists($component . '/payload/b/extra.php.v1');
+            } finally {
+                self::removeTree($release);
+            }
         }
 
         public function testPostflightOnUninstallSendsNoMessage(): void

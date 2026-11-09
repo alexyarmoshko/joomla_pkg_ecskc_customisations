@@ -42,6 +42,29 @@ namespace Joomla\CMS {
 namespace Joomla\CMS\Installer {
     class InstallerAdapter
     {
+        /**
+         * The extracted release, as Installer::getPath('source') reports it. Empty
+         * by default, as for a route that has no source to read.
+         */
+        public function __construct(public string $source = '')
+        {
+        }
+
+        public function getParent(): object
+        {
+            $source = $this->source;
+
+            return new class ($source) {
+                public function __construct(private readonly string $source)
+                {
+                }
+
+                public function getPath(string $name, ?string $default = null): ?string
+                {
+                    return $name === 'source' ? $this->source : $default;
+                }
+            };
+        }
     }
 }
 
@@ -178,6 +201,7 @@ namespace Joomla\CMS\Log {
         public const ALL = 30719;
         public const ERROR = 8;
         public const WARNING = 16;
+        public const INFO = 64;
 
         /** @var list<string> */
         public static array $messages = [];

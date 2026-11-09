@@ -6,6 +6,62 @@ version. `make release` refuses to tag a version without its heading here.
 This file says what changed in each version. How to build, test, package and publish a release
 is in [`README.md`](../README.md).
 
+## 0.2.2
+
+**Release date:** 2026-11-09.
+
+Adds two managed files, the CB GroupJive Events component and the CB GroupJive module dispatcher,
+supports the Helix Ultimate 2.2.11 contact form,
+and stops managing two that the vendor has fixed: the CB Gallery folder controller and the CB
+Activity controller.
+
+Update Community Builder before installing this version. The GroupJive rules recognise only
+GroupJive 4.0.1, and a site still on CB Gallery 4.1.2 or CB Activity 7.1.0 keeps the old buggy
+files with nothing left to fix them.
+
+### CB GroupJive guest query fix
+
+CB GroupJive 4.0.1 builds its events queries from a list of conditions joined with `AND`. For a
+visitor who is not logged in, it adds two of them, `g.published = 1` and `g.type != 3`, with a
+leading `AND` carried over from 3.7.0, where they were appended to the query text. The query
+then contains `AND AND` and MariaDB refuses it with a SQL syntax error. Any page showing the
+GroupJive events module fails for guests, the home page included, and so does the events page.
+
+- `components/com_comprofiler/plugin/user/plug_cbgroupjive/plugins/cbgroupjiveevents/component.cbgroupjiveevents.php`
+  (CB GroupJive Events 4.0.1, manifest version 2.12.0): the count and list queries.
+- `modules/mod_cbgroupjive/src/Dispatcher/Dispatcher.php` (CB GroupJive module 4.0.1): the
+  events mode. The module's groups mode already builds these conditions correctly.
+
+The package replaces each file with one that drops the leading `AND` from those strings. Nothing
+else changes. Each rule recognises only the stock 4.0.1 file; any other bytes, including a later
+GroupJive build, are reported blocked and left alone.
+
+### Helix Ultimate 2.2.11 contact form
+
+Helix Ultimate 2.2.11 replaced `plugins/system/helixultimate/overrides/com_contact/contact/default_form.php`,
+dropping the Cancel button, and the package reported the new file blocked. A second version of
+the rule now recognises the 2.2.11 form and adds the Cancel button to it, keeping that build's
+own changes (`getDocument()` and the `form-horizontal` class). A site still on 2.2.9 keeps the
+version 1 form. The legacy-tree form is unchanged in 2.2.11 and keeps its rule.
+
+### Updates remove retired payloads and rules
+
+Joomla updates the component by copying the new files over the old ones and keeps any payload or
+rule file the new release no longer ships. The check then refused to run with "payload ... is
+present but no object names it". An update now removes those files after the copy and logs each
+one to `administrator/logs/com_ecskccustom.php`. A file it cannot remove is shown as a warning
+naming the file to delete by hand. A folder it cannot read is shown as a warning asking for read
+access and a second install of the update; do not delete that folder.
+
+### CB Gallery and CB Activity fixes withdrawn
+
+CB Gallery 4.1.4 fixes the folder share link, and CB Activity 7.1.2 fixes the recursive date
+filter of 0.2.1. Both builds also use the CB Privacy 8.0.0 API, which the old payloads predate,
+so applying either payload would now break editing. The package no longer declares
+`plug_cbgallery/library/Controller/FolderController.php` or
+`plug_cbactivity/library/Controller/ActivityController.php`. Backups the package made of them
+stay on the site and block nothing.
+
 ## 0.2.1
 
 **Release date:** 2026-10-27.
